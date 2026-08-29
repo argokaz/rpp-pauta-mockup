@@ -58,8 +58,39 @@ Repetir la comparación al llegar a 30–50 pautas revisadas. Medir:
 4. Latencia y tokens por documento.
 5. Minutos de revisión humana antes de aplicar.
 
+## Comparación adicional: GPT-5.6 Luna
+
+El 28 de agosto de 2026 se repitió la evaluación con GPT-5.6 Luna y GPT-5.6
+Terra. Se hicieron dos rondas independientes sobre cada una de las dos pautas
+reales, con el mismo prompt, esquema estructurado y razonamiento bajo.
+
+| Criterio | GPT-5.6 Luna | GPT-5.6 Terra |
+| --- | --- | --- |
+| Esquema válido | 4 de 4 | 4 de 4 |
+| Encendidos: horarios, cinco invitados, bloque vacío y pase final | Correcto en 2 de 2 rondas | Correcto en 2 de 2 rondas |
+| Las Noticias: personas mencionadas no tratadas como invitados | Correcto en 1 de 2 rondas | Correcto en 2 de 2 rondas |
+| Fecha normalizada a ISO | 2 de 4 respuestas | 4 de 4 respuestas |
+| Latencia promedio observada | 12.0 s | 11.0 s |
+| Costo promedio estimado por pauta | USD 0.00223 | USD 0.02048 |
+
+En la segunda ronda de Las Noticias, Luna asignó a Keiko Fujimori y Juan
+Gabriel como invitados aunque solo eran protagonistas de titulares. Es el
+error que más daño produciría en el futuro histórico de personas y entrevistas.
+Terra no cometió ese error en ninguna ronda.
+
+Luna fue aproximadamente 9.2 veces más barata en estas llamadas, pero no fue
+más rápida. Con la muestra observada, 1,000 pautas similares costarían
+aproximadamente USD 2.23 con Luna o USD 20.48 con Terra. La diferencia de costo
+no compensa todavía el riesgo editorial, por lo que el piloto mantiene Terra.
+
+Antes de reconsiderar Luna conviene reforzar la regla que solo permite llenar
+guestName cuando el texto identifica explícitamente a una persona como invitado
+o invitada, y repetir la evaluación con 30 a 50 pautas revisadas.
+
 ## Fuentes oficiales
 
 - [GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
 - [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+- [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+- [Comparación oficial de modelos](https://developers.openai.com/api/docs/models/compare)
 - [Guía de selección y migración GPT-5.6](https://developers.openai.com/api/docs/guides/latest-model)

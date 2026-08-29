@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.4.0";
+export const CURRENT_VERSION = "0.4.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.4.1",
+    date: "2026-08-28",
+    title: "Terra se mantiene tras comparar con Luna",
+    changes: [
+      "Se compararon GPT-5.6 Luna y Terra en dos rondas con las dos pautas reales del piloto.",
+      "Luna redujo el costo aproximado por pauta, pero en una ronda confundió a Keiko Fujimori y Juan Gabriel con invitados.",
+      "Terra mantuvo la extracción correcta de invitados en todas las pruebas, por lo que sigue siendo el modelo del piloto.",
+    ],
+  },
   {
     version: "0.4.0",
     date: "2026-08-28",
