@@ -5,9 +5,20 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.4.1";
+export const CURRENT_VERSION = "0.5.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.5.0",
+    date: "2026-08-28",
+    title: "Luna con validación editorial",
+    changes: [
+      "GPT-5.6 Luna es ahora el modelo principal para ordenar pautas con menor costo por documento.",
+      "Los invitados, horarios, conductores, productores y fechas se verifican contra el texto original antes de mostrarse.",
+      "Una persona mencionada en una noticia ya no puede ingresar al histórico como invitada sin una etiqueta explícita de entrevista.",
+      "Terra se usa como respaldo únicamente si Luna omite un invitado identificado explícitamente o no logra producir una pauta válida.",
+    ],
+  },
   {
     version: "0.4.1",
     date: "2026-08-28",

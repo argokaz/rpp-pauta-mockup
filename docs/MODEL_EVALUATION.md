@@ -4,9 +4,10 @@ Fecha: 28 de agosto de 2026
 
 ## Decisión
 
-Usar `gpt-5.6-terra` con `reasoning.effort: low` para el piloto. Mantener
-`gpt-5.4-mini` como alternativa de menor costo si el volumen crece y una
-evaluación más amplia demuestra que su tasa de corrección humana es aceptable.
+Usar `gpt-5.6-luna` con `reasoning.effort: low` como modelo principal, protegido
+por validaciones determinísticas de evidencia literal. Usar `gpt-5.6-terra`
+solo como respaldo si Luna omite un invitado marcado explícitamente o no logra
+producir una salida estructurada válida.
 
 ## Prueba realizada
 
@@ -80,12 +81,37 @@ Terra no cometió ese error en ninguna ronda.
 
 Luna fue aproximadamente 9.2 veces más barata en estas llamadas, pero no fue
 más rápida. Con la muestra observada, 1,000 pautas similares costarían
-aproximadamente USD 2.23 con Luna o USD 20.48 con Terra. La diferencia de costo
-no compensa todavía el riesgo editorial, por lo que el piloto mantiene Terra.
+aproximadamente USD 2.23 con Luna o USD 20.48 con Terra. En ese momento el
+piloto mantuvo Terra; la decisión quedó reemplazada por la reevaluación con
+guardrails que se describe a continuación.
 
-Antes de reconsiderar Luna conviene reforzar la regla que solo permite llenar
-guestName cuando el texto identifica explícitamente a una persona como invitado
-o invitada, y repetir la evaluación con 30 a 50 pautas revisadas.
+## Reevaluación con guardrails
+
+Se añadieron cuatro defensas que no dependen de que el modelo «recuerde» una
+instrucción:
+
+1. `guestName` solo se acepta si el original contiene una etiqueta explícita
+   como `INVITADA:` o `ENTREVISTA A:` con ese mismo nombre.
+2. Personas de titulares, fuentes, conductores, productores y colaboradores
+   presentados con «con» se conservan en el contenido, pero no como invitados.
+3. Las horas se eliminan si no aparecen literalmente en el original y las
+   fechas españolas inequívocas se normalizan a ISO.
+4. Si falta un invitado marcado explícitamente, la ruta repite la extracción
+   con Terra y muestra la intervención como advertencia revisable.
+
+Después del cambio se hicieron tres rondas adicionales con Encendidos y tres
+con Las Noticias. Las seis terminaron con Luna, sin activar el respaldo:
+
+- Encendidos conservó en 3 de 3 rondas a sus cuatro invitados etiquetados,
+  nueve bloques, el intervalo vacío y el pase final.
+- Las Noticias mantuvo en 3 de 3 rondas a Keiko Fujimori y Juan Gabriel fuera
+  del campo Invitado.
+- Las seis respuestas entregaron la fecha `2026-08-28` y una estructura válida.
+- La latencia media observada fue aproximadamente 11.9 segundos.
+
+Esta muestra valida la migración inicial, no una garantía estadística. Debe
+mantenerse la revisión humana y repetirse la medición con 30 a 50 pautas reales,
+incluyendo formatos nuevos y casos con más de un invitado por bloque.
 
 ## Fuentes oficiales
 
