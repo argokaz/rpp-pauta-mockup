@@ -8,14 +8,15 @@ const input: StructurePautaRequest = {
   targetDate: "2026-08-28",
   plannedStart: "10:00",
   plannedEnd: "12:30",
-  sourceChannel: "whatsapp",
   rawText: "PREPAUTA ENCENDIDOS VIERNES 28 DE AGOSTO 2026",
 };
 
 const successPayload = {
   importId: "8425e5fc-f4e8-4a32-8434-407a60e562de",
   model: "gpt-5.6-terra",
+  processingMode: "luna",
   proposal: {
+    layoutMode: "freeform",
     documentType: "pre",
     detectedProgramName: "Encendidos",
     detectedDate: "2026-08-28",

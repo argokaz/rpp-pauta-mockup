@@ -14,11 +14,11 @@ import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, str
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
-import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
+import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
 import { findSimilarPeople, normalizePersonName } from "@/domain/people-history";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { emissionSchema } from "@/domain/schemas";
-import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
@@ -246,7 +246,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [now, setNow] = useState<{ date: string; minutes: number; time: string } | null>(null);
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
-  const [importSource, setImportSource] = useState<ImportSource>("whatsapp");
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
@@ -664,7 +663,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       status: "draft",
       segments: [
         ...selectedEmission.segments,
-        { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "" },
+        { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "", stories: [] },
       ],
     });
     setExpandedSavedSegments((current) => new Set([...current, id]));
@@ -684,7 +683,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   async function orderWithAi() {
     if (!selectedEmission || !selectedProgram || !selectedSlot || !getAccessToken) {
-      notify("La IA requiere una sesión activa en la base compartida.");
+      notify("La conversión requiere una sesión activa en la base compartida.");
       return;
     }
     if (selectedEmission.rawText.trim().length < 20) {
@@ -700,7 +699,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         targetDate: selectedDate,
         plannedStart: selectedSlot.startTime,
         plannedEnd: selectedSlot.endTime,
-        sourceChannel: importSource,
         rawText: selectedEmission.rawText,
       }, getAccessToken);
       setAiResult(result);
@@ -832,7 +830,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (!chooseProducerDate(producerNewPautaDate)) return;
     const existing = effectiveEmissions.find((emission) => emission.programId === (producerProgramId ?? "encendidos") && emission.date === producerNewPautaDate);
     setProducerComposerMode(producerNewPautaMode);
-    setImportSource(producerNewPautaMode === "write" ? "other" : "whatsapp");
     setShowProducerNewPauta(false);
     notify(existing && (existing.rawText.trim() || existing.segments.length)
       ? "Abrimos la pauta existente de esa fecha. Nada fue reemplazado."
@@ -841,7 +838,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function chooseProducerComposer(mode: ProducerComposerMode) {
     setProducerComposerMode(mode);
-    setImportSource(mode === "write" ? "other" : "whatsapp");
   }
 
   function insertProducerTemplate() {
@@ -884,6 +880,36 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       segments: selectedEmission.segments.map((segment) => segment.id === segmentId
         ? { ...segment, endTime: endTimeForDuration(segment.startTime, duration) }
         : segment),
+    });
+  }
+
+  function updateSavedStory(segmentId: string, storyIndex: number, change: Partial<StoryItem>) {
+    if (!selectedEmission) return;
+    updateEmission({
+      segments: selectedEmission.segments.map((segment) => segment.id === segmentId
+        ? { ...segment, stories: (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story) }
+        : segment),
+    });
+  }
+
+  function withSavedStoryCount(segment: Segment, stories: StoryItem[]) {
+    const title = /^Noticias por ubicar \(\d+\)$/i.test(segment.title)
+      ? `Noticias por ubicar (${stories.length})`
+      : segment.title;
+    return { ...segment, title, stories };
+  }
+
+  function moveSavedStory(sourceSegmentId: string, storyIndex: number, targetSegmentId: string) {
+    if (!selectedEmission || sourceSegmentId === targetSegmentId) return;
+    const source = selectedEmission.segments.find((segment) => segment.id === sourceSegmentId);
+    const story = source?.stories?.[storyIndex];
+    if (!source || !story) return;
+    updateEmission({
+      segments: selectedEmission.segments.map((segment) => {
+        if (segment.id === sourceSegmentId) return withSavedStoryCount(segment, (segment.stories ?? []).filter((_, index) => index !== storyIndex));
+        if (segment.id === targetSegmentId) return { ...segment, stories: [...(segment.stories ?? []), story] };
+        return segment;
+      }),
     });
   }
 
@@ -948,7 +974,27 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
                   <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
                   <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
-                  <button className="remove ordered-remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
+                  {(segment.stories?.length ?? 0) > 0 && (
+                    <section className="story-pool saved-story-pool wide">
+                      <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Abre una noticia para editarla o moverla.</span></div></header>
+                      <div className="story-pool-list">
+                        {segment.stories?.map((story, storyIndex) => (
+                          <details className="story-item" key={`${story.reference}-${storyIndex}`}>
+                            <summary><span>{story.reference || String(storyIndex + 1)}</span><strong>{story.title}</strong>{story.format && <b>{story.format}</b>}</summary>
+                            <div>
+                              <label><span>Titular</span><textarea disabled={!canEdit} rows={2} value={story.title} onChange={(event) => updateSavedStory(segment.id, storyIndex, { title: event.target.value })} /></label>
+                              <label><span>Formato</span><input disabled={!canEdit} value={story.format} onChange={(event) => updateSavedStory(segment.id, storyIndex, { format: event.target.value })} /></label>
+                              <label><span>Audio o referencia</span><input disabled={!canEdit} value={story.mediaCue} onChange={(event) => updateSavedStory(segment.id, storyIndex, { mediaCue: event.target.value })} /></label>
+                              <label><span>Mover a bloque</span><select disabled={!canEdit} value={segment.id} onChange={(event) => moveSavedStory(segment.id, storyIndex, event.target.value)}>{selectedEmission.segments.map((target) => <option value={target.id} key={target.id}>{target.title}</option>)}</select></label>
+                              <label className="story-wide"><span>Desarrollo</span><textarea disabled={!canEdit} rows={4} value={story.summary} onChange={(event) => updateSavedStory(segment.id, storyIndex, { summary: event.target.value })} /></label>
+                              <label className="story-wide"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={story.notes} onChange={(event) => updateSavedStory(segment.id, storyIndex, { notes: event.target.value })} /></label>
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  <button className="remove ordered-remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
                 </div>
               </RundownBlock>
               );
@@ -1013,18 +1059,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <div className="capture-collapsed-card">
                 <span>Texto original conservado</span>
                 <strong>{selectedProgram?.shortName ?? "Pauta recibida"}</strong>
-                <p>{importSource === "whatsapp" ? "WhatsApp" : importSource === "email" ? "Email" : importSource === "document" ? "Documento" : "Otro origen"}{selectedEmission?.producerName ? ` · ${selectedEmission.producerName}` : ""}</p>
+                <p>{selectedEmission?.producerName || "Productor por confirmar"}</p>
                 <button className="quiet-button" onClick={() => setCaptureCollapsed(false)}>Ver original</button>
               </div>
             ) : (
               <>
                 <header>
-                  <div><span>{reception ? "1. Destino y origen" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
+                  <div><span>{reception ? "1. Destino" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
                   {selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}
                 </header>
 
               <div className="capture-meta">
-                <label><span>Origen</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
                 <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
               </div>
 
@@ -1043,7 +1088,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
@@ -1138,6 +1183,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         <details className="post-segment-details" open={Boolean(segment.postSummary || segment.keyQuote)}>
                           <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
                           <div>
+                            {(segment.stories?.length ?? 0) > 0 && (
+                              <section className="post-story-index">
+                                <strong>{segment.stories?.length} noticias previstas en este bloque</strong>
+                                <ol>{segment.stories?.map((story) => <li key={`${story.reference}-${story.title}`}><span>{story.reference}</span><p>{story.title}</p>{story.format && <b>{story.format}</b>}</li>)}</ol>
+                              </section>
+                            )}
                             <div className="post-actual-times">
                               <label><span>Inicio real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
                               <label><span>Fin real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
@@ -1279,9 +1330,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       <div className="producer-compose-tools">
                         {producerComposerMode === "write" && !selectedEmission?.rawText.trim() && <button onClick={insertProducerTemplate}>Usar una guía de texto</button>}
                         {producerComposerMode === "write" && <button onClick={addSegment}>Añadir bloque manual</button>}
-                        <label><span>Origen</span><select value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Escrito aquí</option></select></label>
                       </div>
-                      <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando…" : "Convertir en escaleta con Luna"}</button>
+                      <p className="producer-fast-import">Si ya escribiste horarios o numeraste noticias, se ordenarán primero sin esperar al modelo. Luna interviene solo cuando el texto necesita interpretación.</p>
+                      <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Convertir en escaleta"}</button>
                     </div>}
                   </section>
 
@@ -1314,17 +1365,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         {(aiProcessing || aiResult) && (
           <div className="modal-backdrop producer-luna-backdrop">
-            <section className={`producer-luna-modal ${aiProcessing ? "processing" : "reviewing"}`} role="dialog" aria-modal="true" aria-label={aiProcessing ? "Luna está ordenando la pauta" : "Revisar la escaleta generada por Luna"}>
+            <section className={`producer-luna-modal ${aiProcessing ? "processing" : "reviewing"}`} role="dialog" aria-modal="true" aria-label={aiProcessing ? "Ordenando la pauta" : "Revisar la escaleta generada"}>
               {aiProcessing ? (
                 <div className="producer-luna-progress" role="status" aria-live="polite">
-                  <span>Luna está trabajando</span>
+                  <span>Lectura automática</span>
                   <h2>Ordenando tu prepauta</h2>
-                  <p>Está identificando horarios, temas, invitados e indicaciones de producción.</p>
+                  <p>Primero reconoce horarios y bloques ya escritos. Luna interviene solo si el texto necesita interpretación.</p>
                   <div className="producer-luna-progress-lines" aria-hidden="true"><i /><i /><i /></div>
                   <small>La pauta original permanece intacta.</small>
                 </div>
               ) : aiResult ? (
-                <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
               ) : null}
             </section>
           </div>
@@ -1547,12 +1598,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     <div className="editor-scroll">
                       <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
                       <div className="phase-two">
-                        <div><strong>Ordenar con IA</strong><span>Genera una propuesta editable. El original se conserva sin cambios.</span></div>
-                        <label><span>Origen</span><select disabled={!canEdit || aiProcessing} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
+                        <div><strong>Ordenar automáticamente</strong><span>Reconoce primero la estructura existente y usa Luna solo cuando hace falta. El original se conserva.</span></div>
                         <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
                       </div>
                       {aiResult && (
-                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
                       )}
                       <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">

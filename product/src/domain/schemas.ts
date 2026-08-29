@@ -19,6 +19,17 @@ export const scheduleSlotSchema = z.object({
 
 export const segmentTypeSchema = z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]);
 
+export const storyItemSchema = z.object({
+  reference: z.string(),
+  title: z.string(),
+  format: z.string(),
+  mediaCue: z.string(),
+  summary: z.string(),
+  notes: z.string(),
+  confidence: z.number().min(0).max(1),
+  sourceExcerpt: z.string(),
+});
+
 export const segmentSchema = z.object({
   id: z.string(),
   startTime: z.string(),
@@ -33,6 +44,7 @@ export const segmentSchema = z.object({
   guestRole: z.string().optional(),
   audienceQuestion: z.string().optional(),
   productionCues: z.array(z.string()).optional(),
+  stories: z.array(storyItemSchema).optional(),
   confidence: z.number().min(0).max(1).optional(),
   sourceExcerpt: z.string().optional(),
   actualStart: z.string().optional(),
@@ -120,6 +132,7 @@ export const workspaceStateSchema = z.object({
 export type Program = z.infer<typeof programSchema>;
 export type ScheduleSlot = z.infer<typeof scheduleSlotSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
+export type StoryItem = z.infer<typeof storyItemSchema>;
 export type PostPauta = z.infer<typeof postPautaSchema>;
 export type Emission = z.infer<typeof emissionSchema>;
 export type Bulletin = z.infer<typeof bulletinSchema>;

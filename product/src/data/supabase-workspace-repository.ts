@@ -32,7 +32,7 @@ export function createSupabaseWorkspaceRepository(
     const [bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
       supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified)").order("emission_date"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
@@ -100,6 +100,7 @@ export function createSupabaseWorkspaceRepository(
             productionCues: Array.isArray(segment.production_cues)
               ? segment.production_cues.filter((cue): cue is string => typeof cue === "string")
               : [],
+            stories: Array.isArray(segment.story_items) ? segment.story_items : [],
             confidence: typeof segment.extraction_confidence === "number" ? segment.extraction_confidence : undefined,
             sourceExcerpt: segment.source_excerpt ?? "",
             actualStart: shortTime(segment.actual_start) || undefined,
@@ -276,6 +277,7 @@ export function createSupabaseWorkspaceRepository(
             guest_role: segment.guestRole || null,
             audience_question: segment.audienceQuestion || null,
             production_cues: segment.productionCues ?? [],
+            story_items: segment.stories ?? [],
             notes: segment.notes,
             extraction_confidence: segment.confidence ?? null,
             source_excerpt: segment.sourceExcerpt || null,
@@ -386,6 +388,7 @@ export function createSupabaseWorkspaceRepository(
       guest_role: segment.guestRole || null,
       audience_question: segment.audienceQuestion || null,
       production_cues: segment.productionCues ?? [],
+      story_items: segment.stories ?? [],
       notes: segment.notes,
       extraction_confidence: segment.confidence ?? null,
       source_excerpt: segment.sourceExcerpt || null,

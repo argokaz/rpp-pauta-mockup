@@ -6,6 +6,7 @@ import {
 } from "./pauta-import";
 
 const proposal = pautaProposalSchema.parse({
+  layoutMode: "timed",
   documentType: "pre",
   detectedProgramName: "Encendidos",
   detectedDate: "2026-08-28",
@@ -25,6 +26,7 @@ const proposal = pautaProposalSchema.parse({
     audienceQuestion: "",
     productionCues: [],
     notes: "",
+    stories: [],
     confidence: 0.97,
     sourceExcerpt: "10:15 - 10:45 TEMA: ¿TU HIJO NO SUELTA EL CELULAR?",
   }],
@@ -38,7 +40,6 @@ describe("contrato de importación con IA", () => {
       targetDate: "2026-08-28",
       plannedStart: "10:00",
       plannedEnd: "12:30",
-      sourceChannel: "whatsapp",
       rawText: "PREPAUTA ENCENDIDOS VIERNES 28 DE AGOSTO 2026",
     }).programId).toBe("encendidos");
   });

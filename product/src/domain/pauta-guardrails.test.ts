@@ -4,6 +4,7 @@ import { applyPautaGuardrails, extractExplicitGuestNames } from "./pauta-guardra
 
 function proposal(overrides: Partial<PautaProposal> = {}): PautaProposal {
   return {
+    layoutMode: "timed",
     documentType: "pre",
     detectedProgramName: "Encendidos",
     detectedDate: "28 DE AGOSTO 2026",
@@ -29,6 +30,7 @@ function segment(guestName = "", guestRole = ""): PautaProposal["segments"][numb
     audienceQuestion: "",
     productionCues: [],
     notes: "",
+    stories: [],
     confidence: 0.94,
     sourceExcerpt: "INVITADA: ERIKA ALVAREZ VELIZ - PSICÓLOGA CLÍNICA",
   };

@@ -9,6 +9,7 @@ import {
   structurePautaResponseSchema,
 } from "@/domain/pauta-import";
 import { applyPautaGuardrails } from "@/domain/pauta-guardrails";
+import { preprocessPauta } from "@/domain/pauta-preprocessor";
 
 export const runtime = "nodejs";
 
@@ -31,15 +32,17 @@ Reglas obligatorias:
 9. confidence debe reflejar la certeza de la extracción entre 0 y 1.
 10. Si el programa o la fecha detectados contradicen el contexto seleccionado, no los corrijas silenciosamente: repórtalo en warnings.
 11. Para type usa: opening, interview, live, audience, sequence, sports, cue u other.
-12. documentType es pre para pauta previa, post para pauta emitida y unknown cuando no se puede determinar.
-13. detectedDate debe ser YYYY-MM-DD cuando haya una fecha inequívoca; nunca devuelvas una fecha escrita en prosa.
-14. guestName es un dato de alta precisión. Llénalo solo cuando el mismo bloque identifique explícitamente a la persona con INVITADO:, INVITADA:, ENTREVISTADO:, ENTREVISTADA: o ENTREVISTA A:.
-15. Una persona mencionada en un titular o desarrollo no es un invitado. Esto incluye autoridades, políticos, artistas, víctimas, denunciantes, deportistas, fuentes de un informe y protagonistas de noticias.
-16. Conductor, productor, colaborador presentado con «CON», periodista, reportero o autor de una nota tampoco es invitado salvo que el texto lo marque además de forma explícita como invitado.
-17. Si existe cualquier duda sobre la condición de invitado, deja guestName y guestRole vacíos; conserva el nombre dentro de title, topic, focus o notes según corresponda.
-18. Cuando llenes guestName, sourceExcerpt debe contener literalmente la etiqueta de invitación y el nombre que lo justifican.
-19. hosts solo puede contener personas de una línea CONDUCCIÓN:. producers solo puede contener personas de una línea PRODUCCIÓN:.
-20. Antes de terminar, comprueba cada invitado, hora, conductor y productor contra una frase literal del original.`;
+12. layoutMode es timed cuando hay bloques con horas, news_pool para listas de noticias que aún deben distribuirse y freeform para el resto.
+13. Cada segmento debe incluir stories. Usa una lista vacía salvo que una noticia forme parte de ese bloque.
+14. documentType es pre para pauta previa, post para pauta emitida y unknown cuando no se puede determinar.
+15. detectedDate debe ser YYYY-MM-DD cuando haya una fecha inequívoca; nunca devuelvas una fecha escrita en prosa.
+16. guestName es un dato de alta precisión. Llénalo solo cuando el mismo bloque identifique explícitamente a la persona con INVITADO:, INVITADA:, ENTREVISTADO:, ENTREVISTADA: o ENTREVISTA A:.
+17. Una persona mencionada en un titular o desarrollo no es un invitado. Esto incluye autoridades, políticos, artistas, víctimas, denunciantes, deportistas, fuentes de un informe y protagonistas de noticias.
+18. Conductor, productor, colaborador presentado con «CON», periodista, reportero o autor de una nota tampoco es invitado salvo que el texto lo marque además de forma explícita como invitado.
+19. Si existe cualquier duda sobre la condición de invitado, deja guestName y guestRole vacíos; conserva el nombre dentro de title, topic, focus o notes según corresponda.
+20. Cuando llenes guestName, sourceExcerpt debe contener literalmente la etiqueta de invitación y el nombre que lo justifican.
+21. hosts solo puede contener personas de una línea CONDUCCIÓN:. producers solo puede contener personas de una línea PRODUCCIÓN:.
+22. Antes de terminar, comprueba cada invitado, hora, conductor y productor contra una frase literal del original.`;
 
 type Extraction = {
   model: string;
@@ -51,6 +54,7 @@ async function extractPauta(openai: OpenAI, model: string, input: StructurePauta
     model,
     store: false,
     reasoning: { effort: "low" },
+    prompt_cache_key: "rpp-pauta-extraction-v2",
     instructions: EXTRACTION_INSTRUCTIONS,
     input: JSON.stringify({
       selectedContext: {
@@ -59,7 +63,6 @@ async function extractPauta(openai: OpenAI, model: string, input: StructurePauta
         targetDate: input.targetDate,
         plannedStart: input.plannedStart,
         plannedEnd: input.plannedEnd,
-        sourceChannel: input.sourceChannel,
       },
       rawText: input.rawText,
     }),
@@ -91,10 +94,6 @@ function getBearerToken(request: Request): string | null {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return jsonError("La integración de IA todavía no está configurada.", 503);
-  }
-
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!supabaseUrl || !supabaseKey) {
@@ -143,7 +142,7 @@ export async function POST(request: Request) {
       emission_id: existingEmission?.id ?? null,
       program_id: input.programId,
       target_date: input.targetDate,
-      source_channel: input.sourceChannel,
+      source_channel: "other",
       raw_text: input.rawText,
       processing_status: "processing",
       created_by: userData.user.id,
@@ -156,26 +155,40 @@ export async function POST(request: Request) {
   }
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     let extraction: Extraction;
     let usedFallback = false;
+    let processingMode: "local" | "luna" | "fallback" = "local";
+    const preprocessed = preprocessPauta(input);
 
-    try {
-      const primary = await extractPauta(openai, PRIMARY_MODEL, input);
-      const checked = applyPautaGuardrails(primary.proposal, input.rawText, input.targetDate);
-      extraction = { model: primary.model, proposal: checked.proposal };
+    if (preprocessed.proposal) {
+      const checked = applyPautaGuardrails(preprocessed.proposal, input.rawText, input.targetDate);
+      extraction = { model: "local-parser-v1", proposal: checked.proposal };
+    } else {
+      if (!process.env.OPENAI_API_KEY) {
+        throw new Error("La integración de IA todavía no está configurada.");
+      }
 
-      if (checked.requiresFallback) {
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      processingMode = "luna";
+      try {
+        const primary = await extractPauta(openai, PRIMARY_MODEL, input);
+        const checked = applyPautaGuardrails(primary.proposal, input.rawText, input.targetDate);
+        extraction = { model: primary.model, proposal: checked.proposal };
+
+        if (checked.requiresFallback) {
+          const fallback = await extractPauta(openai, FALLBACK_MODEL, input);
+          const fallbackChecked = applyPautaGuardrails(fallback.proposal, input.rawText, input.targetDate);
+          extraction = { model: fallback.model, proposal: fallbackChecked.proposal };
+          usedFallback = true;
+          processingMode = "fallback";
+        }
+      } catch {
         const fallback = await extractPauta(openai, FALLBACK_MODEL, input);
         const fallbackChecked = applyPautaGuardrails(fallback.proposal, input.rawText, input.targetDate);
         extraction = { model: fallback.model, proposal: fallbackChecked.proposal };
         usedFallback = true;
+        processingMode = "fallback";
       }
-    } catch {
-      const fallback = await extractPauta(openai, FALLBACK_MODEL, input);
-      const fallbackChecked = applyPautaGuardrails(fallback.proposal, input.rawText, input.targetDate);
-      extraction = { model: fallback.model, proposal: fallbackChecked.proposal };
-      usedFallback = true;
     }
 
     if (usedFallback) {
@@ -188,6 +201,7 @@ export async function POST(request: Request) {
     const result = structurePautaResponseSchema.parse({
       importId: rawImport.id,
       model: extraction.model,
+      processingMode,
       proposal: extraction.proposal,
     });
 

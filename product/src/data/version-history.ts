@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.14.1";
+export const CURRENT_VERSION = "0.15.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.15.0",
+    date: "2026-08-29",
+    title: "Importación rápida y bandeja de noticias",
+    changes: [
+      "La plataforma reconoce localmente las pautas con horarios y evita llamar a Luna cuando la estructura ya es inequívoca.",
+      "Las listas numeradas de noticieros se convierten en una bandeja de noticias sin inventar una hora ni un bloque por cada tema.",
+      "Producción puede crear bloques de emisión y mover cada noticia al bloque correspondiente cuando se definan las pausas reales.",
+      "Todos los bloques generados aparecen plegados y solo se abre el que la persona elige revisar.",
+      "El selector de origen WhatsApp, email o documento fue retirado de los flujos de importación.",
+      "Luna queda reservada para textos libres o ambiguos y mantiene una verificación con Terra cuando los controles detectan omisiones.",
+    ],
+  },
   {
     version: "0.14.1",
     date: "2026-08-29",

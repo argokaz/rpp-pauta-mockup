@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
 import { RundownBlock } from "@/components/rundown-block";
-import type { PautaProposal, StructuredPautaSegment } from "@/domain/pauta-import";
+import type { PautaProposal, StructuredPautaSegment, StructuredPautaStory } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
-import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
+import { durationMinutes, endTimeForDuration, reorderItems } from "@/domain/rundown";
 import type { Person } from "@/domain/schemas";
 
 const typeLabels: Record<StructuredPautaSegment["type"], string> = {
@@ -23,6 +23,12 @@ const documentLabels: Record<PautaProposal["documentType"], string> = {
   pre: "Pre-pauta",
   post: "Post-pauta",
   unknown: "Por confirmar",
+};
+
+const layoutLabels: Record<PautaProposal["layoutMode"], string> = {
+  timed: "Bloques con horario",
+  news_pool: "Bandeja de noticias",
+  freeform: "Texto libre",
 };
 
 function confidenceLabel(value: number): string {
@@ -44,13 +50,22 @@ const emptySegment: StructuredPautaSegment = {
   audienceQuestion: "",
   productionCues: [],
   notes: "",
+  stories: [],
   confidence: 1,
   sourceExcerpt: "Bloque añadido manualmente durante la revisión.",
 };
 
+function withUpdatedStoryCount(segment: StructuredPautaSegment, stories: StructuredPautaSegment["stories"]) {
+  const title = /^Noticias por ubicar \(\d+\)$/i.test(segment.title)
+    ? `Noticias por ubicar (${stories.length})`
+    : segment.title;
+  return { ...segment, title, stories };
+}
+
 type PautaAiReviewProps = {
   proposal: PautaProposal;
   model: string;
+  processingMode: "local" | "luna" | "fallback";
   applying: boolean;
   people: Person[];
   producerName: string;
@@ -60,8 +75,8 @@ type PautaAiReviewProps = {
   onApply: () => void;
 };
 
-export function PautaAiReview({ proposal, model, applying, people, producerName, onChange, onProducerNameChange, onClose, onApply }: PautaAiReviewProps) {
-  const [expandedSegments, setExpandedSegments] = useState<Set<number>>(() => new Set([0]));
+export function PautaAiReview({ proposal, model, processingMode, applying, people, producerName, onChange, onProducerNameChange, onClose, onApply }: PautaAiReviewProps) {
+  const [expandedSegments, setExpandedSegments] = useState<Set<number>>(() => new Set());
 
   function updateSegment(index: number, change: Partial<StructuredPautaSegment>) {
     onChange({
@@ -71,6 +86,7 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
   }
 
   function removeSegment(index: number) {
+    if ((proposal.segments[index]?.stories.length ?? 0) > 0) return;
     onChange({ ...proposal, segments: proposal.segments.filter((_, segmentIndex) => segmentIndex !== index) });
   }
 
@@ -84,6 +100,40 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
     updateSegment(index, {
       guestName: value,
       guestRole: knownPerson?.primaryRole ?? "",
+    });
+  }
+
+  function updateStory(segmentIndex: number, storyIndex: number, change: Partial<StructuredPautaStory>) {
+    const segment = proposal.segments[segmentIndex];
+    if (!segment) return;
+    updateSegment(segmentIndex, {
+      stories: segment.stories.map((story, index) => index === storyIndex ? { ...story, ...change } : story),
+    });
+  }
+
+  function moveStory(sourceSegmentIndex: number, storyIndex: number, targetSegmentIndex: number) {
+    if (sourceSegmentIndex === targetSegmentIndex) return;
+    const source = proposal.segments[sourceSegmentIndex];
+    const target = proposal.segments[targetSegmentIndex];
+    const story = source?.stories[storyIndex];
+    if (!source || !target || !story) return;
+    onChange({
+      ...proposal,
+      segments: proposal.segments.map((segment, index) => {
+        if (index === sourceSegmentIndex) return withUpdatedStoryCount(segment, segment.stories.filter((_, itemIndex) => itemIndex !== storyIndex));
+        if (index === targetSegmentIndex) return { ...segment, stories: [...segment.stories, story] };
+        return segment;
+      }),
+    });
+  }
+
+  function removeStory(segmentIndex: number, storyIndex: number) {
+    const segment = proposal.segments[segmentIndex];
+    if (!segment) return;
+    const stories = segment.stories.filter((_, index) => index !== storyIndex);
+    onChange({
+      ...proposal,
+      segments: proposal.segments.map((item, index) => index === segmentIndex ? withUpdatedStoryCount(item, stories) : item),
     });
   }
 
@@ -117,12 +167,10 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
     onChange({ ...proposal, segments: reorderItems(proposal.segments, sourceIndex, targetIndex) });
   }
 
-  const totalMinutes = proposal.segments.reduce((total, segment) => total + (durationMinutes(segment.startTime, segment.endTime) ?? 0), 0);
-
   return (
     <section className="ordered-review" aria-labelledby="ordered-review-title">
       <header className="ordered-review-header">
-        <div><span>Resultado de la IA · pendiente de aprobación</span><h2 id="ordered-review-title">Vista ordenada</h2><p>Revisa, reordena y ajusta los tiempos antes de aceptar.</p></div>
+        <div><span>Propuesta pendiente de aprobación</span><h2 id="ordered-review-title">Vista ordenada</h2><p>{proposal.layoutMode === "news_pool" ? "Crea bloques según las pausas reales y distribuye las noticias sin inventar horarios." : "Revisa, reordena y ajusta los tiempos antes de aceptar."}</p></div>
         <button className="quiet-button" onClick={onClose} disabled={applying}>Descartar</button>
       </header>
 
@@ -130,7 +178,7 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
         <div><span>Documento</span><strong>{documentLabels[proposal.documentType]}</strong></div>
         <div><span>Programa</span><strong>{proposal.detectedProgramName || "No identificado"}</strong></div>
         <div><span>Fecha</span><strong>{proposal.detectedDate || "No identificada"}</strong></div>
-        <div><span>Duración estructurada</span><strong>{formatDuration(totalMinutes)}</strong></div>
+        <div><span>Estructura</span><strong>{layoutLabels[proposal.layoutMode]}</strong></div>
       </div>
 
       <div className="ordered-team">
@@ -181,8 +229,30 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
               <label className="wide"><span>Pregunta al público</span><input value={segment.audienceQuestion} onChange={(event) => updateSegment(index, { audienceQuestion: event.target.value })} /></label>
               <label className="wide"><span>Indicaciones de producción</span><textarea rows={2} value={segment.productionCues.join("\n")} onChange={(event) => updateSegment(index, { productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) })} placeholder="Una indicación por línea" /></label>
               <label className="wide"><span>Notas</span><textarea rows={2} value={segment.notes} onChange={(event) => updateSegment(index, { notes: event.target.value })} /></label>
+              {segment.stories.length > 0 && (
+                <section className="story-pool wide">
+                  <header><div><strong>{segment.stories.length} noticia{segment.stories.length === 1 ? "" : "s"}</strong><span>Abre solo la que necesites editar. Puedes moverla a otro bloque.</span></div></header>
+                  <div className="story-pool-list">
+                    {segment.stories.map((story, storyIndex) => (
+                      <details className="story-item" key={`${story.reference}-${storyIndex}`}>
+                        <summary><span>{story.reference || String(storyIndex + 1)}</span><strong>{story.title || "Noticia sin título"}</strong>{story.format && <b>{story.format}</b>}</summary>
+                        <div>
+                          <label><span>Titular</span><textarea rows={2} value={story.title} onChange={(event) => updateStory(index, storyIndex, { title: event.target.value })} /></label>
+                          <label><span>Formato</span><input value={story.format} onChange={(event) => updateStory(index, storyIndex, { format: event.target.value })} placeholder="INF, OFF, ON" /></label>
+                          <label><span>Audio o referencia</span><input value={story.mediaCue} onChange={(event) => updateStory(index, storyIndex, { mediaCue: event.target.value })} /></label>
+                          <label><span>Mover a bloque</span><select value={index} onChange={(event) => moveStory(index, storyIndex, Number(event.target.value))}>{proposal.segments.map((target, targetIndex) => <option value={targetIndex} key={`${target.title}-${targetIndex}`}>{target.title || `Bloque ${targetIndex + 1}`}</option>)}</select></label>
+                          <label className="story-wide"><span>Desarrollo</span><textarea rows={4} value={story.summary} onChange={(event) => updateStory(index, storyIndex, { summary: event.target.value })} /></label>
+                          <label className="story-wide"><span>Notas</span><textarea rows={2} value={story.notes} onChange={(event) => updateStory(index, storyIndex, { notes: event.target.value })} /></label>
+                          <details className="source-excerpt story-wide"><summary>Ver texto original de la noticia</summary><p>{story.sourceExcerpt}</p></details>
+                          <button className="remove" onClick={() => removeStory(index, storyIndex)}>Quitar noticia</button>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </section>
+              )}
               <details className="source-excerpt wide"><summary>Ver texto original de este bloque</summary><p>{segment.sourceExcerpt}</p></details>
-              <button className="remove ordered-remove" onClick={() => removeSegment(index)}>Quitar bloque</button>
+              <button className="remove ordered-remove" disabled={segment.stories.length > 0} title={segment.stories.length > 0 ? "Mueve o quita sus noticias antes de eliminar el bloque" : undefined} onClick={() => removeSegment(index)}>Quitar bloque</button>
             </div>
             </RundownBlock>
           ))}
@@ -192,11 +262,11 @@ export function PautaAiReview({ proposal, model, applying, people, producerName,
       <datalist id="known-guests-ai">
         {people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
       </datalist>
-      <button className="add-ordered-block" onClick={addSegment}>Añadir bloque</button>
+      <button className="add-ordered-block" onClick={addSegment}>{proposal.layoutMode === "news_pool" ? "Añadir bloque de emisión" : "Añadir bloque"}</button>
 
       <footer className="ordered-review-footer">
         <p><strong>¿La pauta está correcta?</strong><span>El original se conserva y esta versión aún no se incorpora hasta que la aceptes.</span></p>
-        <small>Modelo: {model}</small>
+        <small>{processingMode === "local" ? "Método: lectura rápida" : `Modelo: ${model}`}</small>
         <button className="primary accept-pauta" onClick={onApply} disabled={applying || proposal.segments.length === 0}>{applying ? "Guardando pauta..." : "Aceptar y guardar pauta"}</button>
       </footer>
     </section>

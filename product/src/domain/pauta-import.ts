@@ -3,7 +3,16 @@ import { segmentTypeSchema, type Segment } from "./schemas";
 
 const timeValueSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$|^$/);
 
-export const importSourceSchema = z.enum(["whatsapp", "email", "document", "other"]);
+export const structuredPautaStorySchema = z.object({
+  reference: z.string(),
+  title: z.string(),
+  format: z.string(),
+  mediaCue: z.string(),
+  summary: z.string(),
+  notes: z.string(),
+  confidence: z.number().min(0).max(1),
+  sourceExcerpt: z.string(),
+});
 
 export const structuredPautaSegmentSchema = z.object({
   startTime: timeValueSchema,
@@ -18,11 +27,13 @@ export const structuredPautaSegmentSchema = z.object({
   audienceQuestion: z.string(),
   productionCues: z.array(z.string()),
   notes: z.string(),
+  stories: z.array(structuredPautaStorySchema),
   confidence: z.number().min(0).max(1),
   sourceExcerpt: z.string(),
 });
 
 export const pautaProposalSchema = z.object({
+  layoutMode: z.enum(["timed", "news_pool", "freeform"]),
   documentType: z.enum(["pre", "post", "unknown"]),
   detectedProgramName: z.string(),
   detectedDate: z.string(),
@@ -38,17 +49,17 @@ export const structurePautaRequestSchema = z.object({
   targetDate: z.iso.date(),
   plannedStart: timeValueSchema,
   plannedEnd: timeValueSchema,
-  sourceChannel: importSourceSchema,
   rawText: z.string().trim().min(20).max(60_000),
 });
 
 export const structurePautaResponseSchema = z.object({
   importId: z.string().uuid(),
   model: z.string(),
+  processingMode: z.enum(["local", "luna", "fallback"]),
   proposal: pautaProposalSchema,
 });
 
-export type ImportSource = z.infer<typeof importSourceSchema>;
+export type StructuredPautaStory = z.infer<typeof structuredPautaStorySchema>;
 export type StructuredPautaSegment = z.infer<typeof structuredPautaSegmentSchema>;
 export type PautaProposal = z.infer<typeof pautaProposalSchema>;
 export type StructurePautaRequest = z.infer<typeof structurePautaRequestSchema>;
@@ -69,6 +80,7 @@ export function proposalSegmentToSegment(segment: StructuredPautaSegment): Segme
     guestRole: segment.guestRole,
     audienceQuestion: segment.audienceQuestion,
     productionCues: segment.productionCues,
+    stories: segment.stories,
     confidence: segment.confidence,
     sourceExcerpt: segment.sourceExcerpt,
   };
