@@ -5,9 +5,20 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.3.0";
+export const CURRENT_VERSION = "0.4.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.4.0",
+    date: "2026-08-28",
+    title: "Un espacio para cada tarea editorial",
+    changes: [
+      "Regresaron las vistas A. Agenda, B. Programa, C. Mesa y D. Recepción del mockup original.",
+      "La productora general puede elegir un bloque, pegar un mensaje y revisar una vista ordenada y editable.",
+      "La sesión permanece visible al cambiar de pestaña y Ordenar pauta renueva el acceso automáticamente si el token venció.",
+      "La escaleta generada ahora se lee en filas compactas y abre los campos detallados solo cuando se necesita editar.",
+    ],
+  },
   {
     version: "0.3.0",
     date: "2026-08-28",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { WorkspaceApp } from "@/components/workspace-app";
 import { localWorkspaceRepository } from "@/data/local-workspace-repository";
@@ -21,10 +21,23 @@ export function AuthShell() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(remoteMode);
   const [authError, setAuthError] = useState("");
+  const profileUserIdRef = useRef<string | null>(null);
+  const sessionUserId = session?.user.id ?? null;
   const remoteRepository = useMemo(
-    () => supabase && session ? createSupabaseWorkspaceRepository(supabase, session.user.id) : null,
-    [session, supabase],
+    () => supabase && sessionUserId ? createSupabaseWorkspaceRepository(supabase, sessionUserId) : null,
+    [sessionUserId, supabase],
   );
+
+  const getAccessToken = useCallback(async (forceRefresh = false) => {
+    if (!supabase) throw new Error("Falta la configuración de Supabase.");
+    const { data, error } = forceRefresh
+      ? await supabase.auth.refreshSession()
+      : await supabase.auth.getSession();
+    if (error || !data.session) {
+      throw new Error("Tu sesión venció. Vuelve a ingresar para ordenar la pauta.");
+    }
+    return data.session.access_token;
+  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -38,8 +51,12 @@ export function AuthShell() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const nextUserId = nextSession?.user.id ?? null;
+      if (profileUserIdRef.current !== nextUserId) {
+        profileUserIdRef.current = nextUserId;
+        setProfile(null);
+      }
       setSession(nextSession);
-      setProfile(null);
       setLoading(false);
     });
 
@@ -50,20 +67,24 @@ export function AuthShell() {
   }, [supabase]);
 
   useEffect(() => {
-    if (!supabase || !session) return;
+    if (!supabase || !sessionUserId) return;
     let active = true;
     void supabase
       .from("profiles")
       .select("full_name,app_role")
-      .eq("id", session.user.id)
+      .eq("id", sessionUserId)
       .single()
       .then(({ data, error }) => {
         if (!active) return;
         if (error) setAuthError("No se pudo cargar tu perfil editorial.");
-        else setProfile(data as Profile);
+        else {
+          profileUserIdRef.current = sessionUserId;
+          setAuthError("");
+          setProfile(data as Profile);
+        }
       });
     return () => { active = false; };
-  }, [session, supabase]);
+  }, [sessionUserId, supabase]);
 
   if (!remoteMode) {
     return <WorkspaceApp repository={localWorkspaceRepository} accountLabel="AG" canEdit />;
@@ -83,7 +104,7 @@ export function AuthShell() {
       accountLabel={accountLabel}
       accountName={profile.full_name || email}
       canEdit={editableRoles.has(profile.app_role)}
-      accessToken={session.access_token}
+      getAccessToken={getAccessToken}
       onSignOut={() => { void supabase.auth.signOut(); }}
     />
   );

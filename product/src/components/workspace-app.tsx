@@ -65,14 +65,24 @@ type WorkspaceAppProps = {
   accountLabel: string;
   accountName?: string;
   canEdit: boolean;
-  accessToken?: string;
+  getAccessToken?: (forceRefresh?: boolean) => Promise<string>;
   onSignOut?: () => void;
 };
 
-export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, accessToken, onSignOut }: WorkspaceAppProps) {
+type WorkspaceView = "agenda" | "program" | "desk" | "reception";
+
+const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
+  { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
+  { id: "program", code: "B", label: "Programa", description: "Editar mi pauta" },
+  { id: "desk", code: "C", label: "Mesa", description: "Control editorial" },
+  { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
+];
+
+export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, getAccessToken, onSignOut }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspaceState);
+  const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
-  const [selectedSlotId, setSelectedSlotId] = useState("");
+  const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
   const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
   const [hydrated, setHydrated] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -83,6 +93,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
   const [importSource, setImportSource] = useState<ImportSource>("whatsapp");
+  const [receptionSender, setReceptionSender] = useState("");
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
@@ -123,7 +134,9 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
     [programFilter, selectedDay.dayOfWeek],
   );
 
-  const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId);
+  const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId)
+    ?? daySlots.find((slot) => programs.find((program) => program.id === slot.programId)?.managed)
+    ?? daySlots[0];
   const selectedProgram = programs.find((program) => program.id === selectedSlot?.programId);
   const storedEmission = workspace.emissions.find(
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
@@ -218,7 +231,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
   }
 
   async function orderWithAi() {
-    if (!selectedEmission || !selectedProgram || !selectedSlot || !accessToken) {
+    if (!selectedEmission || !selectedProgram || !selectedSlot || !getAccessToken) {
       notify("La IA requiere una sesión activa en la base compartida.");
       return;
     }
@@ -237,7 +250,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
         plannedEnd: selectedSlot.endTime,
         sourceChannel: importSource,
         rawText: selectedEmission.rawText,
-      }, accessToken);
+      }, getAccessToken);
       setAiResult(result);
     } catch (error) {
       notify(error instanceof Error ? error.message : "No pudimos ordenar esta pauta.");
@@ -283,6 +296,155 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
       .filter((item) => item.program)
     : [];
 
+  const managedDaySlots = daySlots.filter((slot) => programs.find((program) => program.id === slot.programId)?.managed);
+
+  function chooseSlot(slotId: string) {
+    setSelectedSlotId(slotId);
+    setAiResult(null);
+  }
+
+  function renderSavedRundown() {
+    if (!selectedEmission) return <div className="empty-state compact"><strong>Elige un programa</strong><p>Selecciona el bloque que quieres revisar.</p></div>;
+    if (!selectedEmission.segments.length) return <div className="empty-state compact"><strong>Aún no hay una vista ordenada</strong><p>Pega la pauta original y usa Ordenar pauta.</p></div>;
+
+    return (
+      <div className="saved-rundown-list">
+        {selectedEmission.segments.map((segment, index) => (
+          <details className="saved-rundown-row" key={segment.id}>
+            <summary>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <time>{segment.startTime}<small>{segment.endTime}</small></time>
+              <span><strong>{segment.title}</strong><small>{segmentTypeLabel[segment.type]}{segment.guest ? ` · ${segment.guest}` : ""}</small></span>
+              <b>Editar</b>
+            </summary>
+            <div>
+              <label><span>Inicio</span><input disabled={!canEdit} value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /></label>
+              <label><span>Fin</span><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></label>
+              <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
+              <label><span>Invitado</span><input disabled={!canEdit} value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} /></label>
+              <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
+              <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
+              <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
+              <button className="remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
+            </div>
+          </details>
+        ))}
+        <button className="add-ordered-block" disabled={!canEdit} onClick={addSegment}>Añadir bloque</button>
+      </div>
+    );
+  }
+
+  function renderProgramRoutes() {
+    return (
+      <aside className="route-rail">
+        <header><span>{selectedDay.label}</span><strong>Programas administrados</strong></header>
+        <div>
+          {managedDaySlots.map((slot) => {
+            const program = programs.find((item) => item.id === slot.programId);
+            const emission = workspace.emissions.find((item) => item.programId === program?.id && item.date === selectedDate);
+            if (!program) return null;
+            return (
+              <button className={selectedSlot?.id === slot.id ? "active" : ""} key={slot.id} onClick={() => chooseSlot(slot.id)}>
+                <time>{slot.startTime}</time>
+                <span><strong>{program.shortName}</strong><small>{statusLabel[emission?.status ?? "empty"]}</small></span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderCaptureWorkspace(reception: boolean) {
+    return (
+      <section className="mode-page">
+        <header className="mode-heading">
+          <div><span>{reception ? "Piloto de productora general" : "Espacio del programa"}</span><h1>{reception ? "Recepción de pautas" : selectedProgram?.shortName ?? "Mi programa"}</h1><p>{reception ? "Elige el destino, pega el mensaje recibido y revisa cómo quedará." : "Trabaja la pre-pauta y la vista ordenada del bloque seleccionado."}</p></div>
+          <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => { setSelectedDate(day.date); setAiResult(null); }}>{day.label}</button>)}</div>
+        </header>
+
+        <div className={reception ? "reception-grid" : "program-grid"}>
+          {renderProgramRoutes()}
+
+          <section className="capture-pane">
+            <header>
+              <div><span>{reception ? "1. Destino y origen" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
+              {selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}
+            </header>
+
+            {reception && (
+              <div className="capture-meta">
+                <label><span>Canal</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
+                <label><span>Enviado por</span><input disabled={!canEdit} value={receptionSender} onChange={(event) => setReceptionSender(event.target.value)} placeholder="Nombre del productor" /></label>
+              </div>
+            )}
+
+            <label className="field capture-text">
+              <span>{reception ? "2. Mensaje recibido" : "Pega aquí la pauta de WhatsApp, email o documento"}</span>
+              <textarea disabled={!canEdit || !selectedEmission} rows={reception ? 20 : 16} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega el texto completo. No necesitas ordenarlo antes." />
+            </label>
+
+            <div className="capture-actions">
+              <p>El original queda guardado para comparar y auditar.</p>
+              {!reception && <label><span>Origen</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>}
+              <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
+            </div>
+          </section>
+
+          <section className="ordered-pane">
+            {aiResult ? (
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+            ) : (
+              <>
+                <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
+                {renderSavedRundown()}
+                {dirty && <footer className="ordered-save"><span>Cambios sin guardar</span><button className="primary" onClick={saveDraft} disabled={saving || !canEdit}>{saving ? "Guardando..." : "Guardar cambios"}</button></footer>}
+              </>
+            )}
+          </section>
+        </div>
+      </section>
+    );
+  }
+
+  function renderEditorialDesk() {
+    const columns: Array<{ status: Emission["status"]; title: string; hint: string }> = [
+      { status: "empty", title: "Falta pauta", hint: "Requiere acción" },
+      { status: "draft", title: "En preparación", hint: "Edición en curso" },
+      { status: "ready", title: "Lista para salir", hint: "Revisada" },
+      { status: "post", title: "Post-pauta", hint: "Emisión registrada" },
+    ];
+    return (
+      <section className="mode-page desk-page">
+        <header className="mode-heading">
+          <div><span>{selectedDay.label}</span><h1>Mesa editorial</h1><p>Un vistazo operativo a todos los programas administrados del día.</p></div>
+          <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
+        </header>
+        {workspace.bulletins[0] && <article className="desk-bulletin"><span>Indicación del día</span><strong>{workspace.bulletins[0].title}</strong><p>{workspace.bulletins[0].body}</p></article>}
+        <div className="desk-columns">
+          {columns.map((column) => {
+            const items = managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status);
+            return (
+              <section key={column.status} className={`desk-column desk-${column.status}`}>
+                <header><div><strong>{column.title}</strong><span>{column.hint}</span></div><b>{items.length}</b></header>
+                <div>
+                  {items.map((slot) => {
+                    const program = programs.find((item) => item.id === slot.programId);
+                    const emission = workspace.emissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
+                    if (!program) return null;
+                    return <article key={slot.id}><time>{slot.startTime}</time><h2>{program.shortName}</h2><p>{emission?.segments.length ? `${emission.segments.length} bloques estructurados` : "Sin contenido para este día."}</p><button onClick={() => { chooseSlot(slot.id); setActiveView(column.status === "empty" ? "reception" : "program"); }}>{column.status === "empty" ? "Completar" : "Abrir pauta"}</button></article>;
+                  })}
+                  {!items.length && <p className="desk-empty">No hay programas en este estado.</p>}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
   if (!hydrated) {
     return <main className="access-shell"><section className="access-panel compact"><strong>Cargando la agenda</strong><p>Estamos recuperando la pauta y los horarios.</p></section></main>;
   }
@@ -292,7 +454,21 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
   }
 
   return (
-    <main className="app-shell">
+    <main className="product-shell">
+      <header className="mode-switcher">
+        <div className="switcher-brand"><Image src="/rpp-logo.svg" alt="RPP" width={38} height={38} priority /><span><strong>Pauta RPP</strong><small>Informativos</small></span></div>
+        <nav aria-label="Vistas de trabajo">
+          {workspaceViews.map((view) => (
+            <button className={activeView === view.id ? "active" : ""} key={view.id} onClick={() => setActiveView(view.id)} aria-current={activeView === view.id ? "page" : undefined}>
+              <b>{view.code}</b><span><strong>{view.label}</strong><small>{view.description}</small></span>
+            </button>
+          ))}
+        </nav>
+        <div className="switcher-account"><span>{accountName ?? "Equipo editorial"}</span><b>{accountLabel}</b></div>
+      </header>
+
+      {activeView === "agenda" && (
+      <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><Image src="/rpp-logo.svg" alt="RPP" width={48} height={48} priority /><div><strong>Pauta</strong><small>Informativos</small></div></div>
         <label className="sidebar-filter"><span>Programa</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Todos los programas</option><option value="managed">Solo administrados</option></select></label>
@@ -386,8 +562,11 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
                       <div className="phase-two">
                         <div><strong>Ordenar con IA</strong><span>Genera una propuesta editable. El original se conserva sin cambios.</span></div>
                         <label><span>Origen</span><select disabled={!canEdit || aiProcessing} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
-                        <button className="ai-action" disabled={!canEdit || !accessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
+                        <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
                       </div>
+                      {aiResult && (
+                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                      )}
                       <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
                         {selectedEmission.segments.map((segment) => (
@@ -426,6 +605,12 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
           </section>
         </div>
       </section>
+      </div>
+      )}
+
+      {activeView === "program" && renderCaptureWorkspace(false)}
+      {activeView === "desk" && renderEditorialDesk()}
+      {activeView === "reception" && renderCaptureWorkspace(true)}
 
       {bulletinDraft && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
@@ -450,18 +635,13 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
         </div>
       )}
 
-      {aiResult && (
-        <PautaAiReview
-          proposal={aiResult.proposal}
-          model={aiResult.model}
-          applying={aiApplying}
-          onChange={(proposal) => setAiResult({ ...aiResult, proposal })}
-          onClose={() => setAiResult(null)}
-          onApply={applyAiProposal}
-        />
-      )}
-
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
+
+      {activeView !== "agenda" && (
+        <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
+          <span>Versión</span><strong>v{CURRENT_VERSION}</strong>
+        </button>
+      )}
 
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
