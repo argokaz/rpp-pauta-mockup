@@ -1295,7 +1295,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 </aside>
               </div>
 
-              {aiResult && <div className="producer-ai-review"><PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} /></div>}
             </>
           )}
 
@@ -1312,6 +1311,24 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           {producerSection === "post" && <div className="producer-post-embed">{renderPostPauta()}</div>}
         </section>
+
+        {(aiProcessing || aiResult) && (
+          <div className="modal-backdrop producer-luna-backdrop">
+            <section className={`producer-luna-modal ${aiProcessing ? "processing" : "reviewing"}`} role="dialog" aria-modal="true" aria-label={aiProcessing ? "Luna está ordenando la pauta" : "Revisar la escaleta generada por Luna"}>
+              {aiProcessing ? (
+                <div className="producer-luna-progress" role="status" aria-live="polite">
+                  <span>Luna está trabajando</span>
+                  <h2>Ordenando tu prepauta</h2>
+                  <p>Está identificando horarios, temas, invitados e indicaciones de producción.</p>
+                  <div className="producer-luna-progress-lines" aria-hidden="true"><i /><i /><i /></div>
+                  <small>La pauta original permanece intacta.</small>
+                </div>
+              ) : aiResult ? (
+                <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+              ) : null}
+            </section>
+          </div>
+        )}
 
         {showProducerNewPauta && (
           <div className="modal-backdrop producer-new-pauta-backdrop" role="presentation" onMouseDown={() => setShowProducerNewPauta(false)}>

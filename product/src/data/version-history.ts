@@ -5,9 +5,20 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.14.0";
+export const CURRENT_VERSION = "0.14.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.14.1",
+    date: "2026-08-29",
+    title: "Resultado de Luna siempre visible",
+    changes: [
+      "Convertir en escaleta muestra inmediatamente un estado de procesamiento en primer plano.",
+      "La vista ordenada se abre al terminar dentro de una ventana de revisión visible y editable.",
+      "Aceptar guarda la propuesta y Descartar vuelve a la pauta sin obligar a buscar el resultado debajo de la escaleta.",
+      "El flujo de Luna fue adaptado también para revisión a pantalla completa en teléfonos.",
+    ],
+  },
   {
     version: "0.14.0",
     date: "2026-08-29",
