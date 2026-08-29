@@ -1,6 +1,11 @@
-# RPP Pauta Mockup
+# Pauta RPP
 
-Prototipo navegable para explorar la agenda semanal, la edición por programa,
-la mesa editorial y la recepción centralizada de pre-pautas de RPP.
+Repositorio de diseño y desarrollo para la planificación editorial de los
+programas informativos de RPP.
 
-El sitio publicado abre el prototipo ubicado en `mockups/`.
+- `mockups/`: prototipo estático publicado en GitHub Pages.
+- `product/`: aplicación funcional de Next.js en desarrollo.
+- `supabase/`: esquema, políticas y semillas de la futura base compartida.
+- `docs/`: decisiones de producto e infraestructura.
+
+El prototipo público sigue abriendo desde el `index.html` de la raíz.
