@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.8.0";
+export const CURRENT_VERSION = "0.9.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.9.0",
+    date: "2026-08-29",
+    title: "Mesa móvil y días más legibles",
+    changes: [
+      "Los siete días ahora caben en teléfonos sin superponerse y conservan áreas táctiles claras.",
+      "Mesa móvil deja atrás el carrusel de columnas y muestra una cola enfocada por estado.",
+      "Cuatro filtros con contadores permiten revisar falta pauta, preparación, listas y post-pautas sin desplazamiento lateral.",
+      "Cada tarjeta muestra productor, cantidad de bloques, estado editable y la acción siguiente.",
+      "El Kanban de escritorio mantiene el arrastre entre columnas.",
+    ],
+  },
   {
     version: "0.8.0",
     date: "2026-08-28",

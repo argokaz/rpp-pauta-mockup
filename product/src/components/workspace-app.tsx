@@ -114,7 +114,10 @@ function KanbanCard({ slot, program, emission, status, canEdit, saving, onMove, 
         </button>
       </header>
       <h2>{program.shortName}</h2>
-      <p>{emission?.segments.length ? `${emission.segments.length} bloques estructurados` : "Sin contenido para este día."}</p>
+      <div className="kanban-card-meta">
+        <span>{emission?.segments.length ? `${emission.segments.length} bloques` : "Sin contenido"}</span>
+        <span>{emission?.producerName?.trim() || "Productor pendiente"}</span>
+      </div>
       <footer>
         <label>
           <span>Estado</span>
@@ -135,9 +138,10 @@ type KanbanColumnProps = {
   canEdit: boolean;
   children: React.ReactNode;
   count: number;
+  mobileActive: boolean;
 };
 
-function KanbanColumn({ status, title, hint, canEdit, children, count }: KanbanColumnProps) {
+function KanbanColumn({ status, title, hint, canEdit, children, count, mobileActive }: KanbanColumnProps) {
   const { ref, isDropTarget } = useDroppable({
     id: status,
     type: "status-column",
@@ -146,7 +150,7 @@ function KanbanColumn({ status, title, hint, canEdit, children, count }: KanbanC
   });
 
   return (
-    <section ref={ref} className={`desk-column desk-${status} ${isDropTarget ? "drop-target" : ""}`}>
+    <section ref={ref} className={`desk-column desk-${status} ${mobileActive ? "mobile-active" : ""} ${isDropTarget ? "drop-target" : ""}`}>
       <header><div><strong>{title}</strong><span>{hint}</span></div><b>{count}</b></header>
       <div>{children}</div>
     </section>
@@ -192,6 +196,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
   const [kanbanSavingId, setKanbanSavingId] = useState("");
+  const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
 
@@ -669,6 +674,10 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
       { status: "ready", title: "Lista para salir", hint: "Revisada" },
       { status: "post", title: "Post-pauta", hint: "Emisión registrada" },
     ];
+    const itemsByStatus = Object.fromEntries(columns.map((column) => [
+      column.status,
+      managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status),
+    ])) as Record<Emission["status"], ScheduleSlot[]>;
     return (
       <section className="mode-page desk-page">
         <header className="mode-heading">
@@ -676,13 +685,20 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
           <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
         </header>
         {workspace.bulletins[0] && <article className="desk-bulletin"><span>Indicación del día</span><strong>{workspace.bulletins[0].title}</strong><p>{workspace.bulletins[0].body}</p></article>}
-        <p className="desk-mobile-hint">Desliza para recorrer los estados. También puedes usar el selector de cada programa.</p>
+        <nav className="desk-status-tabs" aria-label="Filtrar Mesa por estado">
+          {columns.map((column) => (
+            <button key={column.status} className={mobileDeskStatus === column.status ? "active" : ""} onClick={() => setMobileDeskStatus(column.status)} aria-pressed={mobileDeskStatus === column.status}>
+              <span>{column.title}</span><b>{itemsByStatus[column.status].length}</b>
+            </button>
+          ))}
+        </nav>
+        <p className="desk-mobile-hint">Elige un estado. Puedes mover cada programa desde su selector.</p>
         <DragDropProvider onDragEnd={handleKanbanDrop}>
           <div className="desk-columns" aria-label="Kanban editorial por estado">
             {columns.map((column) => {
-              const items = managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status);
+              const items = itemsByStatus[column.status];
               return (
-                <KanbanColumn key={column.status} status={column.status} title={column.title} hint={column.hint} canEdit={canEdit} count={items.length}>
+                <KanbanColumn key={column.status} status={column.status} title={column.title} hint={column.hint} canEdit={canEdit} count={items.length} mobileActive={mobileDeskStatus === column.status}>
                   {items.map((slot) => {
                     const program = programs.find((item) => item.id === slot.programId);
                     const emission = workspace.emissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
@@ -701,7 +717,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
                       />
                     );
                   })}
-                  {!items.length && <p className="desk-empty">Suelta aquí un programa o cámbialo desde su selector.</p>}
+                  {!items.length && <p className="desk-empty">No hay programas en este estado.</p>}
                 </KanbanColumn>
               );
             })}

@@ -457,7 +457,8 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .kanban-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .desk-column article time { color: var(--muted); font-size: 9px; font-weight: 850; }
 .desk-column article h2 { margin: 5px 0; font-size: 13px; }
-.desk-column article p { min-height: 30px; margin: 0 0 9px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.kanban-card-meta { min-height: 34px; margin: 0 0 9px; display: grid; gap: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.kanban-card-meta span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desk-column article button { min-height: 36px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface-soft); font-size: 9px; font-weight: 800; }
 .kanban-card .kanban-drag-handle { min-height: 30px; padding: 0 7px; border-style: dashed; background: transparent; color: var(--muted); touch-action: none; }
 .kanban-card > footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
@@ -465,6 +466,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .kanban-card > footer label span { color: var(--muted); font-size: 8px; font-weight: 800; }
 .kanban-card > footer select { width: 100%; min-height: 36px; padding: 6px 24px 6px 8px; font-size: 9px; }
 .kanban-card .kanban-open { white-space: nowrap; }
+.desk-status-tabs { display: none; }
 .desk-mobile-hint { display: none; }
 .desk-empty { padding: 20px 10px; color: var(--muted); font-size: 9px; text-align: center; }
 .floating-version { position: fixed; left: 14px; bottom: 14px; z-index: 35; min-height: 44px; padding: 7px 10px; display: grid; gap: 2px; border: 1px solid #484846; border-radius: var(--control-radius); background: var(--ink-soft); color: #fff; box-shadow: 0 8px 22px rgba(23, 23, 23, .18); text-align: left; }
@@ -607,8 +609,10 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .mode-heading { display: grid; gap: 14px; }
   .mode-heading h1 { font-size: 29px; }
   .mode-heading p { max-width: 46ch; font-size: 12px; }
-  .mode-day-tabs { width: 100%; max-width: none; padding-bottom: 4px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
-  .mode-day-tabs button, .mode-calendar-picker { min-height: 46px; scroll-snap-align: start; }
+  .mode-day-tabs { width: 100%; max-width: none; padding-bottom: 4px; gap: 3px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .mode-day-tabs::-webkit-scrollbar { display: none; }
+  .mode-day-tabs button { min-width: 48px; min-height: 42px; padding: 0 5px; font-size: 9px; scroll-snap-align: start; }
+  .mode-calendar-picker { min-height: 42px; scroll-snap-align: start; }
   .program-grid, .reception-grid, .program-grid.source-collapsed, .reception-grid.source-collapsed { display: block; min-height: 0; overflow: visible; }
   .route-rail { border-right: 0; border-bottom: 1px solid var(--line); }
   .route-rail > div { display: flex; overflow-x: auto; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
@@ -620,12 +624,19 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .capture-pane > header, .ordered-pane-heading { min-height: 72px; }
   .capture-text textarea { min-height: 260px; }
   .ordered-pane { min-height: 360px; }
-  .desk-mobile-hint { max-width: 1500px; margin: -2px auto 10px; display: block; color: var(--muted); font-size: 10px; line-height: 1.4; }
-  .desk-columns { max-width: none; margin-left: -12px; margin-right: -12px; padding: 0 12px 12px; display: flex; gap: 10px; overflow-x: auto; scroll-padding: 12px; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
-  .desk-column { width: min(86vw, 330px); min-width: min(86vw, 330px); min-height: 430px; flex: 0 0 min(86vw, 330px); scroll-snap-align: start; }
-  .desk-column > div { min-height: 355px; align-content: start; }
+  .desk-status-tabs { max-width: 1500px; margin: 0 auto 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .desk-status-tabs button { min-width: 0; min-height: 50px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--muted); text-align: left; }
+  .desk-status-tabs button.active { border-color: var(--ink); background: var(--yellow); color: var(--ink); }
+  .desk-status-tabs span { overflow: hidden; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .desk-status-tabs b { min-width: 24px; padding: 4px 6px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 9px; text-align: center; }
+  .desk-mobile-hint { max-width: 1500px; margin: 0 auto 10px; display: block; color: var(--muted); font-size: 10px; line-height: 1.4; }
+  .desk-columns { max-width: 1500px; margin: 0 auto; padding: 0; display: block; overflow: visible; }
+  .desk-column { display: none; width: 100%; min-width: 0; min-height: 0; }
+  .desk-column.mobile-active { display: block; }
+  .desk-column > div { min-height: 0; align-content: start; }
   .desk-bulletin { grid-template-columns: 1fr; }
   .desk-bulletin span { grid-row: auto; }
+  .kanban-card .kanban-drag-handle { display: none; }
   .kanban-card > footer { grid-template-columns: 1fr; }
   .kanban-card > footer select, .kanban-card .kanban-open { min-height: 44px; }
   .kanban-card .kanban-open { width: 100%; }
@@ -637,7 +648,11 @@ h1, h2, h3, h4, p { margin-top: 0; }
   input, select, textarea { font-size: 16px; }
   .topbar-actions { gap: 5px; }
   .avatar { width: 40px; height: 40px; }
-  .day-tabs button { min-width: 54px; }
+  .day-tabs { width: 100%; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; overflow: visible; }
+  .day-tabs button { min-width: 0; min-height: 40px; padding: 0 2px; font-size: 8.5px; }
+  .mode-day-tabs:not(.reception-day-tabs) { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible; padding-bottom: 0; }
+  .mode-day-tabs:not(.reception-day-tabs) button { min-width: 0; padding: 0 2px; font-size: 8.5px; }
+  .reception-day-tabs button { flex: 0 0 48px; }
   .agenda-toolbar { padding: 8px; }
   .agenda-toolbar .primary { padding: 0 10px; }
   .slot-badges { flex-wrap: wrap; }
