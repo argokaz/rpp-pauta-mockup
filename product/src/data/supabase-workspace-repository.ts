@@ -32,7 +32,7 @@ export function createSupabaseWorkspaceRepository(
     const [bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
       supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt)").order("emission_date"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,created_at"),
     ]);
@@ -72,6 +72,7 @@ export function createSupabaseWorkspaceRepository(
         date: row.emission_date,
         status: (["empty", "draft", "ready", "post"].includes(row.status) ? row.status : "post") as Emission["status"],
         rawText: row.raw_text,
+        producerName: row.producer_name ?? "",
         updatedAt: row.updated_at,
         segments: [...(row.segments ?? [])]
           .sort((a, b) => a.sort_order - b.sort_order)
@@ -205,6 +206,7 @@ export function createSupabaseWorkspaceRepository(
           emission_date: emission.date,
           status: emission.status,
           raw_text: emission.rawText,
+          producer_name: emission.producerName,
           producer_id: userId,
         }, { onConflict: "program_id,emission_date" })
         .select("id")
@@ -298,6 +300,7 @@ export function createSupabaseWorkspaceRepository(
         emission_date: emission.date,
         status: emission.status,
         raw_text: emission.rawText,
+        producer_name: emission.producerName,
         producer_id: userId,
       }, { onConflict: "program_id,emission_date" });
     assertNoError(error, "No se pudo actualizar el estado de la pauta");

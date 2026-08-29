@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.7.0";
+export const CURRENT_VERSION = "0.8.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.8.0",
+    date: "2026-08-28",
+    title: "Rundown editorial más claro y flexible",
+    changes: [
+      "Vista ordenada estrena bloques con mayor jerarquía visual, colores por tipo, duración visible y controles de despliegue más claros.",
+      "Los bloques pueden arrastrarse para reordenarlos sin modificar silenciosamente sus horarios.",
+      "Cada bloque ofrece duraciones rápidas de 15, 30, 45 y 60 minutos, manteniendo la edición libre al minuto.",
+      "La revisión generada por IA tiene una acción fija y explícita para aceptar y guardar la pauta.",
+      "Después de ordenar, el texto original se compacta y la pauta estructurada ocupa el espacio principal; el original se puede reabrir cuando se necesite.",
+      "El productor responsable se guarda por programa y fecha, se recupera automáticamente y reutiliza nombres anteriores como autocompletado.",
+    ],
+  },
   {
     version: "0.7.0",
     date: "2026-08-28",

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
 import { PeopleDirectory } from "@/components/people-directory";
+import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
@@ -12,6 +13,7 @@ import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
+import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import type { Bulletin, Emission, ImportantDate, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
 
 const days = [
@@ -62,13 +64,14 @@ const segmentTypeLabel: Record<Segment["type"], string> = {
   other: "Otro",
 };
 
-function emptyEmission(programId: string, date: string): Emission {
+function emptyEmission(programId: string, date: string, producerName = ""): Emission {
   return {
     id: `emission-${programId}-${date}`,
     programId,
     date,
     status: "empty",
     rawText: "",
+    producerName,
     segments: [],
     updatedAt: new Date().toISOString(),
   };
@@ -183,13 +186,14 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
   const [importSource, setImportSource] = useState<ImportSource>("whatsapp");
-  const [receptionSender, setReceptionSender] = useState("");
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
   const [kanbanSavingId, setKanbanSavingId] = useState("");
+  const [captureCollapsed, setCaptureCollapsed] = useState(false);
+  const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let active = true;
@@ -231,12 +235,17 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
     ?? daySlots.find((slot) => programs.find((program) => program.id === slot.programId)?.managed)
     ?? daySlots[0];
   const selectedProgram = programs.find((program) => program.id === selectedSlot?.programId);
+  const rememberedProducer = workspace.emissions
+    .filter((emission) => emission.programId === selectedProgram?.id && emission.producerName.trim())
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+    .at(-1)?.producerName ?? "";
   const storedEmission = workspace.emissions.find(
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
   );
   const selectedEmission = selectedProgram && selectedSlot
-    ? storedEmission ?? emptyEmission(selectedProgram.id, selectedDate)
+    ? storedEmission ?? emptyEmission(selectedProgram.id, selectedDate, rememberedProducer)
     : null;
+  const producerSuggestions = [...new Set(workspace.emissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 
   function notify(message: string) {
     setToast(message);
@@ -359,13 +368,15 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
     if (!selectedEmission || !selectedSlot) return;
     const last = selectedEmission.segments.at(-1);
     const startTime = last?.endTime || selectedSlot.startTime;
+    const id = newId();
     updateEmission({
       status: "draft",
       segments: [
         ...selectedEmission.segments,
-        { id: newId(), startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "" },
+        { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "" },
       ],
     });
+    setExpandedSavedSegments((current) => new Set([...current, id]));
   }
 
   function updateSegmentGuest(segment: Segment, value: string) {
@@ -402,6 +413,9 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
         rawText: selectedEmission.rawText,
       }, getAccessToken);
       setAiResult(result);
+      const detectedProducer = result.proposal.producers[0]?.trim();
+      if (detectedProducer) updateEmission({ producerName: detectedProducer });
+      setCaptureCollapsed(true);
     } catch (error) {
       notify(error instanceof Error ? error.message : "No pudimos ordenar esta pauta.");
     } finally {
@@ -451,37 +465,103 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   function chooseSlot(slotId: string) {
     setSelectedSlotId(slotId);
     setAiResult(null);
+    setCaptureCollapsed(false);
+    setExpandedSavedSegments(new Set());
+  }
+
+  function chooseCaptureDate(date: string) {
+    setSelectedDate(date);
+    setAiResult(null);
+    setCaptureCollapsed(false);
+    setExpandedSavedSegments(new Set());
+  }
+
+  function setProducerName(value: string) {
+    updateEmission({ producerName: value });
+  }
+
+  function toggleSavedSegment(id: string) {
+    setExpandedSavedSegments((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllSavedSegments() {
+    if (!selectedEmission) return;
+    setExpandedSavedSegments((current) => current.size === selectedEmission.segments.length
+      ? new Set()
+      : new Set(selectedEmission.segments.map((segment) => segment.id)));
+  }
+
+  function setSavedDuration(segmentId: string, duration: number) {
+    if (!selectedEmission) return;
+    updateEmission({
+      segments: selectedEmission.segments.map((segment) => segment.id === segmentId
+        ? { ...segment, endTime: endTimeForDuration(segment.startTime, duration) }
+        : segment),
+    });
+  }
+
+  function handleSavedRundownDrop(event: DragEndEvent) {
+    if (event.canceled || !selectedEmission) return;
+    const sourceId = String(event.operation.source?.id ?? "").replace("saved-block-", "");
+    const targetId = String(event.operation.target?.id ?? "").replace("saved-block-", "");
+    const sourceIndex = selectedEmission.segments.findIndex((segment) => segment.id === sourceId);
+    const targetIndex = selectedEmission.segments.findIndex((segment) => segment.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    updateEmission({ segments: reorderItems(selectedEmission.segments, sourceIndex, targetIndex) });
+    notify("Bloque reordenado. Los horarios se conservaron.");
   }
 
   function renderSavedRundown() {
     if (!selectedEmission) return <div className="empty-state compact"><strong>Elige un programa</strong><p>Selecciona el bloque que quieres revisar.</p></div>;
     if (!selectedEmission.segments.length) return <div className="empty-state compact"><strong>Aún no hay una vista ordenada</strong><p>Pega la pauta original y usa Ordenar pauta.</p></div>;
 
+    const totalMinutes = selectedEmission.segments.reduce((total, segment) => total + (durationMinutes(segment.startTime, segment.endTime) ?? 0), 0);
+
     return (
-      <div className="saved-rundown-list">
-        {selectedEmission.segments.map((segment, index) => (
-          <details className="saved-rundown-row" key={segment.id}>
-            <summary>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <time>{segment.startTime}<small>{segment.endTime}</small></time>
-              <span><strong>{segment.title}</strong><small>{segmentTypeLabel[segment.type]}{segment.guest ? ` · ${segment.guest}` : ""}</small></span>
-              <b>Editar</b>
-            </summary>
-            <div>
-              <label><span>Inicio</span><input disabled={!canEdit} value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /></label>
-              <label><span>Fin</span><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></label>
-              <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-              <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
-              <label><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} /></label>
-              <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
-              <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
-              <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
-              <button className="remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
-            </div>
-          </details>
-        ))}
-        <button className="add-ordered-block" disabled={!canEdit} onClick={addSegment}>Añadir bloque</button>
-      </div>
+      <>
+        <div className="rundown-list-toolbar">
+          <p><strong>{formatDuration(totalMinutes)} estructurados</strong><span>Reordena sin alterar los horarios; ajusta cada duración al abrir el bloque.</span></p>
+          <button className="quiet-button" onClick={toggleAllSavedSegments}>{expandedSavedSegments.size === selectedEmission.segments.length ? "Contraer todos" : "Expandir todos"}</button>
+        </div>
+        <DragDropProvider onDragEnd={handleSavedRundownDrop}>
+          <div className="saved-rundown-list">
+            {selectedEmission.segments.map((segment, index) => (
+              <RundownBlock
+                id={`saved-block-${segment.id}`}
+                key={segment.id}
+                index={index}
+                startTime={segment.startTime}
+                endTime={segment.endTime}
+                type={segment.type}
+                title={segment.title}
+                guest={segment.guest}
+                expanded={expandedSavedSegments.has(segment.id)}
+                canDrag={canEdit}
+                onToggle={() => toggleSavedSegment(segment.id)}
+              >
+                <div className="ordered-fields">
+                  <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /></label>
+                  <label><span>Fin</span><input type="time" step="60" disabled={!canEdit} value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></label>
+                  <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  <div className="duration-tools wide"><span>Duración rápida</span><div>{[15, 30, 45, 60].map((value) => <button disabled={!canEdit} key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setSavedDuration(segment.id, value)}>{value} min</button>)}<small>O escribe cualquier hora al minuto.</small></div></div>
+                  <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
+                  <label><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} /></label>
+                  <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
+                  <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
+                  <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
+                  <button className="remove ordered-remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
+                </div>
+              </RundownBlock>
+            ))}
+            <button className="add-ordered-block" disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button>
+          </div>
+        </DragDropProvider>
+      </>
     );
   }
 
@@ -512,7 +592,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
         <header className="mode-heading">
           <div><span>{reception ? "Piloto de productora general" : "Espacio del programa"}</span><h1>{reception ? "Recepción de pautas" : selectedProgram?.shortName ?? "Mi programa"}</h1><p>{reception ? "Elige el destino, pega el mensaje recibido y revisa cómo quedará." : "Trabaja la pre-pauta y la vista ordenada del bloque seleccionado."}</p></div>
           <div className={`mode-day-tabs ${reception ? "reception-day-tabs" : ""}`}>
-            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => { setSelectedDate(day.date); setAiResult(null); }}>{day.label}</button>)}
+            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseCaptureDate(day.date)}>{day.label}</button>)}
             {reception && (
               <label className={`mode-calendar-picker ${selectedDateIsInVisibleWeek ? "" : "active"}`}>
                 <span>Calendario</span>
@@ -522,8 +602,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
                   value={selectedDate}
                   onInput={(event) => {
                     if (!event.currentTarget.value) return;
-                    setSelectedDate(event.currentTarget.value);
-                    setAiResult(null);
+                    chooseCaptureDate(event.currentTarget.value);
                   }}
                 />
               </label>
@@ -531,37 +610,45 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
           </div>
         </header>
 
-        <div className={reception ? "reception-grid" : "program-grid"}>
+        <div className={`${reception ? "reception-grid" : "program-grid"} ${captureCollapsed ? "source-collapsed" : ""}`}>
           {renderProgramRoutes()}
 
-          <section className="capture-pane">
-            <header>
-              <div><span>{reception ? "1. Destino y origen" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
-              {selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}
-            </header>
-
-            {reception && (
-              <div className="capture-meta">
-                <label><span>Canal</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
-                <label><span>Enviado por</span><input disabled={!canEdit} value={receptionSender} onChange={(event) => setReceptionSender(event.target.value)} placeholder="Nombre del productor" /></label>
+          <section className={`capture-pane ${captureCollapsed ? "collapsed" : ""}`}>
+            {captureCollapsed ? (
+              <div className="capture-collapsed-card">
+                <span>Texto original conservado</span>
+                <strong>{selectedProgram?.shortName ?? "Pauta recibida"}</strong>
+                <p>{importSource === "whatsapp" ? "WhatsApp" : importSource === "email" ? "Email" : importSource === "document" ? "Documento" : "Otro origen"}{selectedEmission?.producerName ? ` · ${selectedEmission.producerName}` : ""}</p>
+                <button className="quiet-button" onClick={() => setCaptureCollapsed(false)}>Ver original</button>
               </div>
+            ) : (
+              <>
+                <header>
+                  <div><span>{reception ? "1. Destino y origen" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
+                  {selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}
+                </header>
+
+              <div className="capture-meta">
+                <label><span>Origen</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
+                <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
+              </div>
+
+                <label className="field capture-text">
+                  <span>{reception ? "2. Mensaje recibido" : "Pega aquí la pauta de WhatsApp, email o documento"}</span>
+                  <textarea disabled={!canEdit || !selectedEmission} rows={reception ? 20 : 16} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega el texto completo. No necesitas ordenarlo antes." />
+                </label>
+
+                <div className="capture-actions">
+                  <p>El original queda guardado para comparar y auditar.</p>
+                  <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
+                </div>
+              </>
             )}
-
-            <label className="field capture-text">
-              <span>{reception ? "2. Mensaje recibido" : "Pega aquí la pauta de WhatsApp, email o documento"}</span>
-              <textarea disabled={!canEdit || !selectedEmission} rows={reception ? 20 : 16} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega el texto completo. No necesitas ordenarlo antes." />
-            </label>
-
-            <div className="capture-actions">
-              <p>El original queda guardado para comparar y auditar.</p>
-              {!reception && <label><span>Origen</span><select disabled={!canEdit} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>}
-              <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
-            </div>
           </section>
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
@@ -744,7 +831,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
                         <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
                       </div>
                       {aiResult && (
-                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
                       )}
                       <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
@@ -816,6 +903,9 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
 
       <datalist id="known-guests">
         {workspace.people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
+      </datalist>
+      <datalist id="known-producers">
+        {producerSuggestions.map((producer) => <option key={producer} value={producer} />)}
       </datalist>
 
       {showPeopleDirectory && <PeopleDirectory people={workspace.people} onClose={() => setShowPeopleDirectory(false)} />}

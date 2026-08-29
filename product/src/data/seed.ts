@@ -145,6 +145,7 @@ export const initialWorkspaceState: WorkspaceState = {
       date: "2026-08-28",
       status: "draft",
       rawText: "PREPAUTA ENCENDIDOS VIERNES 28 DE AGOSTO 2026\n\n10:00 - 10:15\nVIVOS\n\n10:15 - 10:45\nTEMA: ¿TU HIJO NO SUELTA EL CELULAR?\nINVITADA: ERIKA ALVAREZ VELIZ",
+      producerName: "",
       segments: [
         { id: "segment-live", startTime: "10:00", endTime: "10:15", type: "live", title: "Vivos", guest: "", notes: "Apertura y enlaces." },
         { id: "segment-phone", startTime: "10:15", endTime: "10:45", type: "interview", title: "Uso problemático del celular", guest: "Erika Alvarez Veliz", notes: "Señales de alerta en niños." },

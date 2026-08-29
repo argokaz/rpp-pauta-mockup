@@ -1,7 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
+import { RundownBlock } from "@/components/rundown-block";
 import type { PautaProposal, StructuredPautaSegment } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
+import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import type { Person } from "@/domain/schemas";
 
 const typeLabels: Record<StructuredPautaSegment["type"], string> = {
@@ -27,16 +31,6 @@ function confidenceLabel(value: number): string {
   return "Revisar";
 }
 
-function duration(startTime: string, endTime: string): string {
-  if (!startTime || !endTime) return "Sin tiempo";
-  const toMinutes = (value: string) => {
-    const [hours, minutes] = value.split(":").map(Number);
-    return hours * 60 + minutes;
-  };
-  const total = Math.max(0, toMinutes(endTime) - toMinutes(startTime));
-  return `${total} min`;
-}
-
 const emptySegment: StructuredPautaSegment = {
   startTime: "",
   endTime: "",
@@ -59,12 +53,16 @@ type PautaAiReviewProps = {
   model: string;
   applying: boolean;
   people: Person[];
+  producerName: string;
   onChange: (proposal: PautaProposal) => void;
+  onProducerNameChange: (value: string) => void;
   onClose: () => void;
   onApply: () => void;
 };
 
-export function PautaAiReview({ proposal, model, applying, people, onChange, onClose, onApply }: PautaAiReviewProps) {
+export function PautaAiReview({ proposal, model, applying, people, producerName, onChange, onProducerNameChange, onClose, onApply }: PautaAiReviewProps) {
+  const [expandedSegments, setExpandedSegments] = useState<Set<number>>(() => new Set([0]));
+
   function updateSegment(index: number, change: Partial<StructuredPautaSegment>) {
     onChange({
       ...proposal,
@@ -78,6 +76,7 @@ export function PautaAiReview({ proposal, model, applying, people, onChange, onC
 
   function addSegment() {
     onChange({ ...proposal, segments: [...proposal.segments, { ...emptySegment }] });
+    setExpandedSegments((current) => new Set([...current, proposal.segments.length]));
   }
 
   function updateGuest(index: number, value: string) {
@@ -88,10 +87,42 @@ export function PautaAiReview({ proposal, model, applying, people, onChange, onC
     });
   }
 
+  function toggleSegment(index: number) {
+    setExpandedSegments((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setExpandedSegments((current) => current.size === proposal.segments.length
+      ? new Set()
+      : new Set(proposal.segments.map((_, index) => index)));
+  }
+
+  function setQuickDuration(index: number, value: number) {
+    const startTime = proposal.segments[index]?.startTime ?? "";
+    updateSegment(index, { endTime: endTimeForDuration(startTime, value) });
+  }
+
+  function handleDrop(event: DragEndEvent) {
+    if (event.canceled) return;
+    const sourceId = String(event.operation.source?.id ?? "");
+    const targetId = String(event.operation.target?.id ?? "");
+    const sourceIndex = Number(sourceId.replace("ai-block-", ""));
+    const targetIndex = Number(targetId.replace("ai-block-", ""));
+    if (!Number.isInteger(sourceIndex) || !Number.isInteger(targetIndex)) return;
+    onChange({ ...proposal, segments: reorderItems(proposal.segments, sourceIndex, targetIndex) });
+  }
+
+  const totalMinutes = proposal.segments.reduce((total, segment) => total + (durationMinutes(segment.startTime, segment.endTime) ?? 0), 0);
+
   return (
     <section className="ordered-review" aria-labelledby="ordered-review-title">
       <header className="ordered-review-header">
-        <div><span>Resultado de la IA</span><h2 id="ordered-review-title">Vista ordenada</h2><p>Edita la propuesta antes de incorporarla a la pauta.</p></div>
+        <div><span>Resultado de la IA · pendiente de aprobación</span><h2 id="ordered-review-title">Vista ordenada</h2><p>Revisa, reordena y ajusta los tiempos antes de aceptar.</p></div>
         <button className="quiet-button" onClick={onClose} disabled={applying}>Descartar</button>
       </header>
 
@@ -99,15 +130,13 @@ export function PautaAiReview({ proposal, model, applying, people, onChange, onC
         <div><span>Documento</span><strong>{documentLabels[proposal.documentType]}</strong></div>
         <div><span>Programa</span><strong>{proposal.detectedProgramName || "No identificado"}</strong></div>
         <div><span>Fecha</span><strong>{proposal.detectedDate || "No identificada"}</strong></div>
-        <div><span>Bloques</span><strong>{proposal.segments.length}</strong></div>
+        <div><span>Duración estructurada</span><strong>{formatDuration(totalMinutes)}</strong></div>
       </div>
 
-      {(proposal.hosts.length > 0 || proposal.producers.length > 0) && (
-        <div className="ordered-team">
-          {proposal.hosts.length > 0 && <p><strong>Conducción</strong><span>{proposal.hosts.join(", ")}</span></p>}
-          {proposal.producers.length > 0 && <p><strong>Producción</strong><span>{proposal.producers.join(", ")}</span></p>}
-        </div>
-      )}
+      <div className="ordered-team">
+        <p><strong>Conducción detectada</strong><span>{proposal.hosts.join(", ") || "No indicada"}</span></p>
+        <label><strong>Productor responsable</strong><input list="known-producers" value={producerName} onChange={(event) => onProducerNameChange(event.target.value)} placeholder="Nombre del productor" /></label>
+      </div>
 
       {proposal.warnings.length > 0 && (
         <details className="ordered-warnings">
@@ -116,21 +145,33 @@ export function PautaAiReview({ proposal, model, applying, people, onChange, onC
         </details>
       )}
 
-      <div className="ordered-list">
-        {proposal.segments.map((segment, index) => (
-          <details className="ordered-block" key={`${index}-${segment.sourceExcerpt.slice(0, 20)}`}>
-            <summary>
-              <span className="ordered-index">{String(index + 1).padStart(2, "0")}</span>
-              <time>{segment.startTime || "--:--"}<small>{duration(segment.startTime, segment.endTime)}</small></time>
-              <span className="ordered-main"><strong>{segment.title || segment.topic || "Bloque sin título"}</strong><small>{typeLabels[segment.type]}{segment.guestName ? ` · ${segment.guestName}` : ""}</small></span>
-              <span className={`confidence confidence-${confidenceLabel(segment.confidence).toLowerCase()}`}>{confidenceLabel(segment.confidence)}</span>
-              <span className="ordered-edit">Editar</span>
-            </summary>
+      <div className="rundown-list-toolbar">
+        <p><strong>{proposal.segments.length} bloques</strong><span>Arrastra desde el asa para cambiar el orden.</span></p>
+        <button className="quiet-button" onClick={toggleAll}>{expandedSegments.size === proposal.segments.length ? "Contraer todos" : "Expandir todos"}</button>
+      </div>
 
+      <DragDropProvider onDragEnd={handleDrop}>
+        <div className="ordered-list">
+          {proposal.segments.map((segment, index) => (
+            <RundownBlock
+              id={`ai-block-${index}`}
+              key={`${segment.sourceExcerpt.slice(0, 32)}-${index}`}
+              index={index}
+              startTime={segment.startTime}
+              endTime={segment.endTime}
+              type={segment.type}
+              title={segment.title || segment.topic}
+              guest={segment.guestName}
+              confidence={confidenceLabel(segment.confidence)}
+              expanded={expandedSegments.has(index)}
+              canDrag={!applying}
+              onToggle={() => toggleSegment(index)}
+            >
             <div className="ordered-fields">
-              <label><span>Inicio</span><input aria-label={`Inicio del bloque ${index + 1}`} value={segment.startTime} onChange={(event) => updateSegment(index, { startTime: event.target.value })} placeholder="--:--" /></label>
-              <label><span>Fin</span><input aria-label={`Fin del bloque ${index + 1}`} value={segment.endTime} onChange={(event) => updateSegment(index, { endTime: event.target.value })} placeholder="--:--" /></label>
+              <label><span>Inicio</span><input type="time" step="60" aria-label={`Inicio del bloque ${index + 1}`} value={segment.startTime} onChange={(event) => updateSegment(index, { startTime: event.target.value })} /></label>
+              <label><span>Fin</span><input type="time" step="60" aria-label={`Fin del bloque ${index + 1}`} value={segment.endTime} onChange={(event) => updateSegment(index, { endTime: event.target.value })} /></label>
               <label><span>Tipo</span><select value={segment.type} onChange={(event) => updateSegment(index, { type: event.target.value as StructuredPautaSegment["type"] })}>{Object.entries(typeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              <div className="duration-tools wide"><span>Duración rápida</span><div>{[15, 30, 45, 60].map((value) => <button key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setQuickDuration(index, value)}>{value} min</button>)}<small>O escribe cualquier hora al minuto.</small></div></div>
               <label className="wide"><span>Título del bloque</span><input value={segment.title} onChange={(event) => updateSegment(index, { title: event.target.value })} /></label>
               <label><span>Secuencia</span><input value={segment.sequence} onChange={(event) => updateSegment(index, { sequence: event.target.value })} placeholder="Si aplica" /></label>
               <label className="wide"><span>Tema</span><textarea rows={2} value={segment.topic} onChange={(event) => updateSegment(index, { topic: event.target.value })} /></label>
@@ -143,20 +184,20 @@ export function PautaAiReview({ proposal, model, applying, people, onChange, onC
               <details className="source-excerpt wide"><summary>Ver texto original de este bloque</summary><p>{segment.sourceExcerpt}</p></details>
               <button className="remove ordered-remove" onClick={() => removeSegment(index)}>Quitar bloque</button>
             </div>
-          </details>
-        ))}
-      </div>
+            </RundownBlock>
+          ))}
+        </div>
+      </DragDropProvider>
 
       <datalist id="known-guests-ai">
         {people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
       </datalist>
-
       <button className="add-ordered-block" onClick={addSegment}>Añadir bloque</button>
 
       <footer className="ordered-review-footer">
-        <p><strong>El texto original se conserva.</strong><span>Esta versión se guardará solo cuando la confirmes.</span></p>
+        <p><strong>¿La pauta está correcta?</strong><span>El original se conserva y esta versión aún no se incorpora hasta que la aceptes.</span></p>
         <small>Modelo: {model}</small>
-        <button className="primary" onClick={onApply} disabled={applying || proposal.segments.length === 0}>{applying ? "Aplicando..." : "Aplicar y guardar"}</button>
+        <button className="primary accept-pauta" onClick={onApply} disabled={applying || proposal.segments.length === 0}>{applying ? "Guardando pauta..." : "Aceptar y guardar pauta"}</button>
       </footer>
     </section>
   );

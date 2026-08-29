@@ -43,6 +43,7 @@ export const emissionSchema = z.object({
   date: z.string(),
   status: z.enum(["empty", "draft", "ready", "post"]),
   rawText: z.string(),
+  producerName: z.string().default(""),
   segments: z.array(segmentSchema),
   updatedAt: z.string(),
 });
