@@ -10,5 +10,5 @@ programas informativos de RPP.
 
 El prototipo público sigue abriendo desde el `index.html` de la raíz.
 
-- Aplicación funcional: https://rpp-pauta-mockup.vercel.app
+- Aplicación funcional: https://rpp-pauta.vercel.app
 - Mockup estático: https://argokaz.github.io/rpp-pauta-mockup/

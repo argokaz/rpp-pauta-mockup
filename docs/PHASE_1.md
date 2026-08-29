@@ -6,7 +6,7 @@ GitHub conserva todo el código y el historial. GitHub Pages continúa alojando
 el mockup estático, pero no se usará como servidor de la aplicación funcional.
 
 La aplicación funcional está desplegada en producción en
-`https://rpp-pauta-mockup.vercel.app`. El proyecto de Vercel está conectado al
+`https://rpp-pauta.vercel.app`. El proyecto `rpp-pauta` de Vercel está conectado al
 repositorio de GitHub, usa `product/` como Root Directory y publica desde
 `main`.
 

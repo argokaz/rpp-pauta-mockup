@@ -3,7 +3,7 @@
 Aplicación de la Fase 1. Convive con el mockup estático y se despliega en
 Vercel usando `product/` como directorio raíz.
 
-Producción: https://rpp-pauta-mockup.vercel.app
+Producción: https://rpp-pauta.vercel.app
 
 ## Desarrollo local
 
