@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
-import { loadWorkspace, saveWorkspace } from "@/data/local-repository";
+import type { WorkspaceRepository } from "@/data/workspace-repository";
 import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
 
 const days = [
@@ -45,8 +45,8 @@ function emptyEmission(programId: string, date: string): Emission {
   };
 }
 
-function newId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+function newId(): string {
+  return crypto.randomUUID();
 }
 
 function minutes(value: string): number {
@@ -54,22 +54,40 @@ function minutes(value: string): number {
   return hours * 60 + minute;
 }
 
-export function WorkspaceApp() {
+type WorkspaceAppProps = {
+  repository: WorkspaceRepository;
+  accountLabel: string;
+  accountName?: string;
+  canEdit: boolean;
+  onSignOut?: () => void;
+};
+
+export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, onSignOut }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspaceState);
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
   const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
   const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
   const [hydrated, setHydrated] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState("");
   const [now, setNow] = useState<{ date: string; minutes: number } | null>(null);
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
 
   useEffect(() => {
+    let active = true;
     const frame = window.requestAnimationFrame(() => {
-      setWorkspace(loadWorkspace());
-      setHydrated(true);
+      void repository.load().then((loaded) => {
+        if (!active) return;
+        setWorkspace(loaded);
+        setHydrated(true);
+      }).catch((error: unknown) => {
+        if (!active) return;
+        setLoadError(error instanceof Error ? error.message : "No se pudieron cargar los datos.");
+        setHydrated(true);
+      });
       const limaDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
       const limaTime = new Intl.DateTimeFormat("en-GB", {
         timeZone: "America/Lima",
@@ -79,8 +97,11 @@ export function WorkspaceApp() {
       }).format(new Date());
       setNow({ date: limaDate, minutes: minutes(limaTime) });
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [repository]);
 
   const selectedDay = days.find((day) => day.date === selectedDate) ?? days[4];
   const daySlots = useMemo(
@@ -104,15 +125,28 @@ export function WorkspaceApp() {
     window.setTimeout(() => setToast(""), 2500);
   }
 
-  function commit(next: WorkspaceState, message: string) {
-    setWorkspace(next);
-    saveWorkspace(next);
-    setDirty(false);
-    notify(message);
+  async function commit(next: WorkspaceState, message: string) {
+    if (!canEdit) {
+      notify("Tu perfil tiene acceso de lectura.");
+      return false;
+    }
+    setSaving(true);
+    try {
+      const saved = await repository.save(next);
+      setWorkspace(saved);
+      setDirty(false);
+      notify(message);
+      return true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudieron guardar los cambios.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   function updateEmission(change: Partial<Emission>) {
-    if (!selectedEmission) return;
+    if (!selectedEmission || !canEdit) return;
     const nextEmission = { ...selectedEmission, ...change, updatedAt: new Date().toISOString() };
     const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
     setWorkspace({
@@ -124,11 +158,11 @@ export function WorkspaceApp() {
     setDirty(true);
   }
 
-  function saveDraft() {
-    commit(workspace, "Borrador guardado en este navegador.");
+  async function saveDraft() {
+    await commit(workspace, repository.mode === "supabase" ? "Borrador guardado para el equipo." : "Borrador guardado en este navegador.");
   }
 
-  function saveBulletin() {
+  async function saveBulletin() {
     if (!bulletinDraft?.title.trim() || !bulletinDraft.body.trim()) {
       notify("Completa el título y el detalle.");
       return;
@@ -140,11 +174,10 @@ export function WorkspaceApp() {
         ? workspace.bulletins.map((item) => item.id === bulletinDraft.id ? bulletinDraft : item)
         : [...workspace.bulletins, bulletinDraft],
     };
-    commit(next, exists ? "Indicación actualizada." : "Indicación añadida.");
-    setBulletinDraft(null);
+    if (await commit(next, exists ? "Indicación actualizada." : "Indicación añadida.")) setBulletinDraft(null);
   }
 
-  function saveImportantDate() {
+  async function saveImportantDate() {
     if (!dateDraft?.date || !dateDraft.title.trim()) {
       notify("Completa la fecha y su nombre.");
       return;
@@ -156,8 +189,7 @@ export function WorkspaceApp() {
         ? workspace.importantDates.map((item) => item.id === dateDraft.id ? dateDraft : item)
         : [...workspace.importantDates, dateDraft],
     };
-    commit(next, exists ? "Fecha actualizada." : "Fecha añadida.");
-    setDateDraft(null);
+    if (await commit(next, exists ? "Fecha actualizada." : "Fecha añadida.")) setDateDraft(null);
   }
 
   function addSegment() {
@@ -168,7 +200,7 @@ export function WorkspaceApp() {
       status: "draft",
       segments: [
         ...selectedEmission.segments,
-        { id: newId("segment"), startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "" },
+        { id: newId(), startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "" },
       ],
     });
   }
@@ -179,6 +211,14 @@ export function WorkspaceApp() {
       .map((slot) => ({ slot, program: programs.find((program) => program.id === slot.programId) }))
       .filter((item) => item.program)
     : [];
+
+  if (!hydrated) {
+    return <main className="access-shell"><section className="access-panel compact"><strong>Cargando la agenda</strong><p>Estamos recuperando la pauta y los horarios.</p></section></main>;
+  }
+
+  if (loadError) {
+    return <main className="access-shell"><section className="access-panel compact"><strong>No pudimos cargar la agenda</strong><p>{loadError}</p><button className="primary" onClick={() => window.location.reload()}>Reintentar</button></section></main>;
+  }
 
   return (
     <main className="app-shell">
@@ -191,32 +231,32 @@ export function WorkspaceApp() {
           <button disabled title="Disponible en una fase posterior">Archivo</button>
           <button disabled title="Disponible en una fase posterior">Ajustes</button>
         </nav>
-        <div className="local-mode"><span>Modo local</span><strong>Fase 1</strong><p>Los cambios se guardan solo en este navegador.</p></div>
+        <div className="local-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><strong>{repository.mode === "supabase" ? "En línea" : "Fase 1"}</strong><p>{repository.mode === "supabase" ? `Sesión: ${accountName ?? "Usuario RPP"}` : "Los cambios se guardan solo en este navegador."}</p>{onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}</div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div><span>Programación informativa</span><h1>Semana del 24 al 30 de agosto</h1></div>
-          <div className="topbar-actions"><button className="search" disabled title="Disponible en la Fase 2">Buscar invitado, tema o frase | Fase 2</button><span className="avatar">AG</span></div>
+          <div className="topbar-actions"><button className="search" disabled title="Disponible en la Fase 2">Buscar invitado, tema o frase | Fase 2</button><span className="avatar">{accountLabel}</span></div>
         </header>
 
         <div className="workspace-body">
           <section className="notices" aria-label="Indicaciones y fechas importantes">
             <article className="bulletin-panel">
-              <header><strong>Indicaciones de la semana</strong><button onClick={() => setBulletinDraft({ id: newId("bulletin"), title: "", body: "", scope: "Todos los programas" })}>Añadir indicación</button></header>
+              <header><strong>Indicaciones de la semana</strong><button disabled={!canEdit} onClick={() => setBulletinDraft({ id: newId(), title: "", body: "", scope: "Todos los programas" })}>Añadir indicación</button></header>
               <div className="bulletin-list">
                 {workspace.bulletins.map((item) => (
-                  <button className="bulletin-item" key={item.id} onClick={() => setBulletinDraft(item)}>
+                  <button className="bulletin-item" key={item.id} disabled={!canEdit} onClick={() => setBulletinDraft(item)}>
                     <span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
                   </button>
                 ))}
               </div>
             </article>
             <article className="dates-panel">
-              <header><strong>Fechas importantes</strong><button onClick={() => setDateDraft({ id: newId("date"), date: selectedDate, title: "", details: "", plans: {} })}>Añadir fecha</button></header>
+              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {} })}>Añadir fecha</button></header>
               <div className="date-list">
                 {workspace.importantDates.map((item) => (
-                  <button className="date-item" key={item.id} onClick={() => setDateDraft(item)}>
+                  <button className="date-item" key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
                     <time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "").toUpperCase()}</time>
                     <span><strong>{item.title}</strong><small>{item.details}</small></span><b>Abrir</b>
                   </button>
@@ -259,26 +299,26 @@ export function WorkspaceApp() {
               <aside className="editor">
                 {selectedProgram && selectedEmission && selectedSlot ? selectedProgram.managed ? (
                   <>
-                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}</span><h2>{selectedProgram.shortName}</h2></div><select value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
+                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}</span><h2>{selectedProgram.shortName}</h2></div><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
                     <div className="editor-scroll">
-                      <label className="field"><span>Pauta original</span><textarea rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
+                      <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
                       <div className="phase-two"><strong>Ordenar con IA</strong><span>Se activará en la Fase 2, después de validar el guardado manual.</span><button disabled>Próximamente</button></div>
-                      <div className="segments-heading"><div><strong>Escaleta manual</strong><span>{selectedEmission.segments.length} segmentos</span></div><button onClick={addSegment}>Añadir segmento</button></div>
+                      <div className="segments-heading"><div><strong>Escaleta manual</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
                         {selectedEmission.segments.map((segment) => (
                           <article className="segment" key={segment.id}>
-                            <div className="segment-times"><input aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /><span>a</span><input aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></div>
-                            <label><span>Tipo</span><select value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                            <label className="segment-title"><span>Título</span><input value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
-                            <label className="segment-guest"><span>Invitado</span><input value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} placeholder="Nombre y cargo" /></label>
-                            <label className="segment-notes"><span>Notas</span><textarea rows={2} value={segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, notes: event.target.value } : item) })} /></label>
-                            <button className="remove" onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar</button>
+                            <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></div>
+                            <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                            <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
+                            <label className="segment-guest"><span>Invitado</span><input disabled={!canEdit} value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} placeholder="Nombre y cargo" /></label>
+                            <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, notes: event.target.value } : item) })} /></label>
+                            <button className="remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar</button>
                           </article>
                         ))}
                         {!selectedEmission.segments.length && <div className="empty-state compact"><strong>Aún no hay segmentos</strong><p>Puedes pegar el texto original y construir la escaleta manualmente.</p></div>}
                       </div>
                     </div>
-                    <footer className="editor-footer"><span>{dirty ? "Cambios sin guardar" : hydrated ? "Guardado local" : "Cargando datos"}</span><button className="primary" onClick={saveDraft} disabled={!dirty}>Guardar borrador</button></footer>
+                    <footer className="editor-footer"><span>{saving ? "Guardando" : dirty ? "Cambios sin guardar" : repository.mode === "supabase" ? "Guardado para el equipo" : "Guardado local"}</span><button className="primary" onClick={saveDraft} disabled={!dirty || saving || !canEdit}>{saving ? "Guardando..." : "Guardar borrador"}</button></footer>
                   </>
                 ) : (
                   <div className="empty-state">
@@ -296,7 +336,7 @@ export function WorkspaceApp() {
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="bulletin-title">
             <header><div><span>Tablero semanal</span><h2 id="bulletin-title">Editar indicación</h2></div><button onClick={() => setBulletinDraft(null)}>Cerrar</button></header>
-            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option><option>Un programa específico</option></select></label></div>
+            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label></div>
             <footer><button onClick={() => setBulletinDraft(null)}>Cancelar</button><button className="primary" onClick={saveBulletin}>Guardar indicación</button></footer>
           </section>
         </div>

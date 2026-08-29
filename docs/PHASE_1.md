@@ -10,15 +10,15 @@ La aplicación funcional está desplegada en producción en
 repositorio de GitHub, usa `product/` como Root Directory y publica desde
 `main`.
 
-La aplicación vive en `product/` y puede ejecutarse localmente sin cuentas ni
-servicios externos. Su repositorio local guarda datos en el navegador y cumple
-el mismo contrato que usará la futura implementación de Supabase.
+La aplicación vive en `product/`. En producción usa Supabase para autenticación
+y datos compartidos. En desarrollo también puede ejecutarse en modo local, sin
+cuentas ni servicios externos, mediante el mismo contrato de repositorio.
 
 ## Cuándo activar cada servicio
 
 ### Supabase Cloud
 
-Activar antes del primer piloto remoto, cuando la productora general necesite:
+Activo desde la Fase 1 para el primer piloto remoto. Permite:
 
 - entrar desde más de una computadora;
 - conservar un histórico compartido;
@@ -26,9 +26,11 @@ Activar antes del primer piloto remoto, cuando la productora general necesite:
 - asignar permisos por programa;
 - recuperar cambios o auditar ediciones.
 
-El esquema y las políticas RLS ya están versionados en `supabase/`. El paso a
-la nube será aplicar migraciones y reemplazar el repositorio local, no rediseñar
-la aplicación.
+El proyecto remoto se llama `rpp-pauta` y su referencia es
+`ecywwvlijuvspdngbqhh`. El esquema, los datos editoriales iniciales y las
+políticas RLS están versionados en `supabase/`. La aplicación utiliza solamente
+la URL y la clave pública de Supabase; no expone una clave administrativa en el
+navegador.
 
 ### Vercel
 
@@ -52,13 +54,19 @@ directamente en la base.
 - Fechas importantes con planificación por programa.
 - Edición manual de pauta y segmentos.
 - Estados de emisión.
-- Persistencia local validada con Zod.
+- Persistencia compartida en Supabase y alternativa local validada con Zod.
+- Inicio de sesión por enlace seguro para usuarios previamente invitados.
+- Roles editoriales iniciales: superadmin, productora general, productor y
+  lector. El piloto habilita edición completa solo para los dos primeros.
 - Esquema PostgreSQL con perfiles, roles, RLS, emisiones, segmentos, personas,
   apariciones, importaciones crudas y revisiones.
 
 ## Límites actuales
 
-- Los datos locales pertenecen a un solo navegador.
-- No existe autenticación real.
+- La administración de usuarios y asignaciones por programa todavía se hace
+  desde Supabase.
+- El piloto inicial tiene un solo superadmin; aún falta probar la experiencia
+  completa con productores y lectores.
 - No se procesan textos con un LLM.
-- No hay sincronización ni colaboración entre usuarios.
+- El guardado compartido es deliberadamente simple y todavía no resuelve
+  edición simultánea ni conflictos entre usuarios.

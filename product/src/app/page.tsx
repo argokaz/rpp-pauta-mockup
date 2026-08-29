@@ -1,5 +1,5 @@
-import { WorkspaceApp } from "@/components/workspace-app";
+import { AuthShell } from "@/components/auth-shell";
 
 export default function Home() {
-  return <WorkspaceApp />;
+  return <AuthShell />;
 }
