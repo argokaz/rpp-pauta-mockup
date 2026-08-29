@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { workspaceStateSchema, type Emission, type WorkspaceState } from "@/domain/schemas";
+import { workspaceStateSchema, type Emission, type Segment, type WorkspaceState } from "@/domain/schemas";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { normalizePersonName } from "@/domain/people-history";
 
@@ -344,5 +344,66 @@ export function createSupabaseWorkspaceRepository(
     assertNoError(error, "No se pudo actualizar el estado de la pauta");
   }
 
-  return { mode: "supabase", load, save, saveEmissionStatus, confirmImport };
+  async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
+    return save({ bulletins: [], importantDates: [], emissions: [emission], people: [] });
+  }
+
+  async function savePostSegment(emission: Emission, segment: Segment, sortOrder: number): Promise<void> {
+    const { data: savedEmission, error: emissionError } = await supabase
+      .from("emissions")
+      .upsert({
+        program_id: emission.programId,
+        emission_date: emission.date,
+        status: emission.status,
+        raw_text: emission.rawText,
+        producer_name: emission.producerName,
+        post_review_status: emission.postPauta?.reviewStatus ?? "capture",
+        post_notes: emission.postPauta?.notes ?? "",
+        media_source_type: emission.postPauta?.sourceType ?? "none",
+        media_source_url: emission.postPauta?.sourceUrl ?? "",
+        transcript_status: emission.postPauta?.transcriptStatus ?? "none",
+        producer_id: userId,
+      }, { onConflict: "program_id,emission_date" })
+      .select("id")
+      .single();
+    assertNoError(emissionError, "No se pudo preparar el registro de emisión");
+    if (!savedEmission) throw new Error("Supabase no devolvió la emisión para guardar el bloque.");
+
+    const { error: segmentError } = await supabase.from("segments").upsert({
+      emission_id: savedEmission.id,
+      sort_order: sortOrder,
+      planned_start: segment.startTime || null,
+      planned_end: segment.endTime || null,
+      actual_start: segment.actualStart || null,
+      actual_end: segment.actualEnd || null,
+      disposition: segment.disposition ?? null,
+      segment_type: segment.type,
+      sequence_name: segment.sequence || null,
+      slug: segment.title || "Segmento",
+      topic: segment.topic || null,
+      focus: segment.focus || null,
+      guest_text: segment.guest || null,
+      guest_role: segment.guestRole || null,
+      audience_question: segment.audienceQuestion || null,
+      production_cues: segment.productionCues ?? [],
+      notes: segment.notes,
+      extraction_confidence: segment.confidence ?? null,
+      source_excerpt: segment.sourceExcerpt || null,
+      post_summary: segment.postSummary ?? "",
+      key_quote: segment.keyQuote ?? "",
+      quote_verified: segment.quoteVerified ?? false,
+    }, { onConflict: "emission_id,sort_order" });
+    assertNoError(segmentError, "No se pudo guardar este bloque de la post-pauta");
+  }
+
+  function subscribe(onChange: () => void): () => void {
+    const channel = supabase
+      .channel(`workspace-live-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "emissions" }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "segments" }, onChange)
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }
+
+  return { mode: "supabase", load, save, saveProgramEmission, saveEmissionStatus, savePostSegment, subscribe, confirmImport };
 }

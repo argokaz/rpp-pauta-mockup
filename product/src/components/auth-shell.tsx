@@ -14,7 +14,7 @@ type Profile = {
   app_role: "superadmin" | "general_producer" | "producer" | "viewer";
 };
 
-const editableRoles = new Set(["superadmin", "general_producer"]);
+const editableRoles = new Set(["superadmin", "general_producer", "producer"]);
 
 export function AuthShell() {
   const remoteMode = isSupabaseConfigured();
@@ -24,6 +24,7 @@ export function AuthShell() {
   const [initialWorkspace, setInitialWorkspace] = useState<WorkspaceState | null>(null);
   const [loading, setLoading] = useState(remoteMode);
   const [authError, setAuthError] = useState("");
+  const [programIds, setProgramIds] = useState<string[]>([]);
   const profileUserIdRef = useRef<string | null>(null);
   const sessionUserId = session?.user.id ?? null;
   const remoteRepository = useMemo(
@@ -59,6 +60,7 @@ export function AuthShell() {
         profileUserIdRef.current = nextUserId;
         setProfile(null);
         setInitialWorkspace(null);
+        setProgramIds([]);
       }
       setSession(nextSession);
       setLoading(false);
@@ -75,14 +77,16 @@ export function AuthShell() {
     let active = true;
     void Promise.all([
       supabase.from("profiles").select("full_name,app_role").eq("id", sessionUserId).single(),
+      supabase.from("program_memberships").select("program_id").eq("user_id", sessionUserId),
       remoteRepository.load(),
-    ]).then(([profileResult, loadedWorkspace]) => {
+    ]).then(([profileResult, membershipResult, loadedWorkspace]) => {
         if (!active) return;
         if (profileResult.error) setAuthError("No se pudo cargar tu perfil editorial.");
         else {
           profileUserIdRef.current = sessionUserId;
           setAuthError("");
           setProfile(profileResult.data as Profile);
+          setProgramIds((membershipResult.data ?? []).map((membership) => membership.program_id));
           setInitialWorkspace(loadedWorkspace);
         }
       }).catch((error: unknown) => {
@@ -113,6 +117,7 @@ export function AuthShell() {
       canEdit={editableRoles.has(profile.app_role)}
       getAccessToken={getAccessToken}
       onSignOut={() => { void supabase.auth.signOut(); }}
+      producerProgramId={profile.app_role === "producer" ? programIds[0] : undefined}
     />
   );
 }
@@ -127,9 +132,12 @@ function SignIn({ supabase, initialError }: { supabase: ReturnType<typeof getSup
     event.preventDefault();
     setSending(true);
     setMessage("");
-    const email = username.trim().toLowerCase() === "demo"
+    const normalizedUsername = username.trim().toLowerCase();
+    const email = normalizedUsername === "demo"
       ? "demo@rpp-pauta.local"
-      : username.trim();
+      : normalizedUsername === "produccion"
+        ? "produccion@rpp-pauta.com"
+        : username.trim();
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,

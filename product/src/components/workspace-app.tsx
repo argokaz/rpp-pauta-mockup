@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
+import { ArchiveSearch } from "@/components/archive-search";
 import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
@@ -196,6 +197,7 @@ type WorkspaceAppProps = {
   canEdit: boolean;
   getAccessToken?: (forceRefresh?: boolean) => Promise<string>;
   onSignOut?: () => void;
+  producerProgramId?: string;
 };
 
 type WorkspaceView = "agenda" | "program" | "desk" | "reception" | "post";
@@ -208,7 +210,7 @@ const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; de
   { id: "post", code: "E", label: "Post", description: "Registrar lo emitido" },
 ];
 
-export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut }: WorkspaceAppProps) {
+export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramId }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => initialWorkspace ?? initialWorkspaceState);
   const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
@@ -228,6 +230,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
+  const [showArchiveSearch, setShowArchiveSearch] = useState(false);
+  const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramId));
+  const [producerSection, setProducerSection] = useState<"today" | "people" | "post">("today");
+  const [producerPeopleQuery, setProducerPeopleQuery] = useState("");
   const [kanbanSavingId, setKanbanSavingId] = useState("");
   const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
@@ -290,6 +296,14 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    if (!repository.subscribe) return;
+    return repository.subscribe(() => {
+      if (dirty || saving) return;
+      void repository.load().then((loaded) => setWorkspace(loaded)).catch(() => undefined);
+    });
+  }, [dirty, repository, saving]);
+
   const effectiveEmissions = useMemo(
     () => mergeDemoEmissions(workspace.emissions, demoOverrides, demoDataEnabled),
     [demoDataEnabled, demoOverrides, workspace.emissions],
@@ -304,8 +318,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const daySlots = useMemo(
     () => scheduleSlots
       .filter((slot) => slot.dayOfWeek === selectedDay.dayOfWeek)
+      .filter((slot) => !producerExperience || slot.programId === (producerProgramId ?? "encendidos"))
       .filter((slot) => programFilter === "all" || programs.find((program) => program.id === slot.programId)?.managed),
-    [programFilter, selectedDay.dayOfWeek],
+    [producerExperience, producerProgramId, programFilter, selectedDay.dayOfWeek],
   );
 
   const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId)
@@ -364,7 +379,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
     setSaving(true);
     try {
-      const saved = await repository.save(stripDemoData(next));
+      const cleanNext = stripDemoData(next);
+      const scopedEmission = producerProgramId
+        ? cleanNext.emissions.find((emission) => emission.programId === producerProgramId && emission.date === selectedDate)
+        : undefined;
+      const saved = scopedEmission && repository.saveProgramEmission
+        ? await repository.saveProgramEmission(scopedEmission)
+        : await repository.save(cleanNext);
       setWorkspace(saved);
       setDirty(false);
       notify(message);
@@ -417,12 +438,28 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     });
   }
 
+  async function persistPostSegment(segmentId: string, change: Partial<Segment> = {}) {
+    if (!selectedEmission) return;
+    const hadUnsavedChanges = dirty;
+    const sortOrder = selectedEmission.segments.findIndex((segment) => segment.id === segmentId);
+    if (sortOrder < 0) return;
+    const nextSegment = { ...selectedEmission.segments[sortOrder], ...change };
+    updatePostSegment(segmentId, change);
+    if (!repository.savePostSegment || isDemoId(selectedEmission.id)) return;
+    try {
+      await repository.savePostSegment(selectedEmission, nextSegment, sortOrder);
+      if (!hadUnsavedChanges) setDirty(false);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudo guardar este bloque.");
+    }
+  }
+
   function liveTimeOr(fallback: string): string {
     return now?.date === selectedDate ? now.time : fallback;
   }
 
   function markSegmentStart(segment: Segment) {
-    updatePostSegment(segment.id, {
+    void persistPostSegment(segment.id, {
       actualStart: liveTimeOr(segment.startTime),
       actualEnd: undefined,
       disposition: undefined,
@@ -430,7 +467,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function markSegmentEnd(segment: Segment, disposition: NonNullable<Segment["disposition"]> = "aired") {
-    updatePostSegment(segment.id, {
+    void persistPostSegment(segment.id, {
       actualStart: segment.actualStart || liveTimeOr(segment.startTime),
       actualEnd: liveTimeOr(segment.endTime),
       disposition,
@@ -438,11 +475,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function markSegmentSkipped(segment: Segment) {
-    updatePostSegment(segment.id, { actualStart: undefined, actualEnd: undefined, disposition: "skipped" });
+    void persistPostSegment(segment.id, { actualStart: undefined, actualEnd: undefined, disposition: "skipped" });
   }
 
   function markSegmentAsPlanned(segment: Segment) {
-    updatePostSegment(segment.id, { actualStart: segment.startTime, actualEnd: segment.endTime, disposition: "aired" });
+    void persistPostSegment(segment.id, { actualStart: segment.startTime, actualEnd: segment.endTime, disposition: "aired" });
   }
 
   function addLiveSegment() {
@@ -703,6 +740,15 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setAiResult(null);
     setCaptureCollapsed(false);
     setExpandedSavedSegments(new Set());
+  }
+
+  function openProducerExperience() {
+    if (selectedProgram?.id !== "encendidos") {
+      notify("El mockup de producción está disponible por ahora para Encendidos.");
+      return;
+    }
+    setProducerSection("today");
+    setProducerExperience(true);
   }
 
   function setProducerName(value: string) {
@@ -973,13 +1019,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                           <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
                           <div>
                             <div className="post-actual-times">
-                              <label><span>Inicio real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} /></label>
-                              <label><span>Fin real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} /></label>
-                              <label><span>Resultado</span><select disabled={!canEdit} value={disposition ?? ""} onChange={(event) => updatePostSegment(segment.id, { disposition: (event.target.value || undefined) as Segment["disposition"] })}><option value="">Pendiente</option><option value="aired">Emitido</option><option value="partial">Parcial</option><option value="skipped">No salió</option><option value="added_live">Añadido en vivo</option></select></label>
+                              <label><span>Inicio real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                              <label><span>Fin real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                              <label><span>Resultado</span><select disabled={!canEdit} value={disposition ?? ""} onChange={(event) => void persistPostSegment(segment.id, { disposition: (event.target.value || undefined) as Segment["disposition"] })}><option value="">Pendiente</option><option value="aired">Emitido</option><option value="partial">Parcial</option><option value="skipped">No salió</option><option value="added_live">Añadido en vivo</option></select></label>
                             </div>
-                            <label className="post-wide-field"><span>Qué se dijo / qué ocurrió</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} placeholder={disposition === "skipped" ? "Motivo por el que no salió, si corresponde" : "Resumen breve, factual y útil para encontrar este bloque después"} /></label>
-                            <label className="post-wide-field"><span>Cita o idea destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} placeholder="No uses comillas hasta comprobar el texto con el audio" /></label>
-                            <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => updatePostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es una cita textual y la verifiqué con el audio</span></label>
+                            <label className="post-wide-field"><span>Qué se dijo / qué ocurrió</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} placeholder={disposition === "skipped" ? "Motivo por el que no salió, si corresponde" : "Resumen breve, factual y útil para encontrar este bloque después"} /></label>
+                            <label className="post-wide-field"><span>Cita o idea destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} onBlur={() => void persistPostSegment(segment.id)} placeholder="No uses comillas hasta comprobar el texto con el audio" /></label>
+                            <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => void persistPostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es una cita textual y la verifiqué con el audio</span></label>
                           </div>
                         </details>
                       </article>
@@ -1007,6 +1053,118 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           </section>
         </div>
       </section>
+    );
+  }
+
+  function renderProducerPortal() {
+    const producerProgram = programs.find((program) => program.id === (producerProgramId ?? "encendidos"));
+    const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek));
+    const guestSegments = selectedEmission?.segments.filter((segment) => segment.guest.trim()) ?? [];
+    const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
+    const matchingPeople = effectivePeople.filter((person) => {
+      if (!normalizedPeopleQuery) return true;
+      return normalizePersonName([
+        person.displayName,
+        person.primaryRole,
+        person.organization,
+        ...person.appearances.flatMap((appearance) => [appearance.topic, appearance.focus, appearance.summary]),
+      ].join(" ")).includes(normalizedPeopleQuery);
+    });
+
+    return (
+      <main className="producer-portal">
+        <header className="producer-topbar">
+          <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><strong>{producerProgram?.shortName ?? "Mi programa"}</strong><small>Espacio de producción</small></span></div>
+          <nav aria-label="Secciones de producción">
+            <button className={producerSection === "today" ? "active" : ""} onClick={() => setProducerSection("today")}>Pauta de hoy</button>
+            <button className={producerSection === "people" ? "active" : ""} onClick={() => setProducerSection("people")}>Invitados</button>
+            <button className={producerSection === "post" ? "active" : ""} onClick={() => setProducerSection("post")}>Post-pauta</button>
+          </nav>
+          <div className="producer-account">
+            {!producerProgramId && <button onClick={() => setProducerExperience(false)}>Volver a vista general</button>}
+            {producerProgramId && onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
+            <b>{accountLabel}</b>
+          </div>
+        </header>
+
+        <section className="producer-shared-board" aria-label="Información compartida para todos los programas">
+          <div className="producer-bulletins">
+            <span>Indicaciones de la semana</span>
+            {workspace.bulletins.map((bulletin) => <article key={bulletin.id}><strong>{bulletin.title}</strong><p>{bulletin.body}</p></article>)}
+          </div>
+          <div className="producer-dates">
+            <span>Fechas importantes</span>
+            {workspace.importantDates.slice(0, 3).map((item) => <button key={item.id} onClick={() => notify(`${item.title}: ${item.details}`)}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong></button>)}
+          </div>
+        </section>
+
+        <section className="producer-content">
+          <header className="producer-page-heading">
+            <div><span>{selectedDay.label} · {selectedSlot?.startTime ?? "10:00"}–{selectedSlot?.endTime ?? "12:30"}</span><h1>{producerSection === "today" ? "Pauta de hoy" : producerSection === "people" ? "Base de invitados" : "Post-pauta"}</h1><p>{producerSection === "today" ? "Todo lo necesario para preparar Encendidos, sin salir de esta pantalla." : producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p></div>
+            <div className="producer-day-tabs" aria-label="Días del programa">{producerDays.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseCaptureDate(day.date)}>{day.label}</button>)}</div>
+          </header>
+
+          {producerSection === "today" && (
+            <>
+              <section className="producer-today-bar">
+                <div><span>Estado de la pauta</span><strong>{statusLabel[selectedEmission?.status ?? "empty"]}</strong></div>
+                <div><span>Bloques</span><strong>{selectedEmission?.segments.length ?? 0}</strong></div>
+                <div><span>Invitados</span><strong>{guestSegments.length}</strong></div>
+                <div className="producer-today-actions"><button onClick={() => setShowPeopleDirectory(true)}>Buscar invitado</button><button className="primary" disabled={!dirty || saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando…" : dirty ? "Guardar cambios" : "Todo guardado"}</button></div>
+              </section>
+
+              <div className="producer-today-grid">
+                <section className="producer-rundown-panel">
+                  <header><div><span>Escaleta editable</span><h2>{producerProgram?.shortName}</h2></div><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></header>
+                  {renderSavedRundown()}
+                </section>
+
+                <aside className="producer-side-panel">
+                  <details className="producer-import-card">
+                    <summary><span><strong>Pauta recibida</strong><small>Pegar texto de WhatsApp o email</small></span><b>Abrir</b></summary>
+                    <div>
+                      <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
+                      <textarea disabled={!canEdit || !selectedEmission} rows={10} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega el texto completo; Luna lo ordenará." />
+                      <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando…" : "Ordenar con Luna"}</button>
+                    </div>
+                  </details>
+
+                  <section className="producer-guests-card">
+                    <header><div><span>Invitados en pauta</span><strong>{guestSegments.length} confirmados</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
+                    <div>{guestSegments.map((segment) => <button key={segment.id} onClick={() => setShowPeopleDirectory(true)}><span>{segment.guest.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{segment.guest}</strong><small>{segment.guestRole || segment.topic || "Cargo por completar"}</small></div></button>)}</div>
+                    {!guestSegments.length && <p>Añade un invitado desde cualquier bloque de la escaleta.</p>}
+                  </section>
+
+                  <section className="producer-next-card"><span>Siguiente paso</span><strong>{selectedEmission?.status === "ready" ? "La pauta está lista para salir" : "Revisa horarios e invitados"}</strong><p>Cuando termine el programa, la misma escaleta estará disponible en Post-pauta.</p><button disabled={!canEdit || !selectedEmission?.segments.length} onClick={() => updateEmission({ status: "ready" })}>Marcar pauta como lista</button></section>
+                </aside>
+              </div>
+
+              {aiResult && <div className="producer-ai-review"><PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} /></div>}
+            </>
+          )}
+
+          {producerSection === "people" && (
+            <section className="producer-people-browser">
+              <header><label><span>Buscar por persona, especialidad o tema tratado</span><input autoFocus type="search" value={producerPeopleQuery} onChange={(event) => setProducerPeopleQuery(event.target.value)} placeholder="Ej. psicología infantil, tecnología, economía" /></label><button onClick={() => setShowArchiveSearch(true)}>Buscar entrevistas y temas</button></header>
+              <div>{matchingPeople.map((person) => {
+                const latest = person.appearances[0];
+                return <article key={person.id}><span className="person-initials">{person.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.displayName}</strong><small>{person.primaryRole || "Especialidad por completar"}{person.organization ? ` · ${person.organization}` : ""}</small><p>{latest?.summary || latest?.topic || "Aún no tiene temas registrados."}</p></div><footer><span>{person.appearances.length} apariciones · contacto por completar</span><button onClick={() => setShowPeopleDirectory(true)}>Ver historial</button></footer></article>;
+              })}</div>
+              {!matchingPeople.length && <div className="empty-state compact"><strong>No encontramos especialistas</strong><p>Prueba con otro tema o registra una persona nueva desde la escaleta.</p></div>}
+            </section>
+          )}
+
+          {producerSection === "post" && <div className="producer-post-embed">{renderPostPauta()}</div>}
+        </section>
+
+        <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
+        <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
+        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
+        {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} onClose={() => setShowArchiveSearch(false)} />}
+        <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
+        {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
+        <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
+      </main>
     );
   }
 
@@ -1079,6 +1237,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     return <main className="access-shell"><section className="access-panel compact"><strong>No pudimos cargar la agenda</strong><p>{loadError}</p><button className="primary" onClick={() => window.location.reload()}>Reintentar</button></section></main>;
   }
 
+  if (producerExperience) return renderProducerPortal();
+
   return (
     <main className="product-shell">
       <header className="mode-switcher">
@@ -1115,7 +1275,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <button className="active">Agenda semanal <b>35</b></button>
           <button onClick={() => notify("La vista de indicaciones se habilitará después del piloto.")}>Indicaciones <b>{workspace.bulletins.length}</b></button>
           <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{effectivePeople.length}</b></button>
-          <button onClick={() => notify("El archivo histórico se habilitará en la siguiente fase.")}>Archivo</button>
+          <button onClick={() => setShowArchiveSearch(true)}>Archivo</button>
           <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
         </nav>
         <div className="side-summary"><span>Semana 35</span><strong>22 programas</strong><small>Administrados dentro de la señal completa</small></div>
@@ -1195,7 +1355,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <aside className="editor">
                 {selectedProgram && selectedEmission && selectedSlot ? selectedProgram.managed ? (
                   <>
-                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
+                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><div className="editor-header-actions">{selectedProgram.id === "encendidos" && <button onClick={openProducerExperience}>Ver como producción</button>}<select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></div></header>
                     <div className="editor-scroll">
                       <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
                       <div className="phase-two">
@@ -1283,6 +1443,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       </datalist>
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
+      {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} onClose={() => setShowArchiveSearch(false)} />}
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
 

@@ -5,9 +5,25 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.12.0";
+export const CURRENT_VERSION = "0.13.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.13.0",
+    date: "2026-08-29",
+    title: "Espacio de producción por programa",
+    changes: [
+      "El usuario produccion abre una interfaz limitada a Encendidos con su pauta, invitados y post-pauta.",
+      "La vista del productor reutiliza la prepauta completa de Encendidos y elimina programas y controles que no necesita.",
+      "Indicaciones semanales y fechas importantes siguen siendo compartidas entre la vista general y cada programa.",
+      "Laura puede abrir Encendidos con Ver como producción y volver al dashboard general sin cambiar de cuenta.",
+      "El archivo permite buscar por invitado, tema, programa, fecha, contenido, resumen y cita.",
+      "Las acciones importantes de Post-pauta se guardan por bloque y los cambios de emisiones y segmentos se sincronizan en tiempo real.",
+      "La cuenta de producción sólo puede escribir en el programa asignado mediante membresías y políticas de Supabase.",
+      "Pauta original tiene una altura independiente y ya no crece o se desplaza junto con Vista ordenada.",
+      "La interfaz de Encendidos fue adaptada para teléfonos desde 375 px y prioriza la escaleta antes que las herramientas secundarias.",
+    ],
+  },
   {
     version: "0.12.0",
     date: "2026-08-29",
