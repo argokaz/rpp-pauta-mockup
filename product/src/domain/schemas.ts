@@ -62,10 +62,38 @@ export const importantDateSchema = z.object({
   plans: z.record(z.string(), z.string()),
 });
 
+export const appearanceRoleSchema = z.enum(["host", "guest", "producer", "reporter", "specialist", "other"]);
+
+export const appearanceSchema = z.object({
+  id: z.string(),
+  personId: z.string(),
+  programId: z.string(),
+  date: z.string(),
+  role: appearanceRoleSchema,
+  roleDescription: z.string(),
+  summary: z.string(),
+  segmentTitle: z.string(),
+  topic: z.string(),
+  focus: z.string(),
+  sourceExcerpt: z.string(),
+});
+
+export const personSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  normalizedName: z.string(),
+  aliases: z.array(z.string()),
+  primaryRole: z.string(),
+  organization: z.string(),
+  notes: z.string(),
+  appearances: z.array(appearanceSchema),
+});
+
 export const workspaceStateSchema = z.object({
   bulletins: z.array(bulletinSchema),
   importantDates: z.array(importantDateSchema),
   emissions: z.array(emissionSchema),
+  people: z.array(personSchema).default([]),
 });
 
 export type Program = z.infer<typeof programSchema>;
@@ -74,4 +102,6 @@ export type Segment = z.infer<typeof segmentSchema>;
 export type Emission = z.infer<typeof emissionSchema>;
 export type Bulletin = z.infer<typeof bulletinSchema>;
 export type ImportantDate = z.infer<typeof importantDateSchema>;
+export type Appearance = z.infer<typeof appearanceSchema>;
+export type Person = z.infer<typeof personSchema>;
 export type WorkspaceState = z.infer<typeof workspaceStateSchema>;

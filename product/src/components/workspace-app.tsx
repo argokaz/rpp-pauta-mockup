@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { PautaAiReview } from "@/components/pauta-ai-review";
+import { PeopleDirectory } from "@/components/people-directory";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
+import { normalizePersonName } from "@/domain/people-history";
 import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
 
 const days = [
@@ -98,6 +100,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -230,6 +233,18 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
     });
   }
 
+  function updateSegmentGuest(segment: Segment, value: string) {
+    if (!selectedEmission) return;
+    const knownPerson = workspace.people.find((person) => person.normalizedName === normalizePersonName(value));
+    updateEmission({
+      segments: selectedEmission.segments.map((item) => item.id === segment.id ? {
+        ...item,
+        guest: value,
+        guestRole: knownPerson?.primaryRole ?? "",
+      } : item),
+    });
+  }
+
   async function orderWithAi() {
     if (!selectedEmission || !selectedProgram || !selectedSlot || !getAccessToken) {
       notify("La IA requiere una sesión activa en la base compartida.");
@@ -322,7 +337,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
               <label><span>Fin</span><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></label>
               <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
               <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
-              <label><span>Invitado</span><input disabled={!canEdit} value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} /></label>
+              <label><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} /></label>
               <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
               <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
               <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
@@ -394,7 +409,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
@@ -475,7 +490,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
         <nav className="main-nav" aria-label="Navegación principal">
           <button className="active">Agenda semanal <b>35</b></button>
           <button onClick={() => notify("La vista de indicaciones se habilitará después del piloto.")}>Indicaciones <b>{workspace.bulletins.length}</b></button>
-          <button onClick={() => notify("La búsqueda de personas se habilitará en la siguiente fase.")}>Personas</button>
+          <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{workspace.people.length}</b></button>
           <button onClick={() => notify("El archivo histórico se habilitará en la siguiente fase.")}>Archivo</button>
           <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
         </nav>
@@ -491,7 +506,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
       <section className="workspace">
         <header className="topbar">
           <div><span>Programación informativa</span><h1>Semana del 24 al 30 de agosto</h1></div>
-          <div className="topbar-actions"><button className="search" onClick={() => notify("La búsqueda se habilitará en la siguiente fase.")}>Buscar invitado, tema o frase</button><span className="avatar">{accountLabel}</span></div>
+          <div className="topbar-actions"><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
         </header>
 
         <div className="workspace-body">
@@ -565,7 +580,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
                         <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
                       </div>
                       {aiResult && (
-                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
                       )}
                       <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
@@ -574,7 +589,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
                             <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></div>
                             <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                             <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
-                            <label className="segment-guest"><span>Invitado</span><input disabled={!canEdit} value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} placeholder="Nombre y cargo" /></label>
+                            <label className="segment-guest"><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} placeholder="Empieza a escribir un nombre" /></label>
                             <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, notes: event.target.value } : item) })} /></label>
                             <details className="segment-details">
                               <summary>Detalles extraídos</summary>
@@ -634,6 +649,12 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
           </section>
         </div>
       )}
+
+      <datalist id="known-guests">
+        {workspace.people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
+      </datalist>
+
+      {showPeopleDirectory && <PeopleDirectory people={workspace.people} onClose={() => setShowPeopleDirectory(false)} />}
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
 

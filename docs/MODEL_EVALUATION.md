@@ -68,7 +68,7 @@ reales, con el mismo prompt, esquema estructurado y razonamiento bajo.
 | Criterio | GPT-5.6 Luna | GPT-5.6 Terra |
 | --- | --- | --- |
 | Esquema válido | 4 de 4 | 4 de 4 |
-| Encendidos: horarios, cinco invitados, bloque vacío y pase final | Correcto en 2 de 2 rondas | Correcto en 2 de 2 rondas |
+| Encendidos: horarios, cuatro invitados, bloque vacío y pase final | Correcto en 2 de 2 rondas | Correcto en 2 de 2 rondas |
 | Las Noticias: personas mencionadas no tratadas como invitados | Correcto en 1 de 2 rondas | Correcto en 2 de 2 rondas |
 | Fecha normalizada a ISO | 2 de 4 respuestas | 4 de 4 respuestas |
 | Latencia promedio observada | 12.0 s | 11.0 s |

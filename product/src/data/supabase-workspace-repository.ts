@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { workspaceStateSchema, type Emission, type WorkspaceState } from "@/domain/schemas";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
+import { normalizePersonName } from "@/domain/people-history";
 
 const WEEK_START = "2026-08-24";
 
@@ -28,15 +29,28 @@ export function createSupabaseWorkspaceRepository(
   userId: string,
 ): WorkspaceRepository {
   async function load(): Promise<WorkspaceState> {
-    const [bulletinsResult, datesResult, emissionsResult] = await Promise.all([
+    const [bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
       supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
       supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt)").order("emission_date"),
+      supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
+      supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,created_at"),
     ]);
 
     assertNoError(bulletinsResult.error, "No se pudieron cargar las indicaciones");
     assertNoError(datesResult.error, "No se pudieron cargar las fechas");
     assertNoError(emissionsResult.error, "No se pudieron cargar las pautas");
+    assertNoError(peopleResult.error, "No se pudo cargar el directorio de personas");
+    assertNoError(appearancesResult.error, "No se pudo cargar el historial de apariciones");
+
+    const emissionContext = new Map(
+      (emissionsResult.data ?? []).map((emission) => [emission.id, emission]),
+    );
+    const segmentContext = new Map(
+      (emissionsResult.data ?? []).flatMap((emission) =>
+        (emission.segments ?? []).map((segment) => [segment.id, segment] as const),
+      ),
+    );
 
     return workspaceStateSchema.parse({
       bulletins: (bulletinsResult.data ?? []).map((row) => ({
@@ -81,11 +95,63 @@ export function createSupabaseWorkspaceRepository(
             sourceExcerpt: segment.source_excerpt ?? "",
           })),
       })),
+      people: (peopleResult.data ?? []).map((row) => ({
+        id: row.id,
+        displayName: row.display_name,
+        normalizedName: row.normalized_name,
+        aliases: Array.isArray(row.aliases)
+          ? row.aliases.filter((alias): alias is string => typeof alias === "string")
+          : [],
+        primaryRole: row.primary_role ?? "",
+        organization: row.organization ?? "",
+        notes: row.notes,
+        appearances: (appearancesResult.data ?? [])
+          .filter((appearance) => appearance.person_id === row.id)
+          .map((appearance) => {
+            const emission = emissionContext.get(appearance.emission_id);
+            const segment = appearance.segment_id ? segmentContext.get(appearance.segment_id) : undefined;
+            return {
+              id: appearance.id,
+              personId: row.id,
+              programId: emission?.program_id ?? "",
+              date: emission?.emission_date ?? appearance.created_at.slice(0, 10),
+              role: appearance.appearance_role,
+              roleDescription: appearance.role_description ?? "",
+              summary: appearance.summary ?? "",
+              segmentTitle: appearance.segment_title ?? segment?.slug ?? "Aparición en el programa",
+              topic: appearance.topic ?? segment?.topic ?? "",
+              focus: appearance.focus ?? segment?.focus ?? "",
+              sourceExcerpt: appearance.source_excerpt ?? segment?.source_excerpt ?? "",
+            };
+          })
+          .sort((a, b) => b.date.localeCompare(a.date)),
+      })),
     });
   }
 
   async function save(state: WorkspaceState): Promise<WorkspaceState> {
     workspaceStateSchema.parse(state);
+    const personIds = new Map<string, string>();
+
+    async function ensurePersonId(displayName: string, primaryRole: string): Promise<string> {
+      const normalizedName = normalizePersonName(displayName);
+      const cached = personIds.get(normalizedName);
+      if (cached) return cached;
+
+      const { data, error } = await supabase
+        .from("people")
+        .upsert({
+          display_name: displayName.trim(),
+          normalized_name: normalizedName,
+          ...(primaryRole.trim() ? { primary_role: primaryRole.trim() } : {}),
+        }, { onConflict: "normalized_name" })
+        .select("id")
+        .single();
+      assertNoError(error, `No se pudo registrar a ${displayName}`);
+      if (!data) throw new Error(`Supabase no devolvió el registro de ${displayName}.`);
+      personIds.set(normalizedName, data.id);
+      return data.id;
+    }
 
     for (const bulletin of state.bulletins) {
       const { error } = await supabase.from("bulletins").upsert({
@@ -146,6 +212,13 @@ export function createSupabaseWorkspaceRepository(
       assertNoError(emissionError, "No se pudo guardar la pauta");
       if (!savedEmission) throw new Error("Supabase no devolvió la pauta guardada.");
 
+      const { error: deleteAppearancesError } = await supabase
+        .from("appearances")
+        .delete()
+        .eq("emission_id", savedEmission.id)
+        .eq("appearance_role", "guest");
+      assertNoError(deleteAppearancesError, "No se pudo actualizar el histórico de personas");
+
       const { error: deleteSegmentsError } = await supabase
         .from("segments")
         .delete()
@@ -153,7 +226,7 @@ export function createSupabaseWorkspaceRepository(
       assertNoError(deleteSegmentsError, "No se pudieron actualizar los segmentos");
 
       if (emission.segments.length) {
-        const { error: segmentsError } = await supabase.from("segments").insert(
+        const { data: savedSegments, error: segmentsError } = await supabase.from("segments").insert(
           emission.segments.map((segment, index) => ({
             emission_id: savedEmission.id,
             sort_order: index,
@@ -172,8 +245,37 @@ export function createSupabaseWorkspaceRepository(
             extraction_confidence: segment.confidence ?? null,
             source_excerpt: segment.sourceExcerpt || null,
           })),
-        );
+        ).select("id,sort_order");
         assertNoError(segmentsError, "No se pudieron guardar los segmentos");
+
+        const appearances = [];
+        for (const [index, segment] of emission.segments.entries()) {
+          if (!segment.guest.trim()) continue;
+          const savedSegment = savedSegments?.find((item) => item.sort_order === index);
+          if (!savedSegment) throw new Error("No se pudo vincular una aparición con su segmento.");
+          const personId = await ensurePersonId(segment.guest, segment.guestRole ?? "");
+          const collaborator = segment.type === "sports"
+            && !(segment.guestRole ?? "").trim()
+            && segment.title.toLocaleLowerCase("es").includes(`con ${segment.guest.toLocaleLowerCase("es")}`);
+          appearances.push({
+            emission_id: savedEmission.id,
+            segment_id: savedSegment.id,
+            person_id: personId,
+            appearance_role: collaborator ? "other" : "guest",
+            role_description: segment.guestRole || null,
+            summary: segment.focus || segment.topic || segment.notes || null,
+            segment_title: segment.title || null,
+            topic: segment.topic || null,
+            focus: segment.focus || null,
+            source_excerpt: segment.sourceExcerpt || null,
+            quotes: [],
+          });
+        }
+
+        if (appearances.length) {
+          const { error: appearancesError } = await supabase.from("appearances").insert(appearances);
+          assertNoError(appearancesError, "No se pudo guardar el histórico de invitados");
+        }
       }
     }
 

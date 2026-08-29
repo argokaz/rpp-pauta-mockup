@@ -1,6 +1,8 @@
 "use client";
 
 import type { PautaProposal, StructuredPautaSegment } from "@/domain/pauta-import";
+import { normalizePersonName } from "@/domain/people-history";
+import type { Person } from "@/domain/schemas";
 
 const typeLabels: Record<StructuredPautaSegment["type"], string> = {
   opening: "Apertura",
@@ -56,12 +58,13 @@ type PautaAiReviewProps = {
   proposal: PautaProposal;
   model: string;
   applying: boolean;
+  people: Person[];
   onChange: (proposal: PautaProposal) => void;
   onClose: () => void;
   onApply: () => void;
 };
 
-export function PautaAiReview({ proposal, model, applying, onChange, onClose, onApply }: PautaAiReviewProps) {
+export function PautaAiReview({ proposal, model, applying, people, onChange, onClose, onApply }: PautaAiReviewProps) {
   function updateSegment(index: number, change: Partial<StructuredPautaSegment>) {
     onChange({
       ...proposal,
@@ -75,6 +78,14 @@ export function PautaAiReview({ proposal, model, applying, onChange, onClose, on
 
   function addSegment() {
     onChange({ ...proposal, segments: [...proposal.segments, { ...emptySegment }] });
+  }
+
+  function updateGuest(index: number, value: string) {
+    const knownPerson = people.find((person) => person.normalizedName === normalizePersonName(value));
+    updateSegment(index, {
+      guestName: value,
+      guestRole: knownPerson?.primaryRole ?? "",
+    });
   }
 
   return (
@@ -124,7 +135,7 @@ export function PautaAiReview({ proposal, model, applying, onChange, onClose, on
               <label><span>Secuencia</span><input value={segment.sequence} onChange={(event) => updateSegment(index, { sequence: event.target.value })} placeholder="Si aplica" /></label>
               <label className="wide"><span>Tema</span><textarea rows={2} value={segment.topic} onChange={(event) => updateSegment(index, { topic: event.target.value })} /></label>
               <label className="wide"><span>Enfoque</span><textarea rows={3} value={segment.focus} onChange={(event) => updateSegment(index, { focus: event.target.value })} /></label>
-              <label><span>Invitado</span><input value={segment.guestName} onChange={(event) => updateSegment(index, { guestName: event.target.value })} /></label>
+              <label><span>Invitado</span><input list="known-guests-ai" value={segment.guestName} onChange={(event) => updateGuest(index, event.target.value)} /></label>
               <label><span>Cargo o descripción</span><input value={segment.guestRole} onChange={(event) => updateSegment(index, { guestRole: event.target.value })} /></label>
               <label className="wide"><span>Pregunta al público</span><input value={segment.audienceQuestion} onChange={(event) => updateSegment(index, { audienceQuestion: event.target.value })} /></label>
               <label className="wide"><span>Indicaciones de producción</span><textarea rows={2} value={segment.productionCues.join("\n")} onChange={(event) => updateSegment(index, { productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) })} placeholder="Una indicación por línea" /></label>
@@ -135,6 +146,10 @@ export function PautaAiReview({ proposal, model, applying, onChange, onClose, on
           </details>
         ))}
       </div>
+
+      <datalist id="known-guests-ai">
+        {people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
+      </datalist>
 
       <button className="add-ordered-block" onClick={addSegment}>Añadir bloque</button>
 

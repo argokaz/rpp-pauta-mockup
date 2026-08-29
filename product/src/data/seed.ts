@@ -152,4 +152,30 @@ export const initialWorkspaceState: WorkspaceState = {
       updatedAt: "2026-08-28T15:20:00.000Z",
     },
   ],
+  people: [
+    {
+      id: "person-erika-alvarez-veliz",
+      displayName: "Erika Alvarez Veliz",
+      normalizedName: "erika alvarez veliz",
+      aliases: [],
+      primaryRole: "Psicóloga clínica",
+      organization: "",
+      notes: "",
+      appearances: [
+        {
+          id: "appearance-erika-encendidos",
+          personId: "person-erika-alvarez-veliz",
+          programId: "encendidos",
+          date: "2026-08-28",
+          role: "guest",
+          roleDescription: "Psicóloga clínica",
+          summary: "Señales de alerta en niños por uso problemático del celular.",
+          segmentTitle: "Uso problemático del celular",
+          topic: "Uso problemático del celular",
+          focus: "Diferenciar el uso normal del uso problemático.",
+          sourceExcerpt: "INVITADA: ERIKA ALVAREZ VELIZ",
+        },
+      ],
+    },
+  ],
 };

@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.5.0";
+export const CURRENT_VERSION = "0.6.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.6.0",
+    date: "2026-08-28",
+    title: "Directorio histórico de personas",
+    changes: [
+      "La sección Personas permite buscar invitados y colaboradores por nombre, tema o programa.",
+      "Cada ficha reúne apariciones, cargo, programa, resumen y evidencia original del bloque.",
+      "Los invitados recurrentes aparecen como autocompletado y recuperan automáticamente su cargo conocido.",
+      "Las apariciones conservan una copia editorial aunque la escaleta se modifique posteriormente.",
+      "Juan Carlos Ortecho quedó clasificado como colaborador deportivo y no como invitado.",
+    ],
+  },
   {
     version: "0.5.0",
     date: "2026-08-28",

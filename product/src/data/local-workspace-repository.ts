@@ -1,14 +1,16 @@
 import { loadWorkspace, saveWorkspace } from "@/data/local-repository";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
+import { syncLocalPeople } from "@/domain/people-history";
 
 export const localWorkspaceRepository: WorkspaceRepository = {
   mode: "local",
   async load() {
-    return loadWorkspace();
+    return syncLocalPeople(loadWorkspace());
   },
   async save(state) {
-    saveWorkspace(state);
-    return state;
+    const synced = syncLocalPeople(state);
+    saveWorkspace(synced);
+    return synced;
   },
   async confirmImport() {},
 };
