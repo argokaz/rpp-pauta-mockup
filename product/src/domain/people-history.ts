@@ -1,5 +1,10 @@
 import type { Person, WorkspaceState } from "./schemas";
 
+export type PersonNameMatch = {
+  person: Person;
+  score: number;
+};
+
 export function normalizePersonName(value: string): string {
   return value
     .normalize("NFD")
@@ -7,6 +12,58 @@ export function normalizePersonName(value: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .toLocaleLowerCase("es");
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitution = previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1);
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        substitution,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function nameSimilarity(left: string, right: string): number {
+  const maxLength = Math.max(left.length, right.length);
+  if (!maxLength) return 1;
+  const fullNameScore = 1 - (levenshteinDistance(left, right) / maxLength);
+  const leftTokens = left.split(" ").filter(Boolean);
+  const rightTokens = right.split(" ").filter(Boolean);
+  const tokenScore = leftTokens.reduce((total, token) => {
+    const bestToken = rightTokens.reduce((best, candidate) => {
+      const length = Math.max(token.length, candidate.length);
+      return Math.max(best, length ? 1 - (levenshteinDistance(token, candidate) / length) : 0);
+    }, 0);
+    return total + bestToken;
+  }, 0) / Math.max(leftTokens.length, 1);
+
+  return Math.max(fullNameScore, tokenScore * .96);
+}
+
+export function findSimilarPeople(value: string, people: Person[], limit = 3): PersonNameMatch[] {
+  const normalized = normalizePersonName(value);
+  if (normalized.length < 4) return [];
+
+  return people
+    .map((person) => {
+      const names = [person.displayName, ...person.aliases].map(normalizePersonName);
+      const score = Math.max(...names.map((name) => nameSimilarity(normalized, name)));
+      return { person, score };
+    })
+    .filter(({ person, score }) => person.normalizedName !== normalized && score >= .72)
+    .sort((left, right) => right.score - left.score || left.person.displayName.localeCompare(right.person.displayName, "es"))
+    .slice(0, limit);
 }
 
 function localId(prefix: string, value: string): string {

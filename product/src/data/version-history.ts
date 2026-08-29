@@ -5,9 +5,24 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.13.0";
+export const CURRENT_VERSION = "0.14.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.14.0",
+    date: "2026-08-29",
+    title: "Nueva pauta sin fricción",
+    changes: [
+      "Producción puede empezar pegando una prepauta existente o escribiéndola directamente en la herramienta.",
+      "Crear nueva pauta abre una fecha nueva sin reemplazar información existente y permite saltar a cualquier emisión del programa.",
+      "La fecha elegida, la emisión anterior y la siguiente están visibles como controles principales de trabajo.",
+      "La captura explica cómo marcar INVITADO o INVITADA para reconocer personas y crear fichas confiables.",
+      "Los nombres con pequeños errores muestran coincidencias probables de la base antes de registrar a otra persona.",
+      "Indicaciones semanales y fechas importantes destacan cuando hay contenido nuevo y se pueden marcar como revisadas.",
+      "El dashboard general incorpora un acceso rápido a la vista de producción y esa vista devuelve con un botón de regreso ubicado a la izquierda.",
+      "El flujo completo fue ajustado para teléfonos de 375 px sin desborde horizontal de la página.",
+    ],
+  },
   {
     version: "0.13.0",
     date: "2026-08-29",

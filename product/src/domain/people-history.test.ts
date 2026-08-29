@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialWorkspaceState } from "../data/seed";
-import { normalizePersonName, syncLocalPeople } from "./people-history";
+import { findSimilarPeople, normalizePersonName, syncLocalPeople } from "./people-history";
 
 describe("histórico local de personas", () => {
   it("normaliza acentos, espacios y mayúsculas para evitar duplicados", () => {
@@ -37,5 +37,18 @@ describe("histórico local de personas", () => {
     const synced = syncLocalPeople(state);
     const juan = synced.people.find((person) => person.normalizedName === "juan carlos ortecho");
     expect(juan?.appearances[0].role).toBe("other");
+  });
+
+  it("sugiere una persona existente aunque el nombre tenga errores", () => {
+    const state = syncLocalPeople(initialWorkspaceState);
+    const matches = findSimilarPeople("Erika Alvares Velis", state.people);
+
+    expect(matches[0]?.person.displayName).toBe("Erika Alvarez Veliz");
+    expect(matches[0]?.score).toBeGreaterThan(.8);
+  });
+
+  it("no propone coincidencias débiles para nombres distintos", () => {
+    const state = syncLocalPeople(initialWorkspaceState);
+    expect(findSimilarPeople("Pedro Castillo", state.people)).toEqual([]);
   });
 });
