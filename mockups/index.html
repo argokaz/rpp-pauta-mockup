@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Mockups Pauta RPP</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="prototype-bar">
+    <div class="prototype-title">
+      <span class="prototype-kicker">Prototipo navegable</span>
+      <strong>Pauta RPP</strong>
+    </div>
+    <nav class="option-tabs" aria-label="Opciones de interfaz">
+      <button class="option-tab is-active" data-view-button="agenda">A. Agenda</button>
+      <button class="option-tab" data-view-button="programa">B. Programa</button>
+      <button class="option-tab" data-view-button="flujo">C. Mesa</button>
+      <button class="option-tab" data-view-button="superadmin">D. Recepción</button>
+    </nav>
+    <span class="mock-label">Datos simulados</span>
+  </header>
+
+  <main>
+    <section class="app-view is-active" data-view="agenda" aria-label="Opción A: agenda semanal">
+      <div class="app-shell shell-agenda">
+        <aside class="side-nav">
+          <div class="brand-lockup">
+            <img src="https://s2.rpp-noticias.io/static/dist/img/icons/logo.svg" alt="RPP">
+            <div><strong>Pauta</strong><span>Informativos</span></div>
+          </div>
+          <label class="field compact-field">
+            <span>Programa</span>
+            <select id="agenda-program-filter">
+              <option value="all">Todos los programas</option>
+              <option value="managed">Solo administrados</option>
+              <option>La Rotativa del Aire</option>
+              <option>Ampliación de noticias Lima</option>
+              <option>Ampliación de noticias regional</option>
+              <option>Encendidos</option>
+              <option>Fútbol como cancha</option>
+              <option>Espacio Vital</option>
+            </select>
+          </label>
+          <nav class="primary-nav" aria-label="Navegación principal">
+            <button class="nav-item is-active"><span>Agenda semanal</span><b>35</b></button>
+            <button class="nav-item"><span>Indicaciones</span><b>2</b></button>
+            <button class="nav-item"><span>Personas</span></button>
+            <button class="nav-item"><span>Archivo</span></button>
+            <button class="nav-item"><span>Calendario anual</span></button>
+          </nav>
+          <div class="side-summary">
+            <span>Semana 35</span>
+            <strong>22 programas</strong>
+            <small>Administrados dentro de la señal completa</small>
+          </div>
+          <button class="nav-item nav-bottom"><span>Configurar programas</span></button>
+        </aside>
+
+        <div class="workspace">
+          <header class="workspace-header">
+            <div>
+              <span class="section-context">Programación informativa</span>
+              <h1>Semana del 24 al 30 de agosto</h1>
+            </div>
+            <div class="header-actions">
+              <button class="search-button" data-open-search>Buscar invitado, tema o frase</button>
+              <button class="avatar" aria-label="Cuenta de Arturo Goga">AG</button>
+            </div>
+          </header>
+
+          <div class="workspace-scroll">
+            <section class="notice-grid" aria-label="Indicaciones y recordatorios">
+              <article class="bulletin-card">
+                <div class="notice-heading">
+                  <span>Indicaciones de la semana</span>
+                  <button id="add-bulletin-button">Añadir indicación</button>
+                </div>
+                <div class="bulletin-list" id="bulletin-list">
+                  <button class="bulletin-item" data-bulletin-title="Elecciones 2026: confirmar voceros antes de las 15:00" data-bulletin-body="Registrar nombre, cargo y teléfono de coordinación de cada invitado." data-bulletin-scope="Todos los programas">
+                    <span><strong>Elecciones 2026: confirmar voceros antes de las 15:00</strong>Registrar nombre, cargo y teléfono de coordinación de cada invitado.</span><small>Todos los programas</small>
+                  </button>
+                  <button class="bulletin-item" data-bulletin-title="Nombrar los audios antes de subirlos" data-bulletin-body="Usar fecha, programa e invitado para facilitar el archivo y la búsqueda." data-bulletin-scope="Programas informativos">
+                    <span><strong>Nombrar los audios antes de subirlos</strong>Usar fecha, programa e invitado para facilitar el archivo y la búsqueda.</span><small>Programas informativos</small>
+                  </button>
+                </div>
+              </article>
+              <article class="dates-card">
+                <div class="notice-heading"><span>Fechas importantes</span><button id="add-date-button">Añadir fecha</button></div>
+                <div class="dates-list" id="dates-list">
+                  <button class="date-row" data-date="2026-08-28" data-date-title="Cierre de encuestas" data-date-details="Preparar bloque explicativo y confirmar voceros."><time datetime="2026-08-28">28 AGO</time><span><strong>Cierre de encuestas</strong>Planificar los programas del viernes</span><b>Abrir</b></button>
+                  <button class="date-row" data-date="2026-08-30" data-date-title="Santa Rosa de Lima" data-date-details="Cobertura de seguridad, tránsito, fieles y actividades religiosas."><time datetime="2026-08-30">30 AGO</time><span><strong>Santa Rosa de Lima</strong>Planificar los programas del domingo</span><b>Abrir</b></button>
+                </div>
+              </article>
+            </section>
+
+            <section class="schedule-section">
+              <div class="schedule-toolbar">
+                <div class="week-nav">
+                  <button aria-label="Semana anterior" data-week-shift="-1">Anterior</button>
+                  <button class="today-button">Esta semana</button>
+                  <button aria-label="Semana siguiente" data-week-shift="1">Siguiente</button>
+                </div>
+                <div class="day-tabs" id="agenda-day-tabs" aria-label="Días de la semana"></div>
+                <button class="primary-button" id="new-block-button">Añadir bloque</button>
+              </div>
+
+              <div class="schedule-layout">
+                <div class="timeline-panel">
+                  <div class="timeline-summary">
+                    <div><strong id="day-heading">Viernes 28</strong><span id="day-program-count">12 bloques programados</span></div>
+                    <div class="legend"><span><i class="status-ready"></i>Listo</span><span><i class="status-draft"></i>En edición</span><span><i class="status-empty"></i>Sin pauta</span></div>
+                  </div>
+                  <div class="timeline" id="agenda-timeline"></div>
+                </div>
+
+                <aside class="editor-panel" id="agenda-editor" aria-label="Editor de bloque">
+                  <div class="editor-empty">
+                    <span class="empty-mark">RPP</span>
+                    <h2>Elige un bloque</h2>
+                    <p>Abre cualquier programa para pegar la pauta, ordenar con IA o completar lo que salió al aire.</p>
+                  </div>
+                </aside>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="app-view" data-view="superadmin" aria-label="Opción D: recepción general">
+      <div class="app-shell super-shell">
+        <aside class="reception-side">
+          <div class="brand-lockup dark-brand">
+            <img src="https://s2.rpp-noticias.io/static/dist/img/icons/logo.svg" alt="RPP">
+            <div><strong>Recepción</strong><span>Productora general</span></div>
+          </div>
+          <nav class="reception-nav">
+            <button class="is-active">Nueva entrada</button>
+            <button>Recibidas hoy <b>7</b></button>
+            <button>Por confirmar <b>2</b></button>
+            <button>Programadas</button>
+          </nav>
+          <div class="solo-pilot-card">
+            <span>Modo piloto</span>
+            <strong>Solo tú necesitas entrar</strong>
+            <p>Los demás equipos pueden seguir enviando sus pautas por WhatsApp o correo.</p>
+          </div>
+          <button class="dark-action">Configuración del piloto</button>
+        </aside>
+
+        <div class="reception-workspace">
+          <header class="reception-header">
+            <div><span class="section-context">Recepción centralizada</span><h1>Convertir un mensaje en pre-pauta</h1></div>
+            <div><button class="search-button" data-open-search>Buscar persona o tema</button><button class="avatar">PG</button></div>
+          </header>
+
+          <div class="reception-scroll">
+            <section class="pilot-banner">
+              <div><strong>Prueba sin cambiar el trabajo de los productores</strong><p>Recibe el mensaje, elige dónde va y deja que la IA proponga una estructura antes de guardar.</p></div>
+              <span>Cuenta única de productora general</span>
+            </section>
+
+            <section class="reception-grid">
+              <aside class="route-pane">
+                <header><span>Viernes 28</span><strong>Elige el bloque</strong></header>
+                <div class="route-days" aria-label="Días para recepción">
+                  <button>Jue 27</button><button class="is-active">Vie 28</button><button>Sáb 29</button>
+                </div>
+                <div class="route-list">
+                  <button class="route-block" data-route-time="05:00" data-route-program="La Rotativa del Aire | Edición Mañana"><time>05:00</time><span><strong>Rotativa AM</strong>Ya tiene pauta</span></button>
+                  <button class="route-block" data-route-time="08:00" data-route-program="Ampliación de noticias Lima"><time>08:00</time><span><strong>Ampliación Lima</strong>Recibiendo contenido</span></button>
+                  <button class="route-block" data-route-time="08:00" data-route-program="Ampliación de noticias regional"><time>08:00</time><span><strong>Ampliación regional</strong>Falta pauta</span></button>
+                  <button class="route-block is-selected" data-route-time="10:00" data-route-program="Encendidos"><time>10:00</time><span><strong>Encendidos</strong>Recibiendo contenido</span></button>
+                  <button class="route-block" data-route-time="12:30" data-route-program="La Rotativa del Aire | Edición Tarde"><time>12:30</time><span><strong>Rotativa Tarde</strong>En edición</span></button>
+                  <button class="route-block" data-route-time="16:00" data-route-program="Los Chistosos"><time>16:00</time><span><strong>Los Chistosos</strong>Lista</span></button>
+                  <button class="route-block" data-route-time="18:00" data-route-program="Conexión"><time>18:00</time><span><strong>Conexión</strong>Lista</span></button>
+                  <button class="route-block" data-route-time="20:00" data-route-program="La Rotativa del Aire | Edición Noche"><time>20:00</time><span><strong>Rotativa Noche</strong>Falta pauta</span></button>
+                </div>
+                <button class="show-all-blocks" data-toast="Aquí aparecerán todos los bloques del día">Mostrar todos los horarios</button>
+              </aside>
+
+              <section class="capture-pane">
+                <header><span>Contenido recibido</span><h2>Pega el mensaje tal como llegó</h2></header>
+                <div class="source-fields">
+                  <label class="field"><span>Canal de origen</span><select id="reception-source"><option>WhatsApp</option><option>Correo</option><option>Documento</option><option>Otro</option></select></label>
+                  <label class="field"><span>Enviado por</span><input id="reception-sender" value="Producción de Encendidos" placeholder="Nombre o equipo"></label>
+                </div>
+                <label class="field reception-target"><span>Bloque de destino</span><select id="reception-target"><option>10:00 | Encendidos</option><option>05:00 | La Rotativa del Aire | Edición Mañana</option><option>08:00 | Ampliación de noticias Lima</option><option>08:00 | Ampliación de noticias regional</option><option>12:30 | La Rotativa del Aire | Edición Tarde</option><option>16:00 | Los Chistosos</option><option>18:00 | Conexión</option><option>20:00 | La Rotativa del Aire | Edición Noche</option></select></label>
+                <label class="field paste-message"><span>Mensaje recibido</span><textarea id="reception-message" rows="14">PREPAUTA ENCENDIDOS VIERNES 28 DE AGOSTO 2026
+
+10:00 - 10:15
+VIVOS
+
+10:15 - 10:45
+TEMA: ¿TU HIJO NO SUELTA EL CELULAR? ESTAS SON LAS SEÑALES DE ALERTA
+INVITADA: ERIKA ALVAREZ VELIZ - PSICÓLOGA CLÍNICA, ESPECIALISTA EN MODIFICACIÓN DE CONDUCTA
+ENFOQUE: DIFERENCIAR UN USO NORMAL DE LA TECNOLOGÍA DE UN USO PROBLEMÁTICO. SEÑALES: IRRITABILIDAD, AISLAMIENTO, PÉRDIDA DE INTERÉS, ALTERACIONES DEL SUEÑO Y PROBLEMAS ESCOLARES.
+
+10:45 - 11:00
+ABRIMOS LÍNEAS TELEFÓNICAS
+PREGUNTA: ¿EL CELULAR ESTÁ REEMPLAZANDO EL JUEGO, EL SUEÑO Y LA FAMILIA?
+LÍNEAS: 01-212-4100 // 01-212-7165 // 01-212-7166
+
+11:00 - 11:30
+TEMA: “ES LO QUE HAY”: PATRICIA PORTOCARRERO REGRESA CON UNA HISTORIA DE AMOR PROPIO Y RESILIENCIA
+INVITADA: PATRICIA PORTOCARRERO - ACTRIZ, COMEDIANTE Y CLOWN
+ENFOQUE: HUMOR, RESILIENCIA, AMOR PROPIO Y EL TEATRO COMO HERRAMIENTA PARA PROCESAR EXPERIENCIAS DIFÍCILES.
+
+11:30 - 11:45
+SECUENCIA “TECNOVERSO”
+TEMA: CARGAR EL CELULAR TODA LA NOCHE DAÑA LA BATERÍA: ¿MITO O REALIDAD?
+INVITADO: ARTURO GOGA - PERIODISTA ESPECIALIZADO EN TECNOLOGÍA
+
+11:45 - 12:00
+SECUENCIA “FUERZA PERUANA”
+TEMA: OLLAS COMUNES ANTE EL NIÑO: ¿ESTÁN PREPARADAS PARA UNA EMERGENCIA ALIMENTARIA?
+INVITADA: MARICRUZ ESTRELLA - PRESIDENTA DE LA OLLA COMÚN “FE Y ESPERANZA” DE VILLA MARÍA DEL TRIUNFO
+ENFOQUE: PREPARACIÓN DE LAS OLLAS COMUNES ANTE EL FENÓMENO EL NIÑO Y EL ALZA DE LOS ALIMENTOS.
+
+12:00 - 12:15
+
+12:15 - 12:30
+BLOQUE DEPORTIVO CON JUAN CARLOS ORTECHO: LA FIESTA DEL FÚTBOL
+
+PASE CON ROTATIVA DEL AIRE TARDE</textarea></label>
+                <button class="attachment-button" data-toast="En el producto se podrán adjuntar PDF, Word, imágenes o audios">Adjuntar archivo o audio</button>
+                <div class="capture-actions"><span>La IA no guardará nada sin tu confirmación.</span><button class="primary-button" id="format-reception-button">Formatear y ubicar</button></div>
+              </section>
+
+              <aside class="format-preview" id="reception-preview">
+                <header><div><span>Vista propuesta</span><h2>Así quedaría</h2></div><span class="preview-status">Lista para revisar</span></header>
+                <div class="destination-card"><span>Destino seleccionado</span><strong id="preview-program">Encendidos</strong><small id="preview-time">Viernes 28 | 10:00 - 12:30</small></div>
+                <div class="detected-meta"><div><span>Programa</span><strong>Encendidos</strong></div><div><span>Fecha</span><strong>28 AGO 2026</strong></div><div><span>Fuente</span><strong>WhatsApp · texto original</strong></div></div>
+                <div class="structure-summary"><span><b>8</b> segmentos</span><span><b>4</b> invitados</span><span><b>1</b> vacío</span></div>
+                <article class="formatted-block rundown-block">
+                  <header><time>Hora</time><div><strong>Escaleta normalizada</strong><span>Horario y duración tomados del texto</span></div></header>
+                  <div class="timed-list">
+                    <div class="timed-row"><time>10:00</time><span><strong>Vivos</strong>Apertura y enlaces</span><b>15 min</b></div>
+                    <div class="timed-row"><time>10:15</time><span><strong>Uso problemático del celular</strong>Entrevista · Erika Alvarez Veliz</span><b>30 min</b></div>
+                    <div class="timed-row"><time>10:45</time><span><strong>Líneas telefónicas</strong>Pregunta a la audiencia y teléfonos</span><b>15 min</b></div>
+                    <div class="timed-row"><time>11:00</time><span><strong>“Es lo que hay”</strong>Entrevista · Patricia Portocarrero</span><b>30 min</b></div>
+                    <div class="timed-row"><time>11:30</time><span><strong>Tecnoverso</strong>Arturo Goga · batería del celular</span><b>15 min</b></div>
+                    <div class="timed-row"><time>11:45</time><span><strong>Fuerza Peruana</strong>Maricruz Estrella · ollas comunes</span><b>15 min</b></div>
+                    <div class="timed-row gap-row"><time>12:00</time><span><strong>Bloque sin contenido</strong>El horario existe, pero no tiene pauta</span><b>Revisar</b></div>
+                    <div class="timed-row"><time>12:15</time><span><strong>La fiesta del fútbol</strong>Bloque deportivo · Juan Carlos Ortecho</span><b>15 min</b></div>
+                    <div class="timed-row cue-row"><time>12:30</time><span><strong>Pase</strong>Rotativa del Aire Tarde</span><b>Cue</b></div>
+                  </div>
+                </article>
+                <div class="preview-warning"><strong>Revisión necesaria</strong><span>Falta completar el bloque de 12:00. No se inventó contenido ni se asumieron conductor o productor porque el texto no los incluye.</span></div>
+                <div class="preview-actions"><button class="secondary-button" data-toast="La propuesta volverá al campo de entrada para corregirla">Corregir</button><button class="primary-button" id="confirm-reception-button">Crear pre-pauta</button></div>
+              </aside>
+            </section>
+
+            <section class="reception-log">
+              <header><div><span>Actividad del piloto</span><h2>Entradas procesadas hoy</h2></div><button>Ver historial completo</button></header>
+              <div class="log-row"><time>07:32</time><span><strong>Ampliación de noticias</strong>WhatsApp de Producción</span><b>Lista para revisar</b></div>
+              <div class="log-row"><time>07:08</time><span><strong>Encendidos</strong>Correo con documento adjunto</span><b>Pre-pauta creada</b></div>
+              <div class="log-row"><time>06:41</time><span><strong>Rotativa Mañana</strong>WhatsApp de coordinación</span><b>Pre-pauta creada</b></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="app-view" data-view="programa" aria-label="Opción B: mi programa">
+      <div class="app-shell shell-program">
+        <aside class="program-rail">
+          <div class="brand-lockup compact-brand">
+            <img src="https://s2.rpp-noticias.io/static/dist/img/icons/logo.svg" alt="RPP">
+            <div><strong>Mi programa</strong><span>Producción</span></div>
+          </div>
+          <label class="rail-search"><span>Buscar programa</span><input type="search" placeholder="Escribe un nombre"></label>
+          <div class="program-list" id="program-list"></div>
+          <button class="rail-add">Configurar programación</button>
+        </aside>
+
+        <div class="program-workspace">
+          <header class="program-topbar">
+            <button class="mobile-menu">Programas</button>
+            <span>Semana 35 de 2026</span>
+            <div><button data-open-search>Buscar en el archivo</button><button class="avatar">JC</button></div>
+          </header>
+          <div class="program-scroll">
+            <section class="program-hero">
+              <div>
+                <span class="section-context">Lunes a viernes, 08:00 - 10:00</span>
+                <h1 id="program-title">Ampliación de noticias Lima</h1>
+                <p id="program-hosts">Mávila Huertas y Fernando Carvallo</p>
+              </div>
+              <button class="secondary-button">Editar horario y equipo</button>
+            </section>
+
+            <section class="mini-board">
+              <strong>Esta semana</strong>
+              <p>Priorizar voces regionales. Validar el cargo actual de cada invitado antes de publicar la pauta.</p>
+              <button>Ver todas las indicaciones</button>
+            </section>
+
+            <section class="episode-strip" id="episode-strip" aria-label="Emisiones de la semana"></section>
+
+            <section class="focus-editor">
+              <header class="focus-editor-header">
+                <div><span>Viernes 28 de agosto</span><h2>Preparar emisión</h2></div>
+                <div class="segmented" data-state-tabs>
+                  <button class="is-active" data-state="pre">Pre-pauta</button>
+                  <button data-state="post">Post-pauta</button>
+                </div>
+              </header>
+              <div class="editor-columns">
+                <div class="paste-column">
+                  <label class="field large-field">
+                    <span>Pega la pauta o escaleta que ya tienes</span>
+                    <textarea id="program-raw-input" rows="13">ENTREVISTA 8:20
+Invitado: Elmer Huerta
+Tema: vacunación y prevención
+Preguntar por la campaña de invierno y los grupos de riesgo.
+
+8:45 ACTUALIDAD
+Balance de noticias regionales y enlace con Arequipa.</textarea>
+                  </label>
+                  <div class="helper-row"><span>La IA identificará bloques, personas, temas y preguntas.</span><button class="primary-button" id="program-ai-button">Ordenar con IA</button></div>
+                </div>
+                <div class="structured-column" id="structured-preview">
+                  <div class="column-heading"><strong>Vista ordenada</strong><span>2 bloques detectados</span></div>
+                  <article class="content-block selected-block">
+                    <header><time>08:20</time><div><strong>Entrevista: vacunación y prevención</strong><span>18 minutos</span></div><button>Editar</button></header>
+                    <div class="guest-chip"><b>EH</b><span><strong>Elmer Huerta</strong>Conductor y especialista en salud</span><button data-open-person>Ver historial</button></div>
+                    <p>Conversación sobre campaña de invierno, grupos de riesgo y medidas preventivas.</p>
+                    <ul><li>¿Qué personas deberían priorizar la vacunación?</li><li>¿Qué señales requieren atención médica?</li></ul>
+                  </article>
+                  <article class="content-block">
+                    <header><time>08:45</time><div><strong>Actualidad regional</strong><span>Enlace en vivo</span></div><button>Editar</button></header>
+                    <p>Balance informativo con conexión a Arequipa. Falta confirmar al reportero.</p>
+                  </article>
+                  <button class="add-inline">Añadir bloque a esta emisión</button>
+                </div>
+              </div>
+              <footer class="editor-footer"><span>Guardado hace 1 minuto</span><div><button class="secondary-button">Vista de impresión</button><button class="primary-button">Marcar lista</button></div></footer>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="app-view" data-view="flujo" aria-label="Opción C: mesa editorial">
+      <div class="app-shell shell-flow">
+        <aside class="flow-side">
+          <div class="brand-lockup dark-brand">
+            <img src="https://s2.rpp-noticias.io/static/dist/img/icons/logo.svg" alt="RPP">
+            <div><strong>Mesa editorial</strong><span>Informativos</span></div>
+          </div>
+          <nav class="flow-nav">
+            <button class="is-active">Hoy <b>28</b></button>
+            <button>Esta semana <b>35</b></button>
+            <button>Personas</button>
+            <button>Temas</button>
+            <button>Post-pautas <b>7</b></button>
+          </nav>
+          <div class="flow-calendar"><span>Próxima fecha clave</span><strong>30 AGO</strong><p>Santa Rosa de Lima</p></div>
+          <button class="dark-action">Administrar programas</button>
+        </aside>
+
+        <div class="flow-workspace">
+          <header class="flow-header">
+            <div><span>Viernes 28 de agosto</span><h1>Así está la programación de hoy</h1></div>
+            <div><button class="search-button light-search" data-open-search>Buscar en 1,284 entrevistas</button><button class="avatar">MG</button></div>
+          </header>
+          <section class="flow-bulletin">
+            <strong>Indicación del día</strong>
+            <p>Elecciones 2026: cada entrevista política debe incluir región, partido y cargo actual del invitado.</p>
+            <button>Entendido</button>
+          </section>
+          <section class="flow-day-strip" id="flow-day-strip"></section>
+          <section class="newsroom-board">
+            <div class="board-column">
+              <header><div><span>Falta pegar pauta</span><b>3</b></div><small>Requiere acción del productor</small></header>
+              <article class="board-item urgent" data-edit-show="La Rotativa del Aire | Edición Mañana"><time>05:00</time><h2>Rotativa Mañana</h2><p>Sin contenido para hoy.</p><footer><span>Productor: CV</span><button>Completar</button></footer></article>
+              <article class="board-item" data-edit-show="Conexión"><time>18:00</time><h2>Conexión</h2><p>Solo hay un título provisional.</p><footer><span>Productora: FC</span><button>Abrir</button></footer></article>
+            </div>
+            <div class="board-column">
+              <header><div><span>En preparación</span><b>4</b></div><small>La IA está ordenando el material</small></header>
+              <article class="board-item ai-item" data-edit-show="Encendidos"><time>10:00</time><h2>Encendidos</h2><p>3 temas, 2 invitados y 14 preguntas detectadas.</p><div class="ai-status"><span>Procesando transcripción</span><b>72%</b></div><footer><span>Sara Abu Sabbah</span><button>Revisar</button></footer></article>
+              <article class="board-item" data-edit-show="Espacio Vital"><time>17:00</time><h2>Espacio Vital</h2><p>Se encontró un invitado recurrente.</p><footer><span>Elmer Huerta</span><button data-open-person>Historial</button></footer></article>
+            </div>
+            <div class="board-column">
+              <header><div><span>Lista para salir</span><b>7</b></div><small>Revisada por Producción</small></header>
+              <article class="board-item ready-item" data-edit-show="Ampliación de noticias"><time>08:00</time><h2>Ampliación de noticias</h2><p>4 bloques listos. Dos entrevistas confirmadas.</p><footer><span>Último cambio 07:42</span><button>Ver pauta</button></footer></article>
+              <article class="board-item ready-item" data-edit-show="Fútbol como cancha"><time>14:30</time><h2>Fútbol como cancha</h2><p>Debate, enlace y entrevista principal confirmados.</p><footer><span>Último cambio 13:10</span><button>Ver pauta</button></footer></article>
+            </div>
+            <div class="board-column">
+              <header><div><span>Completar post-pauta</span><b>2</b></div><small>Registrar lo que realmente salió</small></header>
+              <article class="board-item post-item" data-edit-show="La Rotativa del Aire | Edición Tarde"><time>12:30</time><h2>Rotativa Tarde</h2><p>La emisión terminó. Faltan citas y temas emitidos.</p><footer><span>Hace 2 horas</span><button>Completar</button></footer></article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="search-dialog" id="search-dialog">
+    <form method="dialog" class="dialog-shell">
+      <header><div><span>Archivo editorial</span><h2>Buscar personas, temas o frases</h2></div><button class="close-button" value="cancel">Cerrar</button></header>
+      <label class="dialog-search"><span>Búsqueda</span><input id="archive-search-input" type="search" value="Elmer Huerta" placeholder="Ejemplo: vacunas, Elmer Huerta"></label>
+      <div class="search-layout">
+        <div class="search-results">
+          <span class="result-count">6 resultados de ejemplo</span>
+          <button type="button" class="result-item is-active" data-open-person><time>28 AGO 2026</time><strong>Vacunación y campaña de invierno</strong><span>Ampliación de noticias</span></button>
+          <button type="button" class="result-item"><time>21 AGO 2026</time><strong>Prevención de enfermedades respiratorias</strong><span>Espacio Vital</span></button>
+          <button type="button" class="result-item"><time>14 AGO 2026</time><strong>Cómo leer una receta médica</strong><span>Encendidos</span></button>
+        </div>
+        <aside class="person-card" id="person-card">
+          <div class="person-heading"><b>EH</b><div><h3>Elmer Huerta</h3><p>Conductor y especialista en salud</p></div></div>
+          <dl><div><dt>Apariciones</dt><dd>24</dd></div><div><dt>Programas</dt><dd>4</dd></div><div><dt>Última vez</dt><dd>Hoy</dd></div></dl>
+          <h4>Temas frecuentes</h4>
+          <div class="topic-tags"><span>Prevención</span><span>Vacunación</span><span>Salud pública</span></div>
+          <h4>Última intervención</h4>
+          <blockquote>Explicó qué grupos deben priorizar la prevención durante la campaña de invierno.</blockquote>
+          <button type="button" class="primary-button">Ver ficha completa</button>
+        </aside>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="editor-dialog" id="bulletin-dialog">
+    <form method="dialog" class="editor-dialog-shell">
+      <header><div><span>Tablero semanal</span><h2 id="bulletin-dialog-title">Editar indicación</h2></div><button class="close-button" value="cancel">Cerrar</button></header>
+      <div class="dialog-fields">
+        <label class="field"><span>Título</span><input id="bulletin-title-input" placeholder="Indicación breve y accionable"></label>
+        <label class="field"><span>Detalle</span><textarea id="bulletin-body-input" rows="4" placeholder="Qué debe hacer el equipo"></textarea></label>
+        <label class="field"><span>Aplica a</span><select id="bulletin-scope-input"><option>Todos los programas</option><option>Programas informativos</option><option>Un programa específico</option></select></label>
+      </div>
+      <footer><span>Podrás mantener varios ítems activos durante la semana.</span><div><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="save-bulletin-button">Guardar indicación</button></div></footer>
+    </form>
+  </dialog>
+
+  <dialog class="editor-dialog date-dialog" id="date-programming-dialog">
+    <form method="dialog" class="editor-dialog-shell">
+      <header><div><span>Planificación anticipada</span><h2 id="date-dialog-title">Programación del día</h2></div><button class="close-button" value="cancel">Cerrar</button></header>
+      <div class="date-dialog-grid">
+        <div class="dialog-fields date-meta-fields">
+          <label class="field"><span>Fecha</span><input id="important-date-input" type="date" value="2026-08-28"></label>
+          <label class="field"><span>Nombre de la fecha</span><input id="important-date-title-input" placeholder="Ejemplo: Santa Rosa de Lima"></label>
+          <label class="field"><span>Contexto general</span><textarea id="important-date-details-input" rows="4" placeholder="Qué debe anticipar la producción"></textarea></label>
+        </div>
+        <section class="day-planning">
+          <header><div><span id="date-program-count">0 programas administrados</span><h3>Qué preparará cada programa</h3></div><small>Activa solo los que participarán</small></header>
+          <div class="date-program-list" id="date-program-list"></div>
+        </section>
+      </div>
+      <footer><span>Esta planificación aparecerá como recordatorio al equipo.</span><div><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="save-date-button">Guardar fecha</button></div></footer>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
