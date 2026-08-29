@@ -290,5 +290,18 @@ export function createSupabaseWorkspaceRepository(
     assertNoError(error, "No se pudo confirmar la importación");
   }
 
-  return { mode: "supabase", load, save, confirmImport };
+  async function saveEmissionStatus(emission: Emission): Promise<void> {
+    const { error } = await supabase
+      .from("emissions")
+      .upsert({
+        program_id: emission.programId,
+        emission_date: emission.date,
+        status: emission.status,
+        raw_text: emission.rawText,
+        producer_id: userId,
+      }, { onConflict: "program_id,emission_date" });
+    assertNoError(error, "No se pudo actualizar el estado de la pauta");
+  }
+
+  return { mode: "supabase", load, save, saveEmissionStatus, confirmImport };
 }

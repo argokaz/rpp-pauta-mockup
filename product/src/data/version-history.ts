@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.6.1";
+export const CURRENT_VERSION = "0.7.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.7.0",
+    date: "2026-08-28",
+    title: "Mesa interactiva y primera experiencia móvil",
+    changes: [
+      "La navegación sigue ahora la jerarquía Agenda, Mesa, Programa y Recepción.",
+      "Los programas pueden arrastrarse entre los estados de la Mesa y el cambio se guarda sin reescribir la pauta.",
+      "Cada tarjeta incluye un selector de estado accesible para operar también desde teléfonos y teclado.",
+      "Las pautas vacías no pueden marcarse como listas o post-pauta por accidente.",
+      "Mesa, Agenda, Programa y Recepción tienen controles táctiles, desplazamiento horizontal y composición responsive desde 375 px.",
+    ],
+  },
   {
     version: "0.6.1",
     date: "2026-08-28",

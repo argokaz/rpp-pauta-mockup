@@ -12,5 +12,15 @@ export const localWorkspaceRepository: WorkspaceRepository = {
     saveWorkspace(synced);
     return synced;
   },
+  async saveEmissionStatus(emission) {
+    const workspace = loadWorkspace();
+    const exists = workspace.emissions.some((item) => item.id === emission.id);
+    saveWorkspace({
+      ...workspace,
+      emissions: exists
+        ? workspace.emissions.map((item) => item.id === emission.id ? emission : item)
+        : [...workspace.emissions, emission],
+    });
+  },
   async confirmImport() {},
 };

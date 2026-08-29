@@ -1,7 +1,10 @@
 # Pauta RPP, producto funcional
 
-Aplicación funcional de las Fases 1 y 2. Convive con el mockup estático y se despliega en
+Aplicación funcional de las Fases 1, 2 y la primera entrega de la Fase 3. Convive con el mockup estático y se despliega en
 Vercel usando `product/` como directorio raíz.
+
+La Fase 3 incorpora la operación diaria: Mesa editorial con drag and drop,
+cambio accesible de estados y una base responsive para escritorio, tablet y teléfono.
 
 Producción: https://rpp-pauta.vercel.app
 

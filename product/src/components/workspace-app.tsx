@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
 import { PeopleDirectory } from "@/components/people-directory";
 import { VersionHistoryModal } from "@/components/version-history-modal";
@@ -11,7 +12,7 @@ import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
-import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, Emission, ImportantDate, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
 
 const days = [
   { label: "Lun 24", date: "2026-08-24", dayOfWeek: 1 },
@@ -48,6 +49,8 @@ const statusLabel: Record<Emission["status"], string> = {
   post: "Post-pauta",
 };
 
+const kanbanStatuses: Emission["status"][] = ["empty", "draft", "ready", "post"];
+
 const segmentTypeLabel: Record<Segment["type"], string> = {
   opening: "Apertura",
   interview: "Entrevista",
@@ -80,6 +83,73 @@ function minutes(value: string): number {
   return hours * 60 + minute;
 }
 
+type KanbanCardProps = {
+  slot: ScheduleSlot;
+  program: Program;
+  emission?: Emission;
+  status: Emission["status"];
+  canEdit: boolean;
+  saving: boolean;
+  onMove: (slotId: string, status: Emission["status"]) => void;
+  onOpen: () => void;
+};
+
+function KanbanCard({ slot, program, emission, status, canEdit, saving, onMove, onOpen }: KanbanCardProps) {
+  const { ref, handleRef, isDragging } = useDraggable({
+    id: slot.id,
+    type: "program-card",
+    data: { status },
+    disabled: !canEdit || saving,
+  });
+
+  return (
+    <article ref={ref} className={`kanban-card ${isDragging ? "dragging" : ""}`}>
+      <header>
+        <time>{slot.startTime}</time>
+        <button ref={handleRef} className="kanban-drag-handle" disabled={!canEdit || saving} aria-label={`Arrastrar ${program.shortName}`}>
+          {saving ? "Guardando" : "Arrastrar"}
+        </button>
+      </header>
+      <h2>{program.shortName}</h2>
+      <p>{emission?.segments.length ? `${emission.segments.length} bloques estructurados` : "Sin contenido para este día."}</p>
+      <footer>
+        <label>
+          <span>Estado</span>
+          <select disabled={!canEdit || saving} value={status} onChange={(event) => onMove(slot.id, event.target.value as Emission["status"])} aria-label={`Cambiar estado de ${program.shortName}`}>
+            {kanbanStatuses.map((value) => <option value={value} key={value}>{statusLabel[value]}</option>)}
+          </select>
+        </label>
+        <button className="kanban-open" onClick={onOpen}>{status === "empty" ? "Completar" : "Abrir pauta"}</button>
+      </footer>
+    </article>
+  );
+}
+
+type KanbanColumnProps = {
+  status: Emission["status"];
+  title: string;
+  hint: string;
+  canEdit: boolean;
+  children: React.ReactNode;
+  count: number;
+};
+
+function KanbanColumn({ status, title, hint, canEdit, children, count }: KanbanColumnProps) {
+  const { ref, isDropTarget } = useDroppable({
+    id: status,
+    type: "status-column",
+    accept: "program-card",
+    disabled: !canEdit,
+  });
+
+  return (
+    <section ref={ref} className={`desk-column desk-${status} ${isDropTarget ? "drop-target" : ""}`}>
+      <header><div><strong>{title}</strong><span>{hint}</span></div><b>{count}</b></header>
+      <div>{children}</div>
+    </section>
+  );
+}
+
 type WorkspaceAppProps = {
   repository: WorkspaceRepository;
   accountLabel: string;
@@ -93,8 +163,8 @@ type WorkspaceView = "agenda" | "program" | "desk" | "reception";
 
 const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
   { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
-  { id: "program", code: "B", label: "Programa", description: "Editar mi pauta" },
-  { id: "desk", code: "C", label: "Mesa", description: "Kanban editorial" },
+  { id: "desk", code: "B", label: "Mesa", description: "Kanban editorial" },
+  { id: "program", code: "C", label: "Programa", description: "Editar mi pauta" },
   { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
 ];
 
@@ -119,6 +189,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
+  const [kanbanSavingId, setKanbanSavingId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -207,6 +278,51 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
 
   async function saveDraft() {
     await commit(workspace, repository.mode === "supabase" ? "Borrador guardado para el equipo." : "Borrador guardado en este navegador.");
+  }
+
+  async function moveEmissionStatus(slotId: string, status: Emission["status"]) {
+    if (!canEdit || kanbanSavingId) return;
+    const slot = managedDaySlots.find((item) => item.id === slotId);
+    if (!slot) return;
+
+    const currentEmission = workspace.emissions.find(
+      (emission) => emission.programId === slot.programId && emission.date === selectedDate,
+    ) ?? emptyEmission(slot.programId, selectedDate);
+    if (currentEmission.status === status) return;
+    if ((status === "ready" || status === "post") && currentEmission.segments.length === 0) {
+      notify("Agrega y revisa la pauta antes de marcarla como lista o post-pauta.");
+      return;
+    }
+
+    const nextEmission = { ...currentEmission, status, updatedAt: new Date().toISOString() };
+    const exists = workspace.emissions.some((emission) => emission.id === currentEmission.id);
+    const previousWorkspace = workspace;
+    const nextWorkspace = {
+      ...workspace,
+      emissions: exists
+        ? workspace.emissions.map((emission) => emission.id === currentEmission.id ? nextEmission : emission)
+        : [...workspace.emissions, nextEmission],
+    };
+
+    setWorkspace(nextWorkspace);
+    setKanbanSavingId(slotId);
+    try {
+      await repository.saveEmissionStatus(nextEmission);
+      notify(`${programs.find((program) => program.id === slot.programId)?.shortName ?? "Programa"}: ${statusLabel[status]}.`);
+    } catch (error) {
+      setWorkspace(previousWorkspace);
+      notify(error instanceof Error ? error.message : "No se pudo cambiar el estado.");
+    } finally {
+      setKanbanSavingId("");
+    }
+  }
+
+  function handleKanbanDrop(event: DragEndEvent) {
+    if (event.canceled) return;
+    const sourceId = event.operation.source?.id;
+    const targetId = event.operation.target?.id;
+    if (!sourceId || !targetId || !kanbanStatuses.includes(targetId as Emission["status"])) return;
+    void moveEmissionStatus(String(sourceId), targetId as Emission["status"]);
   }
 
   async function saveBulletin() {
@@ -473,25 +589,37 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
           <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
         </header>
         {workspace.bulletins[0] && <article className="desk-bulletin"><span>Indicación del día</span><strong>{workspace.bulletins[0].title}</strong><p>{workspace.bulletins[0].body}</p></article>}
-        <div className="desk-columns">
-          {columns.map((column) => {
-            const items = managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status);
-            return (
-              <section key={column.status} className={`desk-column desk-${column.status}`}>
-                <header><div><strong>{column.title}</strong><span>{column.hint}</span></div><b>{items.length}</b></header>
-                <div>
+        <p className="desk-mobile-hint">Desliza para recorrer los estados. También puedes usar el selector de cada programa.</p>
+        <DragDropProvider onDragEnd={handleKanbanDrop}>
+          <div className="desk-columns" aria-label="Kanban editorial por estado">
+            {columns.map((column) => {
+              const items = managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status);
+              return (
+                <KanbanColumn key={column.status} status={column.status} title={column.title} hint={column.hint} canEdit={canEdit} count={items.length}>
                   {items.map((slot) => {
                     const program = programs.find((item) => item.id === slot.programId);
                     const emission = workspace.emissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
                     if (!program) return null;
-                    return <article key={slot.id}><time>{slot.startTime}</time><h2>{program.shortName}</h2><p>{emission?.segments.length ? `${emission.segments.length} bloques estructurados` : "Sin contenido para este día."}</p><button onClick={() => { chooseSlot(slot.id); setActiveView(column.status === "empty" ? "reception" : "program"); }}>{column.status === "empty" ? "Completar" : "Abrir pauta"}</button></article>;
+                    return (
+                      <KanbanCard
+                        key={slot.id}
+                        slot={slot}
+                        program={program}
+                        emission={emission}
+                        status={column.status}
+                        canEdit={canEdit}
+                        saving={kanbanSavingId === slot.id}
+                        onMove={(slotId, status) => void moveEmissionStatus(slotId, status)}
+                        onOpen={() => { chooseSlot(slot.id); setActiveView(column.status === "empty" ? "reception" : "program"); }}
+                      />
+                    );
                   })}
-                  {!items.length && <p className="desk-empty">No hay programas en este estado.</p>}
-                </div>
-              </section>
-            );
-          })}
-        </div>
+                  {!items.length && <p className="desk-empty">Suelta aquí un programa o cámbialo desde su selector.</p>}
+                </KanbanColumn>
+              );
+            })}
+          </div>
+        </DragDropProvider>
       </section>
     );
   }
