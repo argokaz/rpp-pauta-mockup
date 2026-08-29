@@ -17,14 +17,24 @@ export const scheduleSlotSchema = z.object({
   endTime: z.string(),
 });
 
+export const segmentTypeSchema = z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]);
+
 export const segmentSchema = z.object({
   id: z.string(),
   startTime: z.string(),
   endTime: z.string(),
-  type: z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]),
+  type: segmentTypeSchema,
   title: z.string(),
   guest: z.string(),
   notes: z.string(),
+  sequence: z.string().optional(),
+  topic: z.string().optional(),
+  focus: z.string().optional(),
+  guestRole: z.string().optional(),
+  audienceQuestion: z.string().optional(),
+  productionCues: z.array(z.string()).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  sourceExcerpt: z.string().optional(),
 });
 
 export const emissionSchema = z.object({

@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { PautaAiReview } from "@/components/pauta-ai-review";
+import { structurePauta } from "@/data/ai-pauta-client";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
+import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
 import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
 
 const days = [
@@ -60,10 +63,11 @@ type WorkspaceAppProps = {
   accountLabel: string;
   accountName?: string;
   canEdit: boolean;
+  accessToken?: string;
   onSignOut?: () => void;
 };
 
-export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, onSignOut }: WorkspaceAppProps) {
+export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, accessToken, onSignOut }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspaceState);
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
   const [selectedSlotId, setSelectedSlotId] = useState("");
@@ -76,6 +80,10 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
   const [now, setNow] = useState<{ date: string; minutes: number } | null>(null);
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
+  const [importSource, setImportSource] = useState<ImportSource>("whatsapp");
+  const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiApplying, setAiApplying] = useState(false);
+  const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -206,6 +214,65 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
     });
   }
 
+  async function orderWithAi() {
+    if (!selectedEmission || !selectedProgram || !selectedSlot || !accessToken) {
+      notify("La IA requiere una sesión activa en la base compartida.");
+      return;
+    }
+    if (selectedEmission.rawText.trim().length < 20) {
+      notify("Pega una pauta más completa antes de ordenarla.");
+      return;
+    }
+
+    setAiProcessing(true);
+    try {
+      const result = await structurePauta({
+        programId: selectedProgram.id,
+        programName: selectedProgram.name,
+        targetDate: selectedDate,
+        plannedStart: selectedSlot.startTime,
+        plannedEnd: selectedSlot.endTime,
+        sourceChannel: importSource,
+        rawText: selectedEmission.rawText,
+      }, accessToken);
+      setAiResult(result);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No pudimos ordenar esta pauta.");
+    } finally {
+      setAiProcessing(false);
+    }
+  }
+
+  async function applyAiProposal() {
+    if (!aiResult || !selectedEmission) return;
+    setAiApplying(true);
+
+    const nextEmission: Emission = {
+      ...selectedEmission,
+      status: "draft",
+      segments: aiResult.proposal.segments.map(proposalSegmentToSegment),
+      updatedAt: new Date().toISOString(),
+    };
+    const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
+    const nextWorkspace: WorkspaceState = {
+      ...workspace,
+      emissions: exists
+        ? workspace.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+        : [...workspace.emissions, nextEmission],
+    };
+
+    const saved = await commit(nextWorkspace, "Escaleta ordenada y guardada.");
+    if (saved) {
+      try {
+        await repository.confirmImport(aiResult.importId);
+      } catch {
+        notify("La escaleta se guardó, pero falta cerrar el registro de importación.");
+      }
+      setAiResult(null);
+    }
+    setAiApplying(false);
+  }
+
   const scheduledProgramsForDraft = dateDraft
     ? scheduleSlots
       .filter((slot) => slot.dayOfWeek === new Date(`${dateDraft.date}T12:00:00`).getDay())
@@ -308,8 +375,12 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
                     <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}</span><h2>{selectedProgram.shortName}</h2></div><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
                     <div className="editor-scroll">
                       <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
-                      <div className="phase-two"><strong>Ordenar con IA</strong><span>Se activará en la Fase 2, después de validar el guardado manual.</span><button disabled>Próximamente</button></div>
-                      <div className="segments-heading"><div><strong>Escaleta manual</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
+                      <div className="phase-two">
+                        <div><strong>Ordenar con IA</strong><span>Genera una propuesta editable. El original se conserva sin cambios.</span></div>
+                        <label><span>Origen</span><select disabled={!canEdit || aiProcessing} value={importSource} onChange={(event) => setImportSource(event.target.value as ImportSource)}><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="document">Documento</option><option value="other">Otro</option></select></label>
+                        <button className="ai-action" disabled={!canEdit || !accessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
+                      </div>
+                      <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
                         {selectedEmission.segments.map((segment) => (
                           <article className="segment" key={segment.id}>
@@ -318,6 +389,16 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
                             <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
                             <label className="segment-guest"><span>Invitado</span><input disabled={!canEdit} value={segment.guest} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guest: event.target.value } : item) })} placeholder="Nombre y cargo" /></label>
                             <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, notes: event.target.value } : item) })} /></label>
+                            <details className="segment-details">
+                              <summary>Detalles extraídos</summary>
+                              <div>
+                                <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
+                                <label><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
+                                <label><span>Enfoque</span><textarea disabled={!canEdit} rows={3} value={segment.focus ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
+                                <label><span>Pregunta al público</span><textarea disabled={!canEdit} rows={2} value={segment.audienceQuestion ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, audienceQuestion: event.target.value } : item) })} /></label>
+                                <label><span>Indicaciones de producción</span><textarea disabled={!canEdit} rows={2} value={(segment.productionCues ?? []).join("\n")} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) } : item) })} /></label>
+                              </div>
+                            </details>
                             <button className="remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar</button>
                           </article>
                         ))}
@@ -359,6 +440,17 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
             <footer><button onClick={() => setDateDraft(null)}>Cancelar</button><button className="primary" onClick={saveImportantDate}>Guardar fecha</button></footer>
           </section>
         </div>
+      )}
+
+      {aiResult && (
+        <PautaAiReview
+          proposal={aiResult.proposal}
+          model={aiResult.model}
+          applying={aiApplying}
+          onChange={(proposal) => setAiResult({ ...aiResult, proposal })}
+          onClose={() => setAiResult(null)}
+          onApply={applyAiProposal}
+        />
       )}
 
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>

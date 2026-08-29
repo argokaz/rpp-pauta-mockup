@@ -31,7 +31,7 @@ export function createSupabaseWorkspaceRepository(
     const [bulletinsResult, datesResult, emissionsResult] = await Promise.all([
       supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,slug,guest_text,notes)").order("emission_date"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt)").order("emission_date"),
     ]);
 
     assertNoError(bulletinsResult.error, "No se pudieron cargar las indicaciones");
@@ -69,6 +69,16 @@ export function createSupabaseWorkspaceRepository(
             title: segment.slug,
             guest: segment.guest_text ?? "",
             notes: segment.notes,
+            sequence: segment.sequence_name ?? "",
+            topic: segment.topic ?? "",
+            focus: segment.focus ?? "",
+            guestRole: segment.guest_role ?? "",
+            audienceQuestion: segment.audience_question ?? "",
+            productionCues: Array.isArray(segment.production_cues)
+              ? segment.production_cues.filter((cue): cue is string => typeof cue === "string")
+              : [],
+            confidence: typeof segment.extraction_confidence === "number" ? segment.extraction_confidence : undefined,
+            sourceExcerpt: segment.source_excerpt ?? "",
           })),
       })),
     });
@@ -150,9 +160,17 @@ export function createSupabaseWorkspaceRepository(
             planned_start: segment.startTime || null,
             planned_end: segment.endTime || null,
             segment_type: segment.type,
+            sequence_name: segment.sequence || null,
             slug: segment.title || "Segmento",
+            topic: segment.topic || null,
+            focus: segment.focus || null,
             guest_text: segment.guest || null,
+            guest_role: segment.guestRole || null,
+            audience_question: segment.audienceQuestion || null,
+            production_cues: segment.productionCues ?? [],
             notes: segment.notes,
+            extraction_confidence: segment.confidence ?? null,
+            source_excerpt: segment.sourceExcerpt || null,
           })),
         );
         assertNoError(segmentsError, "No se pudieron guardar los segmentos");
@@ -162,5 +180,13 @@ export function createSupabaseWorkspaceRepository(
     return load();
   }
 
-  return { mode: "supabase", load, save };
+  async function confirmImport(importId: string): Promise<void> {
+    const { error } = await supabase
+      .from("raw_imports")
+      .update({ processing_status: "confirmed", confirmed_at: new Date().toISOString() })
+      .eq("id", importId);
+    assertNoError(error, "No se pudo confirmar la importación");
+  }
+
+  return { mode: "supabase", load, save, confirmImport };
 }

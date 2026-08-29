@@ -10,4 +10,5 @@ export const localWorkspaceRepository: WorkspaceRepository = {
     saveWorkspace(state);
     return state;
   },
+  async confirmImport() {},
 };

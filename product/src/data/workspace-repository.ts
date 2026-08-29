@@ -6,4 +6,5 @@ export interface WorkspaceRepository {
   mode: StorageMode;
   load(): Promise<WorkspaceState>;
   save(state: WorkspaceState): Promise<WorkspaceState>;
+  confirmImport(importId: string): Promise<void>;
 }

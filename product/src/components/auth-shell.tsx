@@ -83,6 +83,7 @@ export function AuthShell() {
       accountLabel={accountLabel}
       accountName={profile.full_name || email}
       canEdit={editableRoles.has(profile.app_role)}
+      accessToken={session.access_token}
       onSignOut={() => { void supabase.auth.signOut(); }}
     />
   );
