@@ -15,6 +15,7 @@ import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
+import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, normalizePersonName } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
@@ -1083,6 +1084,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setExpandedSavedSegments(new Set());
   }
 
+  function openArchiveResult(record: ArchiveSearchRecord) {
+    const slot = scheduleSlots.find((item) => item.programId === record.programId && item.dayOfWeek === editorialDayForDate(record.date).dayOfWeek);
+    if (!slot) {
+      notify("Encontramos el registro, pero ese programa ya no tiene un horario activo para abrirlo.");
+      return;
+    }
+    setProducerExperience(false);
+    chooseCaptureDate(record.date);
+    setSelectedSlotId(slot.id);
+    setActiveView(record.disposition ? "post" : "program");
+    setShowArchiveSearch(false);
+    notify(record.disposition ? "Abrimos la post-pauta de la emisión encontrada." : "Abrimos la pauta de la emisión encontrada.");
+  }
+
   function chooseCaptureDate(date: string) {
     setSelectedDate(date);
     setAiResult(null);
@@ -1748,7 +1763,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
         {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
-        {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} onClose={() => setShowArchiveSearch(false)} />}
+        {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
         <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
@@ -2030,7 +2045,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       </datalist>
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
-      {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} onClose={() => setShowArchiveSearch(false)} />}
+      {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
 
       {segmentHistory && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSegmentHistory(null)}>

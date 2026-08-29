@@ -1,4 +1,5 @@
 import type { Emission, Segment, WorkspaceState } from "@/domain/schemas";
+import type { ArchiveSearchFilters, ArchiveSearchPage } from "@/domain/archive-search";
 
 export type StorageMode = "local" | "supabase";
 
@@ -23,6 +24,7 @@ export interface WorkspaceRepository {
   deleteSegment?(emission: Emission, segment: Segment): Promise<SegmentDeleteResult>;
   saveSegmentOrder?(emission: Emission, segments: Segment[]): Promise<Segment[]>;
   loadSegmentRevisions?(segmentId: string): Promise<SegmentRevision[]>;
+  searchArchive?(filters: ArchiveSearchFilters): Promise<ArchiveSearchPage>;
   subscribe?(onChange: () => void): () => void;
   confirmImport(importId: string): Promise<void>;
 }

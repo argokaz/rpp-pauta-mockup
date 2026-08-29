@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { segmentSchema, workspaceStateSchema, type Emission, type Segment, type WorkspaceState } from "@/domain/schemas";
 import type { SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
+import type { ArchiveSearchPage, ArchiveSearchRecord } from "@/domain/archive-search";
 
 const WEEK_START = "2026-08-24";
 
@@ -408,6 +409,55 @@ export function createSupabaseWorkspaceRepository(
     });
   }
 
+  async function searchArchive(filters: Parameters<NonNullable<WorkspaceRepository["searchArchive"]>>[0]): Promise<ArchiveSearchPage> {
+    const { data, error } = await supabase.rpc("search_editorial_archive", {
+      p_query: filters.query,
+      p_program_id: filters.programId ?? null,
+      p_date_from: filters.dateFrom ?? null,
+      p_date_to: filters.dateTo ?? null,
+      p_disposition: filters.disposition ?? null,
+      p_limit: filters.limit,
+      p_offset: filters.offset,
+    });
+    assertNoError(error, "No se pudo buscar en el histórico");
+    if (!Array.isArray(data)) return { items: [], total: 0, hasMore: false };
+
+    const items = data.flatMap((value): ArchiveSearchRecord[] => {
+      if (!value || typeof value !== "object") return [];
+      const row = value as Record<string, unknown>;
+      if (typeof row.emission_id !== "string" || typeof row.segment_id !== "string" || typeof row.program_id !== "string" || typeof row.emission_date !== "string") return [];
+      const disposition = ["aired", "partial", "skipped", "added_live"].includes(String(row.disposition))
+        ? row.disposition as Segment["disposition"]
+        : undefined;
+      return [{
+        emissionId: row.emission_id,
+        segmentId: row.segment_id,
+        programId: row.program_id,
+        date: row.emission_date,
+        producerName: typeof row.producer_name === "string" ? row.producer_name : "",
+        startTime: shortTime(row.planned_start),
+        endTime: shortTime(row.planned_end),
+        title: typeof row.slug === "string" ? row.slug : "Segmento",
+        guest: typeof row.guest_text === "string" ? row.guest_text : "",
+        guestRole: typeof row.guest_role === "string" ? row.guest_role : "",
+        topic: typeof row.topic === "string" ? row.topic : "",
+        focus: typeof row.focus === "string" ? row.focus : "",
+        summary: typeof row.post_summary === "string" && row.post_summary.trim()
+          ? row.post_summary
+          : typeof row.focus === "string" && row.focus.trim()
+            ? row.focus
+            : typeof row.topic === "string" ? row.topic : "",
+        keyQuote: typeof row.key_quote === "string" ? row.key_quote : "",
+        quoteVerified: row.quote_verified === true,
+        disposition,
+        sourceExcerpt: typeof row.source_excerpt === "string" ? row.source_excerpt : "",
+        total: typeof row.total_count === "number" ? row.total_count : Number(row.total_count ?? 0),
+      }];
+    });
+    const total = items[0]?.total ?? 0;
+    return { items, total, hasMore: filters.offset + items.length < total };
+  }
+
   function subscribe(onChange: () => void): () => void {
     const channel = supabase
       .channel(`workspace-live-${userId}`)
@@ -417,5 +467,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, subscribe, confirmImport };
 }

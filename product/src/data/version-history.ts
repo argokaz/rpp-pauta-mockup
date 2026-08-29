@@ -5,9 +5,24 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.16.0";
+export const CURRENT_VERSION = "0.17.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.17.0",
+    date: "2026-08-29",
+    title: "Histórico editorial completo",
+    changes: [
+      "El histórico ahora consulta toda la base compartida en Supabase y deja de depender de las pautas cargadas en el navegador.",
+      "La búsqueda encuentra invitados, temas, contenido, resúmenes, citas, productores y programas con resultados paginados.",
+      "Los nombres de invitados toleran pequeños errores de escritura para evitar perder entrevistas por un typo.",
+      "Los filtros permiten combinar programa, rango de fechas y resultado emitido, parcial, no emitido o todavía planificado.",
+      "Cada resultado prioriza qué se dijo, la cita verificada y la evidencia original que respalda el registro.",
+      "La producción general puede abrir directamente la pauta o post-pauta correspondiente desde un resultado.",
+      "El modo local y la semana ficticia conservan el mismo comportamiento sin mezclar datos demo con registros reales.",
+      "El listado carga veinte registros por vez para mantener una respuesta ágil aunque crezca el archivo.",
+    ],
+  },
   {
     version: "0.16.0",
     date: "2026-08-29",

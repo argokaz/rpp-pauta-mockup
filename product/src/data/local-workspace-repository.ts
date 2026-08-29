@@ -1,6 +1,7 @@
 import { loadWorkspace, saveWorkspace } from "@/data/local-repository";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { syncLocalPeople } from "@/domain/people-history";
+import { searchArchiveLocally } from "@/domain/archive-search";
 
 export const localWorkspaceRepository: WorkspaceRepository = {
   mode: "local",
@@ -88,6 +89,9 @@ export const localWorkspaceRepository: WorkspaceRepository = {
   },
   async loadSegmentRevisions() {
     return [];
+  },
+  async searchArchive(filters) {
+    return searchArchiveLocally(loadWorkspace().emissions, filters);
   },
   async confirmImport() {},
 };

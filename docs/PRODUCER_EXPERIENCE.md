@@ -35,4 +35,8 @@ Los botones operativos se guardan por bloque. Los textos se persisten al salir d
 
 ## Histórico
 
-El buscador transversal consulta título, invitado, cargo, tema, enfoque, notas, resumen, cita, programa, productor y fecha. El índice de texto completo ya está preparado en PostgreSQL; el mockup actual filtra los datos cargados y puede migrar a consulta paginada del servidor cuando el volumen lo requiera.
+El buscador transversal consulta título, invitado, cargo, tema, enfoque, notas,
+resumen, cita, programa, productor y fecha directamente en PostgreSQL. La
+consulta devuelve veinte resultados por vez, combina filtros y tolera pequeños
+errores en nombres de invitados. La vista general también puede abrir la pauta
+o post-pauta correspondiente desde cada hallazgo.
