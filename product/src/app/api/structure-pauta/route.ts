@@ -9,7 +9,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-terra";
 
 const EXTRACTION_INSTRUCTIONS = `Eres un sistema de extracción editorial para la programación informativa de RPP Perú.
 

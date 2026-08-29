@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { PautaAiReview } from "@/components/pauta-ai-review";
+import { VersionHistoryModal } from "@/components/version-history-modal";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
+import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
 import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
@@ -84,6 +86,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -301,7 +304,12 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
           <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
         </nav>
         <div className="side-summary"><span>Semana 35</span><strong>22 programas</strong><small>Administrados dentro de la señal completa</small></div>
-        {onSignOut ? <button className="nav-bottom" onClick={onSignOut}>Cerrar sesión</button> : <div className="side-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><small>{accountName ?? "Fase 1"}</small></div>}
+        <div className="sidebar-footer">
+          <button className="version-button" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
+            <span>Versión actual</span><strong>v{CURRENT_VERSION}</strong><small>Ver novedades</small>
+          </button>
+          {onSignOut ? <button className="nav-bottom" onClick={onSignOut}>Cerrar sesión</button> : <div className="side-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><small>{accountName ?? "Fase 1"}</small></div>}
+        </div>
       </aside>
 
       <section className="workspace">
@@ -452,6 +460,8 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, a
           onApply={applyAiProposal}
         />
       )}
+
+      {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
 
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>

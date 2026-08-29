@@ -31,13 +31,21 @@ la emisión.
 - La solicitud usa `store: false`.
 - Los intentos fallidos quedan registrados para poder auditarlos y reintentarlos.
 
-## Modelo inicial
+## Modelo elegido para el piloto
 
-El piloto usa `gpt-5.4-mini` con razonamiento bajo. El modelo se puede cambiar
-mediante `OPENAI_MODEL` sin modificar código. La elección prioriza menor latencia
-y costo para una tarea de extracción bien definida.
+El piloto usa `gpt-5.6-terra` con razonamiento bajo. El modelo se puede cambiar
+mediante `OPENAI_MODEL` sin modificar código. La elección se tomó después de
+comparar Terra y `gpt-5.4-mini` con las dos pautas reales del piloto.
+
+Terra fue más preciso al distinguir invitados de personas mencionadas en una
+noticia, normalizar fecha y programa, clasificar informes y conservar cues de
+producción. Esa precisión es prioritaria porque las entidades extraídas
+alimentarán el futuro histórico de invitados y apariciones.
+
+Consulta el detalle en [Evaluación de modelos](./MODEL_EVALUATION.md).
 
 ## Referencias oficiales
 
 - [Responses API](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/responses/methods/create)
 - [GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
+- [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
