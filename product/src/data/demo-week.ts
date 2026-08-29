@@ -183,15 +183,32 @@ function createDemoEmissions(): Emission[] {
     const program = programs.find((item) => item.id === slot.programId);
     if (!program?.managed) return [];
     const date = dateForDayOfWeek(slot.dayOfWeek);
-    const segments = buildSegments(slot, date);
+    const status = statusForDate(date, slot.programId);
+    const segments = buildSegments(slot, date).map((segment) => status === "post" ? {
+      ...segment,
+      actualStart: segment.startTime,
+      actualEnd: segment.endTime,
+      disposition: "aired" as const,
+      postSummary: segment.focus || segment.notes,
+      keyQuote: "",
+      quoteVerified: false,
+    } : segment);
     return [{
       id: `${DEMO_PREFIX}emission-${slot.programId}-${date}`,
       programId: slot.programId,
       date,
-      status: statusForDate(date, slot.programId),
+      status,
       rawText: rawTextForEmission(program.name, date, segments),
       producerName: "Equipo demo",
       segments,
+      postPauta: {
+        reviewStatus: status === "post" ? "verified" : "capture",
+        sourceType: "none",
+        sourceUrl: "",
+        transcriptStatus: "none",
+        notes: status === "post" ? "Post-pauta demo revisada. No corresponde a una emisión real." : "",
+        ...(status === "post" ? { verifiedAt: `${date}T23:00:00.000Z` } : {}),
+      },
       updatedAt: `${date}T12:00:00.000Z`,
     } satisfies Emission];
   });
@@ -211,11 +228,14 @@ function createDemoPeople(emissions: Emission[]): Person[] {
         date: emission.date,
         role: "guest" as const,
         roleDescription: segment.guestRole ?? "Invitado/a",
-        summary: segment.notes,
+        summary: segment.postSummary || segment.notes,
         segmentTitle: segment.title,
         topic: segment.topic ?? segment.title,
         focus: segment.focus ?? segment.notes,
         sourceExcerpt: segment.sourceExcerpt ?? `[DEMO] ${segment.title}`,
+        quotes: segment.keyQuote
+          ? [{ text: segment.keyQuote, verified: segment.quoteVerified ?? false }]
+          : [],
       };
       const existing = people.get(normalizedName);
       if (existing) {

@@ -5,6 +5,7 @@ const loadingViews = [
   { code: "B", label: "Mesa", description: "Kanban editorial" },
   { code: "C", label: "Programa", description: "Editar mi pauta" },
   { code: "D", label: "Recepción", description: "Pegar y ordenar" },
+  { code: "E", label: "Post", description: "Registrar lo emitido" },
 ];
 
 export function WorkspaceLoadingShell() {

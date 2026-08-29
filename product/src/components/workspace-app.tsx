@@ -17,7 +17,7 @@ import { proposalSegmentToSegment, type ImportSource, type StructurePautaRespons
 import { normalizePersonName } from "@/domain/people-history";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { emissionSchema } from "@/domain/schemas";
-import type { Bulletin, Emission, ImportantDate, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
@@ -69,6 +69,29 @@ const segmentTypeLabel: Record<Segment["type"], string> = {
   cue: "Cue",
   other: "Otro",
 };
+
+const dispositionLabel: Record<NonNullable<Segment["disposition"]>, string> = {
+  aired: "Emitido",
+  partial: "Parcial",
+  skipped: "No salió",
+  added_live: "Añadido en vivo",
+};
+
+const postReviewLabel: Record<PostPauta["reviewStatus"], string> = {
+  capture: "Registro en curso",
+  review: "Pendiente de revisión",
+  verified: "Post-pauta verificada",
+};
+
+function emptyPostPauta(): PostPauta {
+  return {
+    reviewStatus: "capture",
+    sourceType: "none",
+    sourceUrl: "",
+    transcriptStatus: "none",
+    notes: "",
+  };
+}
 
 function emptyEmission(programId: string, date: string, producerName = ""): Emission {
   return {
@@ -175,13 +198,14 @@ type WorkspaceAppProps = {
   onSignOut?: () => void;
 };
 
-type WorkspaceView = "agenda" | "program" | "desk" | "reception";
+type WorkspaceView = "agenda" | "program" | "desk" | "reception" | "post";
 
 const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
   { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
   { id: "desk", code: "B", label: "Mesa", description: "Kanban editorial" },
   { id: "program", code: "C", label: "Programa", description: "Editar mi pauta" },
   { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
+  { id: "post", code: "E", label: "Post", description: "Registrar lo emitido" },
 ];
 
 export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut }: WorkspaceAppProps) {
@@ -195,7 +219,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState("");
-  const [now, setNow] = useState<{ date: string; minutes: number } | null>(null);
+  const [now, setNow] = useState<{ date: string; minutes: number; time: string } | null>(null);
   const [bulletinDraft, setBulletinDraft] = useState<Bulletin | null>(null);
   const [dateDraft, setDateDraft] = useState<ImportantDate | null>(null);
   const [importSource, setImportSource] = useState<ImportSource>("whatsapp");
@@ -224,20 +248,29 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         setLoadError(error instanceof Error ? error.message : "No se pudieron cargar los datos.");
         setHydrated(true);
       });
-      const limaDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
-      const limaTime = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "America/Lima",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }).format(new Date());
-      setNow({ date: limaDate, minutes: minutes(limaTime) });
     });
     return () => {
       active = false;
       window.cancelAnimationFrame(frame);
     };
   }, [initialWorkspace, repository]);
+
+  useEffect(() => {
+    function updateLimaClock() {
+      const currentDate = new Date();
+      const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(currentDate);
+      const time = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "America/Lima",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(currentDate);
+      setNow({ date, time, minutes: minutes(time) });
+    }
+    updateLimaClock();
+    const timer = window.setInterval(updateLimaClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!DEMO_DATA_AVAILABLE) return;
@@ -370,6 +403,101 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       return;
     }
     await commit(workspace, repository.mode === "supabase" ? "Borrador guardado para el equipo." : "Borrador guardado en este navegador.");
+  }
+
+  function updatePostPauta(change: Partial<PostPauta>) {
+    if (!selectedEmission) return;
+    updateEmission({ postPauta: { ...(selectedEmission.postPauta ?? emptyPostPauta()), ...change } });
+  }
+
+  function updatePostSegment(segmentId: string, change: Partial<Segment>) {
+    if (!selectedEmission) return;
+    updateEmission({
+      segments: selectedEmission.segments.map((segment) => segment.id === segmentId ? { ...segment, ...change } : segment),
+    });
+  }
+
+  function liveTimeOr(fallback: string): string {
+    return now?.date === selectedDate ? now.time : fallback;
+  }
+
+  function markSegmentStart(segment: Segment) {
+    updatePostSegment(segment.id, {
+      actualStart: liveTimeOr(segment.startTime),
+      actualEnd: undefined,
+      disposition: undefined,
+    });
+  }
+
+  function markSegmentEnd(segment: Segment, disposition: NonNullable<Segment["disposition"]> = "aired") {
+    updatePostSegment(segment.id, {
+      actualStart: segment.actualStart || liveTimeOr(segment.startTime),
+      actualEnd: liveTimeOr(segment.endTime),
+      disposition,
+    });
+  }
+
+  function markSegmentSkipped(segment: Segment) {
+    updatePostSegment(segment.id, { actualStart: undefined, actualEnd: undefined, disposition: "skipped" });
+  }
+
+  function markSegmentAsPlanned(segment: Segment) {
+    updatePostSegment(segment.id, { actualStart: segment.startTime, actualEnd: segment.endTime, disposition: "aired" });
+  }
+
+  function addLiveSegment() {
+    if (!selectedEmission) return;
+    const liveTime = liveTimeOr(selectedSlot?.startTime ?? "00:00");
+    updateEmission({
+      segments: [
+        ...selectedEmission.segments,
+        {
+          id: newId(),
+          startTime: liveTime,
+          endTime: liveTime,
+          actualStart: liveTime,
+          type: "other",
+          title: "Bloque añadido durante la emisión",
+          guest: "",
+          notes: "",
+          disposition: "added_live",
+          postSummary: "",
+          keyQuote: "",
+          quoteVerified: false,
+        },
+      ],
+    });
+    notify("Bloque imprevisto añadido al final del registro.");
+  }
+
+  async function savePostReview(reviewStatus: PostPauta["reviewStatus"]) {
+    if (!selectedEmission) return;
+    const nextEmission: Emission = {
+      ...selectedEmission,
+      status: reviewStatus === "capture" ? selectedEmission.status : "post",
+      postPauta: {
+        ...(selectedEmission.postPauta ?? emptyPostPauta()),
+        reviewStatus,
+        ...(reviewStatus === "verified" ? { verifiedAt: new Date().toISOString() } : { verifiedAt: undefined }),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (isDemoId(nextEmission.id)) {
+      upsertDemoOverride(nextEmission, true);
+      setDirty(false);
+      notify(reviewStatus === "verified" ? "Post-pauta demo verificada en este navegador." : "Avance demo guardado en este navegador.");
+      return;
+    }
+
+    const exists = workspace.emissions.some((emission) => emission.id === nextEmission.id);
+    const nextWorkspace = {
+      ...workspace,
+      emissions: exists
+        ? workspace.emissions.map((emission) => emission.id === nextEmission.id ? nextEmission : emission)
+        : [...workspace.emissions, nextEmission],
+    };
+    await commit(nextWorkspace, reviewStatus === "verified" ? "Post-pauta verificada y guardada en el histórico." : "Post-pauta enviada a revisión.");
   }
 
   async function moveEmissionStatus(slotId: string, status: Emission["status"]) {
@@ -763,6 +891,125 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
+  function renderPostPauta() {
+    const postPauta = selectedEmission?.postPauta ?? emptyPostPauta();
+    const registeredSegments = selectedEmission?.segments.filter((segment) => segment.disposition || segment.actualStart || segment.actualEnd).length ?? 0;
+    const completedSegments = selectedEmission?.segments.filter((segment) => segment.disposition === "skipped" || Boolean(segment.postSummary?.trim())).length ?? 0;
+    const totalSegments = selectedEmission?.segments.length ?? 0;
+    const isSelectedProgramLive = Boolean(
+      selectedSlot
+      && now?.date === selectedDate
+      && now.minutes >= minutes(selectedSlot.startTime)
+      && now.minutes < (selectedSlot.endTime === "00:00" ? 1440 : minutes(selectedSlot.endTime)),
+    );
+    const canVerify = totalSegments > 0 && completedSegments === totalSegments;
+
+    return (
+      <section className="mode-page post-page">
+        <header className="mode-heading">
+          <div><span>Registro as-run e histórico</span><h1>Post-pauta</h1><p>Marca lo que salió con pocos toques; completa el contenido y verifica las citas al terminar.</p></div>
+          <div className="mode-day-tabs reception-day-tabs">
+            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseCaptureDate(day.date)}>{day.label}</button>)}
+            <label className={`mode-calendar-picker ${selectedDateIsInVisibleWeek ? "" : "active"}`}>
+              <span>Calendario</span>
+              <input aria-label="Elegir fecha de post-pauta" type="date" value={selectedDate} onInput={(event) => event.currentTarget.value && chooseCaptureDate(event.currentTarget.value)} />
+            </label>
+          </div>
+        </header>
+
+        <div className="post-workspace">
+          {renderProgramRoutes()}
+          <section className="post-main">
+            <header className="post-program-header">
+              <div>
+                <span>{selectedDay.label}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span>
+                <h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2>
+                {selectedSlot && <p>Planificado de {selectedSlot.startTime} a {selectedSlot.endTime}</p>}
+              </div>
+              <div className="post-program-state">
+                {isSelectedProgramLive && <b className="live-pill">Al aire · {now?.time}</b>}
+                <strong data-review={postPauta.reviewStatus}>{postReviewLabel[postPauta.reviewStatus]}</strong>
+              </div>
+            </header>
+
+            {selectedEmission && selectedProgram?.managed ? (
+              <>
+                <section className="post-overview" aria-label="Progreso de la post-pauta">
+                  <div><strong>{registeredSegments}/{totalSegments}</strong><span>bloques registrados</span></div>
+                  <div><strong>{completedSegments}/{totalSegments}</strong><span>con resultado escrito</span></div>
+                  <div><strong>{selectedEmission.segments.filter((segment) => segment.quoteVerified).length}</strong><span>citas verificadas</span></div>
+                  <button disabled={!canEdit} onClick={addLiveSegment}>+ Bloque imprevisto</button>
+                </section>
+
+                <section className="post-source-card">
+                  <header><div><span>Fuente para transcripción</span><strong>Audio o video de la emisión</strong></div><b data-transcript={postPauta.transcriptStatus}>{postPauta.transcriptStatus === "none" ? "No solicitada" : postPauta.transcriptStatus === "pending" ? "Pendiente" : postPauta.transcriptStatus === "processing" ? "Procesando" : postPauta.transcriptStatus === "ready" ? "Lista" : "Con error"}</b></header>
+                  <div>
+                    <label><span>Origen</span><select disabled={!canEdit} value={postPauta.sourceType} onChange={(event) => updatePostPauta({ sourceType: event.target.value as PostPauta["sourceType"], sourceUrl: event.target.value === "none" ? "" : postPauta.sourceUrl })}><option value="none">Sin fuente todavía</option><option value="youtube">YouTube de RPP</option><option value="internal">Grabación interna</option><option value="audio">Archivo de audio</option></select></label>
+                    <label className="post-source-url"><span>Enlace o identificador</span><input disabled={!canEdit || postPauta.sourceType === "none"} value={postPauta.sourceUrl} onChange={(event) => updatePostPauta({ sourceUrl: event.target.value })} placeholder={postPauta.sourceType === "youtube" ? "https://youtube.com/watch?v=..." : "URL o código del archivo"} /></label>
+                  </div>
+                  <p>{postPauta.sourceType === "youtube" ? "La descarga de subtítulos requerirá autorización del canal de RPP. Guardar el enlace no inicia aún una transcripción." : "La fuente queda vinculada a esta emisión para la siguiente fase de transcripción y búsqueda."}</p>
+                </section>
+
+                <section className="post-segment-list" aria-label="Registro real de bloques">
+                  {selectedEmission.segments.map((segment, index) => {
+                    const isRunning = Boolean(segment.actualStart && !segment.actualEnd && !segment.disposition);
+                    const disposition = segment.disposition;
+                    const stateLabel = isRunning ? "Al aire" : disposition ? dispositionLabel[disposition] : "Pendiente";
+                    return (
+                      <article className={`post-segment ${isRunning ? "running" : ""}`} data-disposition={disposition ?? "pending"} key={segment.id}>
+                        <header>
+                          <span className="post-segment-number">{String(index + 1).padStart(2, "0")}</span>
+                          <div><span>{segment.startTime}–{segment.endTime} · {segmentTypeLabel[segment.type]}</span><h3>{segment.title}</h3>{segment.guest && <p>{segment.guest}{segment.guestRole ? ` · ${segment.guestRole}` : ""}</p>}</div>
+                          <b>{stateLabel}</b>
+                        </header>
+                        <div className="post-live-actions" aria-label={`Acciones rápidas para ${segment.title}`}>
+                          <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Entró ahora</button>
+                          <button disabled={!canEdit || !segment.actualStart} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>
+                          <button disabled={!canEdit} onClick={() => markSegmentEnd(segment, "partial")}>Salió parcial</button>
+                          <button disabled={!canEdit} onClick={() => markSegmentSkipped(segment)}>No salió</button>
+                          <button disabled={!canEdit} onClick={() => markSegmentAsPlanned(segment)}>Emitido según pauta</button>
+                        </div>
+                        <details className="post-segment-details" open={Boolean(segment.postSummary || segment.keyQuote)}>
+                          <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
+                          <div>
+                            <div className="post-actual-times">
+                              <label><span>Inicio real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} /></label>
+                              <label><span>Fin real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} /></label>
+                              <label><span>Resultado</span><select disabled={!canEdit} value={disposition ?? ""} onChange={(event) => updatePostSegment(segment.id, { disposition: (event.target.value || undefined) as Segment["disposition"] })}><option value="">Pendiente</option><option value="aired">Emitido</option><option value="partial">Parcial</option><option value="skipped">No salió</option><option value="added_live">Añadido en vivo</option></select></label>
+                            </div>
+                            <label className="post-wide-field"><span>Qué se dijo / qué ocurrió</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} placeholder={disposition === "skipped" ? "Motivo por el que no salió, si corresponde" : "Resumen breve, factual y útil para encontrar este bloque después"} /></label>
+                            <label className="post-wide-field"><span>Cita o idea destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} placeholder="No uses comillas hasta comprobar el texto con el audio" /></label>
+                            <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => updatePostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es una cita textual y la verifiqué con el audio</span></label>
+                          </div>
+                        </details>
+                      </article>
+                    );
+                  })}
+                  {!selectedEmission.segments.length && <div className="empty-state compact"><strong>No hay bloques que registrar</strong><p>Primero crea u ordena la pauta del programa. También puedes añadir un bloque imprevisto.</p></div>}
+                </section>
+
+                <section className="post-general-notes">
+                  <label><span>Observaciones generales de la emisión</span><textarea disabled={!canEdit} rows={3} value={postPauta.notes} onChange={(event) => updatePostPauta({ notes: event.target.value })} placeholder="Cambios de conducción, incidencias técnicas o contexto que afectó al programa" /></label>
+                </section>
+
+                <footer className="post-footer">
+                  <p>{canVerify ? "Todos los bloques tienen resultado. La post-pauta puede verificarse." : `Faltan ${Math.max(0, totalSegments - completedSegments)} bloques por resumir o marcar como no emitidos.`}</p>
+                  <div>
+                    <button disabled={!canEdit || saving || !dirty} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar avance"}</button>
+                    <button disabled={!canEdit || saving || totalSegments === 0} onClick={() => void savePostReview("review")}>Enviar a revisión</button>
+                    <button className="primary" disabled={!canEdit || saving || !canVerify} onClick={() => void savePostReview("verified")}>Verificar y cerrar</button>
+                  </div>
+                </footer>
+              </>
+            ) : (
+              <div className="empty-state"><strong>Elige un programa administrado</strong><p>La post-pauta sólo se registra en los programas manejados desde la herramienta.</p></div>
+            )}
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   function renderEditorialDesk() {
     const columns: Array<{ status: Emission["status"]; title: string; hint: string }> = [
       { status: "empty", title: "Falta pauta", hint: "Requiere acción" },
@@ -1003,6 +1250,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       {activeView === "program" && renderCaptureWorkspace(false)}
       {activeView === "desk" && renderEditorialDesk()}
       {activeView === "reception" && renderCaptureWorkspace(true)}
+      {activeView === "post" && renderPostPauta()}
 
       {bulletinDraft && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>

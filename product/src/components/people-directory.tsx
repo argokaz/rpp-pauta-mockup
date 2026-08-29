@@ -47,6 +47,7 @@ export function PeopleDirectory({ people, onClose }: PeopleDirectoryProps) {
         appearance.topic,
         appearance.focus,
         appearance.summary,
+        ...(appearance.quotes ?? []).map((quote) => quote.text),
         programName(appearance.programId),
       ]),
     ].join(" "));
@@ -102,6 +103,12 @@ export function PeopleDirectory({ people, onClose }: PeopleDirectoryProps) {
                       <div className="appearance-meta"><time>{readableDate(appearance.date)}</time><b>{roleLabels[appearance.role]}</b></div>
                       <h4>{appearance.segmentTitle}</h4>
                       <p>{appearance.summary || appearance.focus || appearance.topic || "Sin resumen editorial todavía."}</p>
+                      {(appearance.quotes ?? []).map((quote, index) => (
+                        <blockquote className={quote.verified ? "appearance-quote verified" : "appearance-quote"} key={`${appearance.id}-quote-${index}`}>
+                          <p>“{quote.text}”</p>
+                          <span>{quote.verified ? "Cita verificada con el audio" : "Idea destacada · pendiente de verificar"}</span>
+                        </blockquote>
+                      ))}
                       <footer><strong>{programName(appearance.programId)}</strong>{appearance.roleDescription && <span>{appearance.roleDescription}</span>}</footer>
                       {appearance.sourceExcerpt && <details><summary>Ver evidencia original</summary><blockquote>{appearance.sourceExcerpt}</blockquote></details>}
                     </article>

@@ -35,6 +35,15 @@ describe("semana de datos de prueba", () => {
     expect(selected?.rawText).toBe("Pauta real que debe conservarse");
   });
 
+  it("incluye post-pautas demo con tiempos reales y resultado editorial", () => {
+    const post = demoWeekEmissions.find((emission) => emission.status === "post");
+
+    expect(post?.postPauta?.reviewStatus).toBe("verified");
+    expect(post?.segments.every((segment) => segment.disposition === "aired")).toBe(true);
+    expect(post?.segments.every((segment) => segment.actualStart && segment.actualEnd)).toBe(true);
+    expect(post?.segments.every((segment) => segment.postSummary?.trim())).toBe(true);
+  });
+
   it("oculta fixtures y overrides al apagar el modo demo", () => {
     const override = { ...demoWeekEmissions[0], status: "post" as const };
     expect(mergeDemoEmissions(initialWorkspaceState.emissions, [override], false)).toEqual(initialWorkspaceState.emissions);

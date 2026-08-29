@@ -32,9 +32,9 @@ export function createSupabaseWorkspaceRepository(
     const [bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
       supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,updated_at,segments(id,sort_order,planned_start,planned_end,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt)").order("emission_date"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
-      supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,created_at"),
+      supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
 
     assertNoError(bulletinsResult.error, "No se pudieron cargar las indicaciones");
@@ -73,6 +73,14 @@ export function createSupabaseWorkspaceRepository(
         status: (["empty", "draft", "ready", "post"].includes(row.status) ? row.status : "post") as Emission["status"],
         rawText: row.raw_text,
         producerName: row.producer_name ?? "",
+        postPauta: {
+          reviewStatus: row.post_review_status ?? "capture",
+          sourceType: row.media_source_type ?? "none",
+          sourceUrl: row.media_source_url ?? "",
+          transcriptStatus: row.transcript_status ?? "none",
+          notes: row.post_notes ?? "",
+          verifiedAt: row.post_verified_at ?? undefined,
+        },
         updatedAt: row.updated_at,
         segments: [...(row.segments ?? [])]
           .sort((a, b) => a.sort_order - b.sort_order)
@@ -94,6 +102,12 @@ export function createSupabaseWorkspaceRepository(
               : [],
             confidence: typeof segment.extraction_confidence === "number" ? segment.extraction_confidence : undefined,
             sourceExcerpt: segment.source_excerpt ?? "",
+            actualStart: shortTime(segment.actual_start) || undefined,
+            actualEnd: shortTime(segment.actual_end) || undefined,
+            disposition: segment.disposition ?? undefined,
+            postSummary: segment.post_summary ?? "",
+            keyQuote: segment.key_quote ?? "",
+            quoteVerified: segment.quote_verified ?? false,
           })),
       })),
       people: (peopleResult.data ?? []).map((row) => ({
@@ -123,6 +137,15 @@ export function createSupabaseWorkspaceRepository(
               topic: appearance.topic ?? segment?.topic ?? "",
               focus: appearance.focus ?? segment?.focus ?? "",
               sourceExcerpt: appearance.source_excerpt ?? segment?.source_excerpt ?? "",
+              quotes: Array.isArray(appearance.quotes)
+                ? appearance.quotes.flatMap((quote) => {
+                    if (!quote || typeof quote !== "object") return [];
+                    const item = quote as { text?: unknown; verified?: unknown };
+                    return typeof item.text === "string"
+                      ? [{ text: item.text, verified: item.verified === true }]
+                      : [];
+                  })
+                : [],
             };
           })
           .sort((a, b) => b.date.localeCompare(a.date)),
@@ -207,6 +230,13 @@ export function createSupabaseWorkspaceRepository(
           status: emission.status,
           raw_text: emission.rawText,
           producer_name: emission.producerName,
+          post_review_status: emission.postPauta?.reviewStatus ?? "capture",
+          post_notes: emission.postPauta?.notes ?? "",
+          media_source_type: emission.postPauta?.sourceType ?? "none",
+          media_source_url: emission.postPauta?.sourceUrl ?? "",
+          transcript_status: emission.postPauta?.transcriptStatus ?? "none",
+          post_verified_at: emission.postPauta?.verifiedAt ?? null,
+          post_verified_by: emission.postPauta?.verifiedAt ? userId : null,
           producer_id: userId,
         }, { onConflict: "program_id,emission_date" })
         .select("id")
@@ -234,6 +264,9 @@ export function createSupabaseWorkspaceRepository(
             sort_order: index,
             planned_start: segment.startTime || null,
             planned_end: segment.endTime || null,
+            actual_start: segment.actualStart || null,
+            actual_end: segment.actualEnd || null,
+            disposition: segment.disposition ?? null,
             segment_type: segment.type,
             sequence_name: segment.sequence || null,
             slug: segment.title || "Segmento",
@@ -246,6 +279,9 @@ export function createSupabaseWorkspaceRepository(
             notes: segment.notes,
             extraction_confidence: segment.confidence ?? null,
             source_excerpt: segment.sourceExcerpt || null,
+            post_summary: segment.postSummary ?? "",
+            key_quote: segment.keyQuote ?? "",
+            quote_verified: segment.quoteVerified ?? false,
           })),
         ).select("id,sort_order");
         assertNoError(segmentsError, "No se pudieron guardar los segmentos");
@@ -265,12 +301,14 @@ export function createSupabaseWorkspaceRepository(
             person_id: personId,
             appearance_role: collaborator ? "other" : "guest",
             role_description: segment.guestRole || null,
-            summary: segment.focus || segment.topic || segment.notes || null,
+            summary: segment.postSummary || segment.focus || segment.topic || segment.notes || null,
             segment_title: segment.title || null,
             topic: segment.topic || null,
             focus: segment.focus || null,
             source_excerpt: segment.sourceExcerpt || null,
-            quotes: [],
+            quotes: segment.keyQuote
+              ? [{ text: segment.keyQuote, verified: segment.quoteVerified ?? false }]
+              : [],
           });
         }
 

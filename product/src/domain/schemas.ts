@@ -35,6 +35,21 @@ export const segmentSchema = z.object({
   productionCues: z.array(z.string()).optional(),
   confidence: z.number().min(0).max(1).optional(),
   sourceExcerpt: z.string().optional(),
+  actualStart: z.string().optional(),
+  actualEnd: z.string().optional(),
+  disposition: z.enum(["aired", "partial", "skipped", "added_live"]).optional(),
+  postSummary: z.string().optional(),
+  keyQuote: z.string().optional(),
+  quoteVerified: z.boolean().optional(),
+});
+
+export const postPautaSchema = z.object({
+  reviewStatus: z.enum(["capture", "review", "verified"]),
+  sourceType: z.enum(["none", "youtube", "audio", "internal"]),
+  sourceUrl: z.string(),
+  transcriptStatus: z.enum(["none", "pending", "processing", "ready", "failed"]),
+  notes: z.string(),
+  verifiedAt: z.string().optional(),
 });
 
 export const emissionSchema = z.object({
@@ -45,6 +60,7 @@ export const emissionSchema = z.object({
   rawText: z.string(),
   producerName: z.string().default(""),
   segments: z.array(segmentSchema),
+  postPauta: postPautaSchema.optional(),
   updatedAt: z.string(),
 });
 
@@ -77,6 +93,10 @@ export const appearanceSchema = z.object({
   topic: z.string(),
   focus: z.string(),
   sourceExcerpt: z.string(),
+  quotes: z.array(z.object({
+    text: z.string(),
+    verified: z.boolean(),
+  })).optional(),
 });
 
 export const personSchema = z.object({
@@ -100,6 +120,7 @@ export const workspaceStateSchema = z.object({
 export type Program = z.infer<typeof programSchema>;
 export type ScheduleSlot = z.infer<typeof scheduleSlotSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
+export type PostPauta = z.infer<typeof postPautaSchema>;
 export type Emission = z.infer<typeof emissionSchema>;
 export type Bulletin = z.infer<typeof bulletinSchema>;
 export type ImportantDate = z.infer<typeof importantDateSchema>;

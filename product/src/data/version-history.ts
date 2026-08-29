@@ -5,9 +5,24 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.11.0";
+export const CURRENT_VERSION = "0.12.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.12.0",
+    date: "2026-08-29",
+    title: "Post-pauta en vivo e histórico verificable",
+    changes: [
+      "La nueva vista E separa el horario planificado del registro real de lo que salió al aire.",
+      "Durante la emisión se puede marcar con pocos toques el inicio, fin, salida parcial, omisión o un bloque imprevisto.",
+      "La revisión posterior recoge qué se dijo, una cita o idea destacada y observaciones generales de la emisión.",
+      "Las citas textuales sólo se identifican como verificadas después de compararlas con el audio.",
+      "Cada post-pauta avanza por captura, revisión y verificación antes de cerrar el registro editorial.",
+      "El audio, la grabación interna o el video de YouTube autorizado quedan vinculados como fuente para una futura transcripción.",
+      "Los resúmenes y citas de invitados alimentan su ficha en el histórico de Personas y se pueden buscar después.",
+      "Supabase conserva tiempos reales, resultado del bloque, fuente, estado de transcripción y responsable de verificación.",
+    ],
+  },
   {
     version: "0.11.0",
     date: "2026-08-29",
