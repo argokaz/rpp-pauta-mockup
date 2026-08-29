@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import type { Bulletin, Emission, ImportantDate, Segment, WorkspaceState } from "@/domain/schemas";
@@ -65,7 +66,7 @@ type WorkspaceAppProps = {
 export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, onSignOut }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspaceState);
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
-  const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
+  const [selectedSlotId, setSelectedSlotId] = useState("");
   const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
   const [hydrated, setHydrated] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -111,7 +112,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
     [programFilter, selectedDay.dayOfWeek],
   );
 
-  const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId) ?? daySlots[0];
+  const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId);
   const selectedProgram = programs.find((program) => program.id === selectedSlot?.programId);
   const storedEmission = workspace.emissions.find(
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
@@ -223,21 +224,23 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span>RPP</span><div><strong>Pauta</strong><small>Informativos</small></div></div>
+        <div className="brand"><Image src="/rpp-logo.svg" alt="RPP" width={48} height={48} priority /><div><strong>Pauta</strong><small>Informativos</small></div></div>
+        <label className="sidebar-filter"><span>Programa</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Todos los programas</option><option value="managed">Solo administrados</option></select></label>
         <nav className="main-nav" aria-label="Navegación principal">
-          <button className="active">Agenda semanal <b>{daySlots.length}</b></button>
-          <button disabled title="Disponible en una fase posterior">Programas <b>22</b></button>
-          <button disabled title="Disponible en una fase posterior">Personas</button>
-          <button disabled title="Disponible en una fase posterior">Archivo</button>
-          <button disabled title="Disponible en una fase posterior">Ajustes</button>
+          <button className="active">Agenda semanal <b>35</b></button>
+          <button onClick={() => notify("La vista de indicaciones se habilitará después del piloto.")}>Indicaciones <b>{workspace.bulletins.length}</b></button>
+          <button onClick={() => notify("La búsqueda de personas se habilitará en la siguiente fase.")}>Personas</button>
+          <button onClick={() => notify("El archivo histórico se habilitará en la siguiente fase.")}>Archivo</button>
+          <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
         </nav>
-        <div className="local-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><strong>{repository.mode === "supabase" ? "En línea" : "Fase 1"}</strong><p>{repository.mode === "supabase" ? `Sesión: ${accountName ?? "Usuario RPP"}` : "Los cambios se guardan solo en este navegador."}</p>{onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}</div>
+        <div className="side-summary"><span>Semana 35</span><strong>22 programas</strong><small>Administrados dentro de la señal completa</small></div>
+        {onSignOut ? <button className="nav-bottom" onClick={onSignOut}>Cerrar sesión</button> : <div className="side-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><small>{accountName ?? "Fase 1"}</small></div>}
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div><span>Programación informativa</span><h1>Semana del 24 al 30 de agosto</h1></div>
-          <div className="topbar-actions"><button className="search" disabled title="Disponible en la Fase 2">Buscar invitado, tema o frase | Fase 2</button><span className="avatar">{accountLabel}</span></div>
+          <div className="topbar-actions"><button className="search" onClick={() => notify("La búsqueda se habilitará en la siguiente fase.")}>Buscar invitado, tema o frase</button><span className="avatar">{accountLabel}</span></div>
         </header>
 
         <div className="workspace-body">
@@ -267,15 +270,15 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
 
           <section className="agenda-panel">
             <header className="agenda-toolbar">
-              <label><span>Mostrar</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Toda la señal</option><option value="managed">Solo administrados</option></select></label>
+              <div className="week-nav"><button onClick={() => notify("La navegación entre semanas se habilitará después del piloto.")}>Anterior</button><button className="today-button" onClick={() => setSelectedDate("2026-08-28")}>Esta semana</button><button onClick={() => notify("La navegación entre semanas se habilitará después del piloto.")}>Siguiente</button></div>
               <div className="day-tabs" aria-label="Días de la semana">
                 {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}
               </div>
-              <button className="primary" disabled title="La edición de horarios se habilitará con Supabase">Añadir bloque</button>
+              <button className="primary" onClick={() => notify("La edición de horarios se habilitará después del piloto.")}>Añadir bloque</button>
             </header>
 
             <div className="agenda-layout">
-              <section className="timeline">
+              <section className="timeline-panel">
                 <header><div><strong>{selectedDay.label}</strong><span>{daySlots.length} bloques programados</span></div><div className="legend"><span>Administrado</span><span>Solo horario</span></div></header>
                 <div className="slot-list">
                   {daySlots.map((slot) => {
@@ -285,11 +288,14 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, o
                     const status = emission?.status ?? "empty";
                     const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
                     return (
-                      <button key={slot.id} className={`slot ${selectedSlot?.id === slot.id ? "selected" : ""} ${isLive ? "live" : ""}`} onClick={() => setSelectedSlotId(slot.id)}>
-                        <time>{slot.startTime}</time>
-                        <span><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span>
-                        <span className="slot-badges">{isLive && <b>Al aire ahora</b>}<em>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span>
-                      </button>
+                      <div className="schedule-row" key={slot.id}>
+                        <time className="schedule-time">{slot.startTime}</time>
+                        <button className={`schedule-card status-${status} ${selectedSlot?.id === slot.id ? "selected" : ""} ${!program.managed ? "schedule-only" : ""} ${isLive ? "live" : ""}`} onClick={() => setSelectedSlotId(slot.id)}>
+                          <span className="schedule-main"><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span>
+                          <span className="slot-badges">{isLive && <b>Al aire ahora</b>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span>
+                        </button>
+                        <button className="row-actions" onClick={() => setSelectedSlotId(slot.id)}>Más</button>
+                      </div>
                     );
                   })}
                   {!daySlots.length && <div className="empty-state"><strong>No hay horarios configurados</strong><p>Este día quedará disponible cuando carguemos la programación correspondiente.</p></div>}

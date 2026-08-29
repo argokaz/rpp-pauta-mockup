@@ -89,7 +89,8 @@ export function AuthShell() {
 }
 
 function SignIn({ supabase, initialError }: { supabase: ReturnType<typeof getSupabaseBrowserClient>; initialError: string }) {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState(initialError);
   const [sending, setSending] = useState(false);
 
@@ -97,28 +98,29 @@ function SignIn({ supabase, initialError }: { supabase: ReturnType<typeof getSup
     event.preventDefault();
     setSending(true);
     setMessage("");
-    const { error } = await supabase.auth.signInWithOtp({
+    const email = username.trim().toLowerCase() === "demo"
+      ? "demo@rpp-pauta.local"
+      : username.trim();
+    const { error } = await supabase.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo: window.location.origin,
-        shouldCreateUser: false,
-      },
+      password,
     });
     setSending(false);
-    setMessage(error ? error.message : "Te enviamos un enlace de acceso. Revisa tu correo.");
+    setMessage(error ? "Usuario o contraseña incorrectos." : "Acceso correcto. Abriendo la pauta...");
   }
 
   return (
     <main className="access-shell">
       <section className="access-panel" aria-labelledby="access-title">
         <div className="access-brand"><span>RPP</span><div><strong>Pauta</strong><small>Informativos</small></div></div>
-        <div className="access-copy"><span>Acceso editorial</span><h1 id="access-title">Ingresa a la pauta compartida</h1><p>Usa el correo invitado por la producción general. Recibirás un enlace seguro para entrar.</p></div>
+        <div className="access-copy"><span>Acceso editorial</span><h1 id="access-title">Ingresa a la pauta compartida</h1><p>Usa las credenciales asignadas para el piloto editorial.</p></div>
         <form onSubmit={submit} className="access-form">
-          <label><span>Correo de trabajo</span><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@rpp.pe" /></label>
-          <button className="primary" disabled={sending}>{sending ? "Enviando..." : "Enviar enlace"}</button>
+          <label><span>Usuario</span><input autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Usuario" /></label>
+          <label><span>Contraseña</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Contraseña" /></label>
+          <button className="primary" disabled={sending}>{sending ? "Ingresando..." : "Ingresar"}</button>
           {message && <p className="access-message" role="status">{message}</p>}
         </form>
-        <small className="access-note">Solo las personas invitadas pueden acceder.</small>
+        <small className="access-note">Acceso restringido al equipo editorial.</small>
       </section>
     </main>
   );
