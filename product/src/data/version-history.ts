@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.10.0";
+export const CURRENT_VERSION = "0.11.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.11.0",
+    date: "2026-08-29",
+    title: "Semana piloto con datos de prueba",
+    changes: [
+      "Los 51 horarios administrados de la semana piloto incluyen pautas ficticias inspiradas en los formatos históricos de RPP.",
+      "Un interruptor global permite mostrar u ocultar toda la capa demo sin alterar la información real del equipo.",
+      "Las pautas reales siempre reemplazan a la demostración cuando coinciden en programa y fecha.",
+      "Agenda, Mesa, Programa, Recepción y Personas identifican y reutilizan la información ficticia para probar el flujo completo.",
+      "Las ediciones de una pauta demo se guardan solo en el navegador y se pueden restablecer sin escribirlas en Supabase.",
+      "Toda escritura compartida elimina defensivamente los registros demo antes de llegar a la base de datos.",
+      "La variable NEXT_PUBLIC_DEMO_DATA=false permite retirar por completo el modo de prueba en un futuro despliegue.",
+    ],
+  },
   {
     version: "0.10.0",
     date: "2026-08-29",

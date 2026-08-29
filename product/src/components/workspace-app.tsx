@@ -9,13 +9,18 @@ import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
+import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type ImportSource, type StructurePautaResponse } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
+import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, Emission, ImportantDate, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
+
+const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
+const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
 
 const days = [
   { label: "Lun 24", date: "2026-08-24", dayOfWeek: 1 },
@@ -94,11 +99,12 @@ type KanbanCardProps = {
   status: Emission["status"];
   canEdit: boolean;
   saving: boolean;
+  isDemo: boolean;
   onMove: (slotId: string, status: Emission["status"]) => void;
   onOpen: () => void;
 };
 
-function KanbanCard({ slot, program, emission, status, canEdit, saving, onMove, onOpen }: KanbanCardProps) {
+function KanbanCard({ slot, program, emission, status, canEdit, saving, isDemo, onMove, onOpen }: KanbanCardProps) {
   const { ref, handleRef, isDragging } = useDraggable({
     id: slot.id,
     type: "program-card",
@@ -107,7 +113,7 @@ function KanbanCard({ slot, program, emission, status, canEdit, saving, onMove, 
   });
 
   return (
-    <article ref={ref} className={`kanban-card ${isDragging ? "dragging" : ""}`}>
+    <article ref={ref} className={`kanban-card ${isDragging ? "dragging" : ""} ${isDemo ? "demo-card" : ""}`}>
       <header>
         <time>{slot.startTime}</time>
         <button ref={handleRef} className="kanban-drag-handle" disabled={!canEdit || saving} aria-label={`Arrastrar ${program.shortName}`}>
@@ -118,6 +124,7 @@ function KanbanCard({ slot, program, emission, status, canEdit, saving, onMove, 
       <div className="kanban-card-meta">
         <span>{emission?.segments.length ? `${emission.segments.length} bloques` : "Sin contenido"}</span>
         <span>{emission?.producerName?.trim() || "Productor pendiente"}</span>
+        {isDemo && <b>Datos de prueba</b>}
       </div>
       <footer>
         <label>
@@ -201,6 +208,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
+  const [demoDataEnabled, setDemoDataEnabled] = useState(DEMO_DATA_AVAILABLE);
+  const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
 
   useEffect(() => {
     if (initialWorkspace) return;
@@ -230,6 +239,33 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     };
   }, [initialWorkspace, repository]);
 
+  useEffect(() => {
+    if (!DEMO_DATA_AVAILABLE) return;
+    const frame = window.requestAnimationFrame(() => {
+      const storedToggle = window.localStorage.getItem(DEMO_TOGGLE_STORAGE_KEY);
+      if (storedToggle === "false") setDemoDataEnabled(false);
+
+      const storedOverrides = window.localStorage.getItem(DEMO_OVERRIDES_STORAGE_KEY);
+      if (!storedOverrides) return;
+      try {
+        const parsed = emissionSchema.array().safeParse(JSON.parse(storedOverrides));
+        if (parsed.success) setDemoOverrides(parsed.data.filter((emission) => isDemoId(emission.id)));
+      } catch {
+        window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const effectiveEmissions = useMemo(
+    () => mergeDemoEmissions(workspace.emissions, demoOverrides, demoDataEnabled),
+    [demoDataEnabled, demoOverrides, workspace.emissions],
+  );
+  const effectivePeople = useMemo(
+    () => mergeDemoPeople(workspace.people, demoDataEnabled),
+    [demoDataEnabled, workspace.people],
+  );
+
   const selectedDay = editorialDayForDate(selectedDate);
   const selectedDateIsInVisibleWeek = days.some((day) => day.date === selectedDate);
   const daySlots = useMemo(
@@ -243,21 +279,49 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     ?? daySlots.find((slot) => programs.find((program) => program.id === slot.programId)?.managed)
     ?? daySlots[0];
   const selectedProgram = programs.find((program) => program.id === selectedSlot?.programId);
-  const rememberedProducer = workspace.emissions
+  const rememberedProducer = effectiveEmissions
     .filter((emission) => emission.programId === selectedProgram?.id && emission.producerName.trim())
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
     .at(-1)?.producerName ?? "";
-  const storedEmission = workspace.emissions.find(
+  const storedEmission = effectiveEmissions.find(
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
   );
   const selectedEmission = selectedProgram && selectedSlot
     ? storedEmission ?? emptyEmission(selectedProgram.id, selectedDate, rememberedProducer)
     : null;
-  const producerSuggestions = [...new Set(workspace.emissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
+  const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 
   function notify(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2500);
+  }
+
+  function upsertDemoOverride(nextEmission: Emission, persist = false) {
+    setDemoOverrides((current) => {
+      const exists = current.some((emission) => emission.id === nextEmission.id);
+      const next = exists
+        ? current.map((emission) => emission.id === nextEmission.id ? nextEmission : emission)
+        : [...current, nextEmission];
+      if (persist) window.localStorage.setItem(DEMO_OVERRIDES_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function toggleDemoData() {
+    if (!DEMO_DATA_AVAILABLE) return;
+    const next = !demoDataEnabled;
+    setDemoDataEnabled(next);
+    setDirty(false);
+    window.localStorage.setItem(DEMO_TOGGLE_STORAGE_KEY, String(next));
+    notify(next ? "Datos de prueba activados." : "Datos de prueba ocultos. Las pautas reales siguen intactas.");
+  }
+
+  function resetDemoData() {
+    setDemoOverrides([]);
+    setDirty(false);
+    window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
+    notify("La semana de prueba volvió a su estado inicial.");
   }
 
   async function commit(next: WorkspaceState, message: string) {
@@ -267,7 +331,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
     setSaving(true);
     try {
-      const saved = await repository.save(next);
+      const saved = await repository.save(stripDemoData(next));
       setWorkspace(saved);
       setDirty(false);
       notify(message);
@@ -283,6 +347,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   function updateEmission(change: Partial<Emission>) {
     if (!selectedEmission || !canEdit) return;
     const nextEmission = { ...selectedEmission, ...change, updatedAt: new Date().toISOString() };
+    if (isDemoId(selectedEmission.id)) {
+      upsertDemoOverride(nextEmission);
+      setDirty(true);
+      return;
+    }
     const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
     setWorkspace({
       ...workspace,
@@ -294,6 +363,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   async function saveDraft() {
+    if (selectedEmissionIsDemo && selectedEmission) {
+      upsertDemoOverride(selectedEmission, true);
+      setDirty(false);
+      notify("Cambios demo guardados solo en este navegador; Supabase no fue modificado.");
+      return;
+    }
     await commit(workspace, repository.mode === "supabase" ? "Borrador guardado para el equipo." : "Borrador guardado en este navegador.");
   }
 
@@ -302,7 +377,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const slot = managedDaySlots.find((item) => item.id === slotId);
     if (!slot) return;
 
-    const currentEmission = workspace.emissions.find(
+    const currentEmission = effectiveEmissions.find(
       (emission) => emission.programId === slot.programId && emission.date === selectedDate,
     ) ?? emptyEmission(slot.programId, selectedDate);
     if (currentEmission.status === status) return;
@@ -312,6 +387,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
 
     const nextEmission = { ...currentEmission, status, updatedAt: new Date().toISOString() };
+    if (isDemoId(currentEmission.id)) {
+      upsertDemoOverride(nextEmission, true);
+      notify(`${programs.find((program) => program.id === slot.programId)?.shortName ?? "Programa"}: cambio demo guardado solo en este navegador.`);
+      return;
+    }
     const exists = workspace.emissions.some((emission) => emission.id === currentEmission.id);
     const previousWorkspace = workspace;
     const nextWorkspace = {
@@ -389,7 +469,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function updateSegmentGuest(segment: Segment, value: string) {
     if (!selectedEmission) return;
-    const knownPerson = workspace.people.find((person) => person.normalizedName === normalizePersonName(value));
+    const knownPerson = effectivePeople.find((person) => person.normalizedName === normalizePersonName(value));
     updateEmission({
       segments: selectedEmission.segments.map((item) => item.id === segment.id ? {
         ...item,
@@ -441,6 +521,19 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       segments: aiResult.proposal.segments.map(proposalSegmentToSegment),
       updatedAt: new Date().toISOString(),
     };
+    if (isDemoId(selectedEmission.id)) {
+      upsertDemoOverride(nextEmission, true);
+      setDirty(false);
+      notify("Escaleta demo actualizada solo en este navegador; Supabase no fue modificado.");
+      try {
+        await repository.confirmImport(aiResult.importId);
+      } catch {
+        notify("La demo se actualizó, pero falta cerrar el registro de importación.");
+      }
+      setAiResult(null);
+      setAiApplying(false);
+      return;
+    }
     const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
     const nextWorkspace: WorkspaceState = {
       ...workspace,
@@ -580,7 +673,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div>
           {managedDaySlots.map((slot) => {
             const program = programs.find((item) => item.id === slot.programId);
-            const emission = workspace.emissions.find((item) => item.programId === program?.id && item.date === selectedDate);
+            const emission = effectiveEmissions.find((item) => item.programId === program?.id && item.date === selectedDate);
             if (!program) return null;
             return (
               <button className={selectedSlot?.id === slot.id ? "active" : ""} key={slot.id} onClick={() => chooseSlot(slot.id)}>
@@ -656,7 +749,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
@@ -679,7 +772,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     ];
     const itemsByStatus = Object.fromEntries(columns.map((column) => [
       column.status,
-      managedDaySlots.filter((slot) => (workspace.emissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status),
+      managedDaySlots.filter((slot) => (effectiveEmissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status),
     ])) as Record<Emission["status"], ScheduleSlot[]>;
     return (
       <section className="mode-page desk-page">
@@ -704,7 +797,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 <KanbanColumn key={column.status} status={column.status} title={column.title} hint={column.hint} canEdit={canEdit} count={items.length} mobileActive={mobileDeskStatus === column.status}>
                   {items.map((slot) => {
                     const program = programs.find((item) => item.id === slot.programId);
-                    const emission = workspace.emissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
+                    const emission = effectiveEmissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
                     if (!program) return null;
                     return (
                       <KanbanCard
@@ -715,6 +808,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         status={column.status}
                         canEdit={canEdit}
                         saving={kanbanSavingId === slot.id}
+                        isDemo={Boolean(emission && isDemoId(emission.id))}
                         onMove={(slotId, status) => void moveEmissionStatus(slotId, status)}
                         onOpen={() => { chooseSlot(slot.id); setActiveView(column.status === "empty" ? "reception" : "program"); }}
                       />
@@ -752,6 +846,19 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="switcher-account"><span>{accountName ?? "Equipo editorial"}</span><b>{accountLabel}</b></div>
       </header>
 
+      {DEMO_DATA_AVAILABLE && (
+        <aside className={`demo-data-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
+          <div>
+            <b>{demoDataEnabled ? "Semana demo activa" : "Semana demo oculta"}</b>
+            <span>{demoDataEnabled ? "Pautas ficticias visibles · las pautas reales tienen prioridad" : "Solo estás viendo la información real guardada por el equipo"}</span>
+          </div>
+          <div className="demo-data-actions">
+            {demoDataEnabled && demoOverrides.length > 0 && <button onClick={resetDemoData}>Restablecer demo</button>}
+            <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Ocultar datos de prueba" : "Mostrar datos de prueba"}</button>
+          </div>
+        </aside>
+      )}
+
       {activeView === "agenda" && (
       <div className="app-shell">
       <aside className="sidebar">
@@ -760,7 +867,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <nav className="main-nav" aria-label="Navegación principal">
           <button className="active">Agenda semanal <b>35</b></button>
           <button onClick={() => notify("La vista de indicaciones se habilitará después del piloto.")}>Indicaciones <b>{workspace.bulletins.length}</b></button>
-          <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{workspace.people.length}</b></button>
+          <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{effectivePeople.length}</b></button>
           <button onClick={() => notify("El archivo histórico se habilitará en la siguiente fase.")}>Archivo</button>
           <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
         </nav>
@@ -820,15 +927,15 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   {daySlots.map((slot) => {
                     const program = programs.find((item) => item.id === slot.programId);
                     if (!program) return null;
-                    const emission = workspace.emissions.find((item) => item.programId === program.id && item.date === selectedDate);
+                    const emission = effectiveEmissions.find((item) => item.programId === program.id && item.date === selectedDate);
                     const status = emission?.status ?? "empty";
                     const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
                     return (
                       <div className="schedule-row" key={slot.id}>
                         <time className="schedule-time">{slot.startTime}</time>
-                        <button className={`schedule-card status-${status} ${selectedSlot?.id === slot.id ? "selected" : ""} ${!program.managed ? "schedule-only" : ""} ${isLive ? "live" : ""}`} onClick={() => setSelectedSlotId(slot.id)}>
+                        <button className={`schedule-card status-${status} ${selectedSlot?.id === slot.id ? "selected" : ""} ${!program.managed ? "schedule-only" : ""} ${isLive ? "live" : ""} ${emission && isDemoId(emission.id) ? "demo-card" : ""}`} onClick={() => setSelectedSlotId(slot.id)}>
                           <span className="schedule-main"><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span>
-                          <span className="slot-badges">{isLive && <b>Al aire ahora</b>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span>
+                          <span className="slot-badges">{isLive && <b>Al aire ahora</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span>
                         </button>
                         <button className="row-actions" onClick={() => setSelectedSlotId(slot.id)}>Más</button>
                       </div>
@@ -841,7 +948,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <aside className="editor">
                 {selectedProgram && selectedEmission && selectedSlot ? selectedProgram.managed ? (
                   <>
-                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}</span><h2>{selectedProgram.shortName}</h2></div><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
+                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></header>
                     <div className="editor-scroll">
                       <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
                       <div className="phase-two">
@@ -850,7 +957,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
                       </div>
                       {aiResult && (
-                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={workspace.people} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} applying={aiApplying} people={effectivePeople} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
                       )}
                       <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
                       <div className="segment-list">
@@ -921,13 +1028,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       )}
 
       <datalist id="known-guests">
-        {workspace.people.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
+        {effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}
       </datalist>
       <datalist id="known-producers">
         {producerSuggestions.map((producer) => <option key={producer} value={producer} />)}
       </datalist>
 
-      {showPeopleDirectory && <PeopleDirectory people={workspace.people} onClose={() => setShowPeopleDirectory(false)} />}
+      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
 

@@ -129,6 +129,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .slot-badges b, .slot-badges em, .slot-badges i { padding: 5px 7px; border-radius: 999px; font-size: 9px; font-style: normal; white-space: nowrap; }
 .slot-badges b { background: var(--ink); color: #fff; }
 .slot-badges em { border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .6); }
+.slot-badges .demo-label { border-color: #8c7900; background: var(--yellow); color: var(--ink); font-weight: 850; }
 .slot-badges i { background: #e8e8e3; }
 .slot-badges i[data-status="draft"] { background: var(--yellow-soft); }
 .slot-badges i[data-status="ready"] { background: var(--ink); color: #fff; }
@@ -338,6 +339,15 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .switcher-account b { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: var(--yellow); color: var(--ink); font-size: 11px; }
 .product-shell .sidebar { top: 70px; height: calc(100dvh - 70px); }
 
+.demo-data-bar { min-height: 48px; padding: 7px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line-strong); background: #e8e8e4; }
+.demo-data-bar.active { border-bottom-color: #d1ba08; background: var(--yellow-soft); }
+.demo-data-bar > div:first-child { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.demo-data-bar b { font-size: 11px; white-space: nowrap; }
+.demo-data-bar span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.demo-data-actions { display: flex; align-items: center; gap: 6px; }
+.demo-data-actions button { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: rgba(255, 255, 255, .68); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.demo-data-actions .demo-toggle { border-color: var(--ink); background: var(--ink); color: #fff; }
+
 .mode-page { min-height: calc(100dvh - 70px); padding: 24px 26px 90px; }
 .mode-heading { max-width: 1500px; margin: 0 auto 18px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .mode-heading > div:first-child { display: grid; gap: 5px; }
@@ -497,6 +507,8 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .desk-column article h2 { margin: 5px 0; font-size: 13px; }
 .kanban-card-meta { min-height: 34px; margin: 0 0 9px; display: grid; gap: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
 .kanban-card-meta span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kanban-card.demo-card, .schedule-card.demo-card { box-shadow: inset 0 0 0 1px rgba(181, 158, 0, .26); }
+.kanban-card-meta b { width: fit-content; padding: 3px 6px; border-radius: 999px; background: var(--yellow-soft); color: var(--ink); font-size: 8px; text-transform: uppercase; letter-spacing: .04em; }
 .desk-column article button { min-height: 36px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface-soft); font-size: 9px; font-weight: 800; }
 .kanban-card .kanban-drag-handle { min-height: 30px; padding: 0 7px; border-style: dashed; background: transparent; color: var(--muted); touch-action: none; }
 .kanban-card > footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
@@ -655,6 +667,11 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .mode-switcher nav button > b { width: 22px; height: 22px; font-size: 9px; }
   .mode-switcher nav button small { display: none; }
   .mode-switcher nav button strong { font-size: 10px; }
+  .demo-data-bar { min-height: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+  .demo-data-bar > div:first-child { display: grid; gap: 2px; }
+  .demo-data-bar span { line-height: 1.3; white-space: normal; }
+  .demo-data-actions button { min-height: 38px; }
+  .demo-data-actions button:not(.demo-toggle) { display: none; }
   .product-shell .sidebar { top: 70px; height: calc(100dvh - 70px); }
   .mode-page { min-height: calc(100dvh - 70px); padding: 16px 12px calc(84px + env(safe-area-inset-bottom)); }
   .mode-heading { display: grid; gap: 14px; }
