@@ -307,8 +307,14 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .mode-heading h1 { margin: 0; font-size: clamp(26px, 3vw, 38px); letter-spacing: -.04em; line-height: 1; }
 .mode-heading p { margin: 2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .mode-day-tabs { max-width: 620px; display: flex; gap: 4px; overflow-x: auto; }
+.mode-day-tabs.reception-day-tabs { max-width: 790px; }
 .mode-day-tabs button { min-width: 58px; min-height: 44px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--muted); font-size: 10px; white-space: nowrap; }
 .mode-day-tabs button.active { border-color: var(--ink); background: var(--ink); color: #fff; font-weight: 800; }
+.mode-calendar-picker { min-width: 154px; min-height: 44px; padding: 5px 8px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--muted); cursor: pointer; }
+.mode-calendar-picker > span { font-size: 9px; font-weight: 800; }
+.mode-calendar-picker input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; font-size: 10px; cursor: pointer; }
+.mode-calendar-picker.active { border-color: var(--ink); background: var(--ink); color: #fff; }
+.mode-calendar-picker.active input { color-scheme: dark; }
 .program-grid, .reception-grid { max-width: 1500px; min-height: 690px; margin: 0 auto; display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .program-grid { grid-template-columns: 225px minmax(320px, .75fr) minmax(430px, 1.25fr); }
 .reception-grid { grid-template-columns: 225px minmax(350px, .85fr) minmax(460px, 1.15fr); }

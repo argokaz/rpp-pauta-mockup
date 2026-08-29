@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.6.0";
+export const CURRENT_VERSION = "0.6.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.6.1",
+    date: "2026-08-28",
+    title: "Kanban y calendario libre",
+    changes: [
+      "La Mesa C se identifica claramente como un Kanban editorial organizado por estado.",
+      "Recepción D permite elegir cualquier fecha desde un calendario ubicado después de Domingo.",
+      "Las fechas fuera de la semana visible cargan los programas correspondientes a su día real.",
+    ],
+  },
   {
     version: "0.6.0",
     date: "2026-08-28",

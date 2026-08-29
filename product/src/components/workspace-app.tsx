@@ -23,6 +23,24 @@ const days = [
   { label: "Dom 30", date: "2026-08-30", dayOfWeek: 0 },
 ];
 
+function editorialDayForDate(date: string) {
+  const scheduledDay = days.find((day) => day.date === date);
+  if (scheduledDay) return scheduledDay;
+
+  const parsedDate = new Date(`${date}T12:00:00`);
+  const formattedLabel = new Intl.DateTimeFormat("es-PE", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  }).format(parsedDate).replaceAll(".", "");
+
+  return {
+    label: formattedLabel.charAt(0).toUpperCase() + formattedLabel.slice(1),
+    date,
+    dayOfWeek: parsedDate.getDay(),
+  };
+}
+
 const statusLabel: Record<Emission["status"], string> = {
   empty: "Sin pauta",
   draft: "En edición",
@@ -76,7 +94,7 @@ type WorkspaceView = "agenda" | "program" | "desk" | "reception";
 const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
   { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
   { id: "program", code: "B", label: "Programa", description: "Editar mi pauta" },
-  { id: "desk", code: "C", label: "Mesa", description: "Control editorial" },
+  { id: "desk", code: "C", label: "Mesa", description: "Kanban editorial" },
   { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
 ];
 
@@ -129,7 +147,8 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
     };
   }, [repository]);
 
-  const selectedDay = days.find((day) => day.date === selectedDate) ?? days[4];
+  const selectedDay = editorialDayForDate(selectedDate);
+  const selectedDateIsInVisibleWeek = days.some((day) => day.date === selectedDate);
   const daySlots = useMemo(
     () => scheduleSlots
       .filter((slot) => slot.dayOfWeek === selectedDay.dayOfWeek)
@@ -376,7 +395,24 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
       <section className="mode-page">
         <header className="mode-heading">
           <div><span>{reception ? "Piloto de productora general" : "Espacio del programa"}</span><h1>{reception ? "Recepción de pautas" : selectedProgram?.shortName ?? "Mi programa"}</h1><p>{reception ? "Elige el destino, pega el mensaje recibido y revisa cómo quedará." : "Trabaja la pre-pauta y la vista ordenada del bloque seleccionado."}</p></div>
-          <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => { setSelectedDate(day.date); setAiResult(null); }}>{day.label}</button>)}</div>
+          <div className={`mode-day-tabs ${reception ? "reception-day-tabs" : ""}`}>
+            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => { setSelectedDate(day.date); setAiResult(null); }}>{day.label}</button>)}
+            {reception && (
+              <label className={`mode-calendar-picker ${selectedDateIsInVisibleWeek ? "" : "active"}`}>
+                <span>Calendario</span>
+                <input
+                  aria-label="Elegir cualquier fecha"
+                  type="date"
+                  value={selectedDate}
+                  onInput={(event) => {
+                    if (!event.currentTarget.value) return;
+                    setSelectedDate(event.currentTarget.value);
+                    setAiResult(null);
+                  }}
+                />
+              </label>
+            )}
+          </div>
         </header>
 
         <div className={reception ? "reception-grid" : "program-grid"}>
@@ -433,7 +469,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
     return (
       <section className="mode-page desk-page">
         <header className="mode-heading">
-          <div><span>{selectedDay.label}</span><h1>Mesa editorial</h1><p>Un vistazo operativo a todos los programas administrados del día.</p></div>
+          <div><span>{selectedDay.label} · Kanban editorial</span><h1>Mesa editorial</h1><p>Cada programa avanza por estado: falta pauta, preparación, listo para salir y post-pauta.</p></div>
           <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
         </header>
         {workspace.bulletins[0] && <article className="desk-bulletin"><span>Indicación del día</span><strong>{workspace.bulletins[0].title}</strong><p>{workspace.bulletins[0].body}</p></article>}
