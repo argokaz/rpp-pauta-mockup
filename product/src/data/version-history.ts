@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.9.0";
+export const CURRENT_VERSION = "0.10.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.10.0",
+    date: "2026-08-29",
+    title: "Entrada directa a la herramienta",
+    changes: [
+      "La pantalla inicial de espera fue reemplazada por el armazón real de la agenda con skeletons contextuales.",
+      "La sesión, el perfil editorial y los datos del workspace se preparan en un solo flujo.",
+      "Perfil y contenido compartido se cargan en paralelo para reducir el tiempo antes de poder trabajar.",
+      "La aplicación recibe el workspace ya cargado y evita una segunda pantalla de espera.",
+      "Los estados de carga respetan la composición responsive y la preferencia de movimiento reducido.",
+    ],
+  },
   {
     version: "0.9.0",
     date: "2026-08-29",

@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { WorkspaceApp } from "@/components/workspace-app";
+import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { localWorkspaceRepository } from "@/data/local-workspace-repository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/data/supabase-client";
 import { createSupabaseWorkspaceRepository } from "@/data/supabase-workspace-repository";
+import type { WorkspaceState } from "@/domain/schemas";
 
 type Profile = {
   full_name: string;
@@ -19,6 +21,7 @@ export function AuthShell() {
   const supabase = useMemo(() => remoteMode ? getSupabaseBrowserClient() : null, [remoteMode]);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [initialWorkspace, setInitialWorkspace] = useState<WorkspaceState | null>(null);
   const [loading, setLoading] = useState(remoteMode);
   const [authError, setAuthError] = useState("");
   const profileUserIdRef = useRef<string | null>(null);
@@ -55,6 +58,7 @@ export function AuthShell() {
       if (profileUserIdRef.current !== nextUserId) {
         profileUserIdRef.current = nextUserId;
         setProfile(null);
+        setInitialWorkspace(null);
       }
       setSession(nextSession);
       setLoading(false);
@@ -67,33 +71,35 @@ export function AuthShell() {
   }, [supabase]);
 
   useEffect(() => {
-    if (!supabase || !sessionUserId) return;
+    if (!supabase || !sessionUserId || !remoteRepository) return;
     let active = true;
-    void supabase
-      .from("profiles")
-      .select("full_name,app_role")
-      .eq("id", sessionUserId)
-      .single()
-      .then(({ data, error }) => {
+    void Promise.all([
+      supabase.from("profiles").select("full_name,app_role").eq("id", sessionUserId).single(),
+      remoteRepository.load(),
+    ]).then(([profileResult, loadedWorkspace]) => {
         if (!active) return;
-        if (error) setAuthError("No se pudo cargar tu perfil editorial.");
+        if (profileResult.error) setAuthError("No se pudo cargar tu perfil editorial.");
         else {
           profileUserIdRef.current = sessionUserId;
           setAuthError("");
-          setProfile(data as Profile);
+          setProfile(profileResult.data as Profile);
+          setInitialWorkspace(loadedWorkspace);
         }
+      }).catch((error: unknown) => {
+        if (!active) return;
+        setAuthError(error instanceof Error ? error.message : "No se pudo cargar la información editorial.");
       });
     return () => { active = false; };
-  }, [sessionUserId, supabase]);
+  }, [remoteRepository, sessionUserId, supabase]);
 
   if (!remoteMode) {
     return <WorkspaceApp repository={localWorkspaceRepository} accountLabel="AG" canEdit />;
   }
 
-  if (loading) return <AccessLoading />;
+  if (loading) return <WorkspaceLoadingShell />;
   if (!supabase) return <AccessError message="Falta la configuración de Supabase." />;
   if (!session) return <SignIn supabase={supabase} initialError={authError} />;
-  if (!profile || !remoteRepository) return authError ? <AccessError message={authError} /> : <AccessLoading />;
+  if (!profile || !remoteRepository || !initialWorkspace) return authError ? <AccessError message={authError} /> : <WorkspaceLoadingShell />;
 
   const email = session.user.email ?? "Usuario RPP";
   const accountLabel = (profile.full_name || email).slice(0, 2).toUpperCase();
@@ -101,6 +107,7 @@ export function AuthShell() {
   return (
     <WorkspaceApp
       repository={remoteRepository}
+      initialWorkspace={initialWorkspace}
       accountLabel={accountLabel}
       accountName={profile.full_name || email}
       canEdit={editableRoles.has(profile.app_role)}
@@ -146,10 +153,6 @@ function SignIn({ supabase, initialError }: { supabase: ReturnType<typeof getSup
       </section>
     </main>
   );
-}
-
-function AccessLoading() {
-  return <main className="access-shell"><section className="access-panel compact"><strong>Abriendo la pauta</strong><p>Estamos verificando tu sesión y permisos.</p></section></main>;
 }
 
 function AccessError({ message }: { message: string }) {

@@ -7,6 +7,7 @@ import { PautaAiReview } from "@/components/pauta-ai-review";
 import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
+import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
@@ -159,6 +160,7 @@ function KanbanColumn({ status, title, hint, canEdit, children, count, mobileAct
 
 type WorkspaceAppProps = {
   repository: WorkspaceRepository;
+  initialWorkspace?: WorkspaceState;
   accountLabel: string;
   accountName?: string;
   canEdit: boolean;
@@ -175,13 +177,13 @@ const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; de
   { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
 ];
 
-export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, getAccessToken, onSignOut }: WorkspaceAppProps) {
-  const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspaceState);
+export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut }: WorkspaceAppProps) {
+  const [workspace, setWorkspace] = useState<WorkspaceState>(() => initialWorkspace ?? initialWorkspaceState);
   const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
   const [selectedDate, setSelectedDate] = useState("2026-08-28");
   const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
   const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(Boolean(initialWorkspace));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -201,6 +203,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
+    if (initialWorkspace) return;
     let active = true;
     const frame = window.requestAnimationFrame(() => {
       void repository.load().then((loaded) => {
@@ -225,7 +228,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
       active = false;
       window.cancelAnimationFrame(frame);
     };
-  }, [repository]);
+  }, [initialWorkspace, repository]);
 
   const selectedDay = editorialDayForDate(selectedDate);
   const selectedDateIsInVisibleWeek = days.some((day) => day.date === selectedDate);
@@ -728,7 +731,7 @@ export function WorkspaceApp({ repository, accountLabel, accountName, canEdit, g
   }
 
   if (!hydrated) {
-    return <main className="access-shell"><section className="access-panel compact"><strong>Cargando la agenda</strong><p>Estamos recuperando la pauta y los horarios.</p></section></main>;
+    return <WorkspaceLoadingShell />;
   }
 
   if (loadError) {
