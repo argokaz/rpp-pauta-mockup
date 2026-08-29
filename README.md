@@ -9,3 +9,6 @@ programas informativos de RPP.
 - `docs/`: decisiones de producto e infraestructura.
 
 El prototipo público sigue abriendo desde el `index.html` de la raíz.
+
+- Aplicación funcional: https://rpp-pauta-mockup.vercel.app
+- Mockup estático: https://argokaz.github.io/rpp-pauta-mockup/

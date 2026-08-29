@@ -5,6 +5,11 @@
 GitHub conserva todo el código y el historial. GitHub Pages continúa alojando
 el mockup estático, pero no se usará como servidor de la aplicación funcional.
 
+La aplicación funcional está desplegada en producción en
+`https://rpp-pauta-mockup.vercel.app`. El proyecto de Vercel está conectado al
+repositorio de GitHub, usa `product/` como Root Directory y publica desde
+`main`.
+
 La aplicación vive en `product/` y puede ejecutarse localmente sin cuentas ni
 servicios externos. Su repositorio local guarda datos en el navegador y cumple
 el mismo contrato que usará la futura implementación de Supabase.
@@ -27,9 +32,9 @@ la aplicación.
 
 ### Vercel
 
-Activar cuando otra persona necesite abrir la aplicación desde fuera de esta
-Mac. Vercel ejecutará Next.js y sus rutas de servidor. Al configurar el proyecto
-se deberá seleccionar `product/` como Root Directory.
+Activo desde la Fase 1 para que la productora general pueda abrir la aplicación
+desde fuera de esta Mac. Vercel ejecuta Next.js y sus rutas de servidor usando
+`product/` como Root Directory.
 
 ### OpenAI
 

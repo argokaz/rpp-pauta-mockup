@@ -1,7 +1,9 @@
 # Pauta RPP, producto funcional
 
-Aplicación de la Fase 1. Convive con el mockup estático y está preparada para
-desplegarse en Vercel usando `product/` como directorio raíz.
+Aplicación de la Fase 1. Convive con el mockup estático y se despliega en
+Vercel usando `product/` como directorio raíz.
+
+Producción: https://rpp-pauta-mockup.vercel.app
 
 ## Desarrollo local
 
