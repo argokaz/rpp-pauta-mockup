@@ -44,6 +44,14 @@ describe("semana de datos de prueba", () => {
     expect(post?.segments.every((segment) => segment.postSummary?.trim())).toBe(true);
   });
 
+  it("incluye una bandeja demo para probar la post-pauta por noticia", () => {
+    const emission = demoWeekEmissions.find((item) => item.programId === "rotativa-am" && item.date === "2026-08-28");
+    const pool = emission?.segments.find((segment) => (segment.stories?.length ?? 0) > 0);
+
+    expect(pool?.stories).toHaveLength(4);
+    expect(pool?.stories?.every((story) => !story.disposition)).toBe(true);
+  });
+
   it("oculta fixtures y overrides al apagar el modo demo", () => {
     const override = { ...demoWeekEmissions[0], status: "post" as const };
     expect(mergeDemoEmissions(initialWorkspaceState.emissions, [override], false)).toEqual(initialWorkspaceState.emissions);

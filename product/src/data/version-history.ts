@@ -5,9 +5,25 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.15.0";
+export const CURRENT_VERSION = "0.16.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.16.0",
+    date: "2026-08-29",
+    title: "Edición compartida y post-pauta por noticia",
+    changes: [
+      "Cada bloque se guarda automáticamente y de forma independiente mientras se edita.",
+      "Los estados pendiente, guardando, guardado y error permanecen visibles junto al bloque.",
+      "Si dos personas editan el mismo bloque, la herramienta conserva ambos cambios y pide elegir cuál mantener.",
+      "El historial permite revisar versiones anteriores de un bloque y restaurarlas sin copiar el contenido a mano.",
+      "Crear, reordenar y quitar bloques usa operaciones atómicas que evitan sobrescribir cambios del equipo.",
+      "Las noticias dentro de un bloque pueden reordenarse y marcarse como emitidas, parciales o no emitidas durante el programa.",
+      "Cada noticia conserva su propio resultado para alimentar el histórico editorial.",
+      "Los cambios de invitado, tema, resumen y cita actualizan automáticamente su aparición en el directorio histórico.",
+      "La semana ficticia incluye una bandeja de Rotativa AM para probar este flujo sin mezclarla con pautas reales.",
+    ],
+  },
   {
     version: "0.15.0",
     date: "2026-08-29",

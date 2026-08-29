@@ -1,10 +1,12 @@
 # Pauta RPP, producto funcional
 
-Aplicación funcional de las Fases 1, 2 y la primera entrega de la Fase 3. Convive con el mockup estático y se despliega en
-Vercel usando `product/` como directorio raíz.
+Aplicación funcional de las Fases 1 a 4. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
 
 La Fase 3 incorpora la operación diaria: Mesa editorial con drag and drop,
 cambio accesible de estados y una base responsive para escritorio, tablet y teléfono.
+
+La Fase 4 protege la edición compartida: guardado atómico por bloque, detección
+de conflictos, historial recuperable y registro de post-pauta por noticia.
 
 Producción: https://rpp-pauta.vercel.app
 
@@ -30,7 +32,7 @@ NEXT_PUBLIC_DATA_MODE=supabase
 NEXT_PUBLIC_SUPABASE_URL=https://ecywwvlijuvspdngbqhh.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=tu_clave_publica
 OPENAI_API_KEY=tu_clave_privada
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5.6-luna
 ```
 
 La autenticación del piloto funciona con credenciales asignadas. El usuario debe

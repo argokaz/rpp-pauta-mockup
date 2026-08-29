@@ -28,6 +28,11 @@ export const storyItemSchema = z.object({
   notes: z.string(),
   confidence: z.number().min(0).max(1),
   sourceExcerpt: z.string(),
+  actualOrder: z.number().int().nonnegative().optional(),
+  actualStart: z.string().optional(),
+  actualEnd: z.string().optional(),
+  disposition: z.enum(["aired", "partial", "skipped", "added_live"]).optional(),
+  postSummary: z.string().optional(),
 });
 
 export const segmentSchema = z.object({
@@ -53,6 +58,8 @@ export const segmentSchema = z.object({
   postSummary: z.string().optional(),
   keyQuote: z.string().optional(),
   quoteVerified: z.boolean().optional(),
+  version: z.number().int().nonnegative().optional(),
+  lastEditedAt: z.string().optional(),
 });
 
 export const postPautaSchema = z.object({

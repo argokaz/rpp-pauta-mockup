@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FocusEvent, type MouseEvent } from "react";
 import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
@@ -13,9 +13,10 @@ import { structurePauta } from "@/data/ai-pauta-client";
 import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
 import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
-import type { WorkspaceRepository } from "@/data/workspace-repository";
+import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
 import { findSimilarPeople, normalizePersonName } from "@/domain/people-history";
+import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
@@ -25,6 +26,9 @@ const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
 const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen";
 
 type ProducerComposerMode = "paste" | "write";
+type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
+type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
+type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
 
 const days = [
   { label: "Lun 24", date: "2026-08-24", dayOfWeek: 1 },
@@ -266,6 +270,36 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
   const [demoDataEnabled, setDemoDataEnabled] = useState(DEMO_DATA_AVAILABLE);
   const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
+  const [segmentSyncStates, setSegmentSyncStates] = useState<Record<string, SegmentSyncStatus>>({});
+  const [segmentConflicts, setSegmentConflicts] = useState<Record<string, SegmentConflict>>({});
+  const [segmentHistory, setSegmentHistory] = useState<{ segmentId: string; title: string; loading: boolean; entries: SegmentRevision[] } | null>(null);
+  const segmentSaveTimersRef = useRef<Map<string, number>>(new Map());
+  const segmentSavesInFlightRef = useRef<Set<string>>(new Set());
+  const pendingSegmentSavesRef = useRef<Map<string, SegmentSavePayload>>(new Map());
+  const latestSegmentVersionsRef = useRef<Map<string, number>>(new Map());
+  const segmentSyncStatesRef = useRef<Record<string, SegmentSyncStatus>>({});
+  const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
+
+  useEffect(() => () => {
+    segmentSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    segmentSaveTimersRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    workspace.emissions.forEach((emission) => emission.segments.forEach((segment) => {
+      if (segment.version !== undefined && !segmentSavesInFlightRef.current.has(segment.id)) {
+        latestSegmentVersionsRef.current.set(segment.id, segment.version);
+      }
+    }));
+  }, [workspace.emissions]);
+
+  useEffect(() => {
+    segmentSyncStatesRef.current = segmentSyncStates;
+  }, [segmentSyncStates]);
+
+  useEffect(() => {
+    segmentConflictsRef.current = segmentConflicts;
+  }, [segmentConflicts]);
 
   useEffect(() => {
     if (initialWorkspace) return;
@@ -325,7 +359,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   useEffect(() => {
     if (!repository.subscribe) return;
     return repository.subscribe(() => {
-      if (dirty || saving) return;
+      if (dirty || saving || Object.values(segmentSyncStatesRef.current).some((state) => state === "pending" || state === "saving" || state === "conflict")) return;
       void repository.load().then((loaded) => setWorkspace(loaded)).catch(() => undefined);
     });
   }, [dirty, repository, saving]);
@@ -453,6 +487,181 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setDirty(true);
   }
 
+  function replaceLocalSegment(segmentId: string, replacement?: Segment) {
+    setWorkspace((current) => ({
+      ...current,
+      emissions: current.emissions.map((emission) => emission.segments.some((segment) => segment.id === segmentId)
+        ? { ...emission, segments: replacement ? emission.segments.map((segment) => segment.id === segmentId ? replacement : segment) : emission.segments.filter((segment) => segment.id !== segmentId) }
+        : emission),
+    }));
+  }
+
+  async function saveSegmentPayload(payload: SegmentSavePayload): Promise<SegmentSaveResult | undefined> {
+    const { segment } = payload;
+    if (!repository.saveSegment || isDemoId(payload.emission.id)) return undefined;
+    if (segmentSavesInFlightRef.current.has(segment.id)) {
+      pendingSegmentSavesRef.current.set(segment.id, payload);
+      return undefined;
+    }
+
+    segmentSavesInFlightRef.current.add(segment.id);
+    setSegmentSyncStates((current) => ({ ...current, [segment.id]: "saving" }));
+    const knownVersion = latestSegmentVersionsRef.current.get(segment.id);
+    const versionedPayload = knownVersion === undefined
+      ? payload
+      : { ...payload, segment: { ...segment, version: knownVersion } };
+
+    try {
+      const result = await repository.saveSegment(versionedPayload.emission, versionedPayload.segment, versionedPayload.sortOrder);
+      if (result.status === "conflict") {
+        if (result.remoteSegment?.version !== undefined) latestSegmentVersionsRef.current.set(segment.id, result.remoteSegment.version);
+        segmentConflictsRef.current = {
+          ...segmentConflictsRef.current,
+          [segment.id]: { localSegment: payload.segment, remoteSegment: result.remoteSegment, editorName: result.editorName },
+        };
+        setSegmentConflicts((current) => ({
+          ...current,
+          [segment.id]: { localSegment: payload.segment, remoteSegment: result.remoteSegment, editorName: result.editorName },
+        }));
+        setSegmentSyncStates((current) => ({ ...current, [segment.id]: "conflict" }));
+        pendingSegmentSavesRef.current.delete(segment.id);
+        return result;
+      }
+
+      latestSegmentVersionsRef.current.set(segment.id, result.segment.version ?? 0);
+      setWorkspace((current) => ({
+        ...current,
+        emissions: current.emissions.map((emission) => ({
+          ...emission,
+          segments: emission.segments.map((item) => item.id === segment.id
+            ? { ...item, version: result.segment.version, lastEditedAt: result.segment.lastEditedAt }
+            : item),
+        })),
+      }));
+      setSegmentConflicts((current) => {
+        const next = { ...current };
+        delete next[segment.id];
+        return next;
+      });
+      setSegmentSyncStates((current) => ({ ...current, [segment.id]: "saved" }));
+      return result;
+    } catch (error) {
+      setSegmentSyncStates((current) => ({ ...current, [segment.id]: "error" }));
+      notify(error instanceof Error ? error.message : "No se pudo guardar este bloque.");
+      return undefined;
+    } finally {
+      segmentSavesInFlightRef.current.delete(segment.id);
+      const pending = pendingSegmentSavesRef.current.get(segment.id);
+      if (pending && !segmentConflictsRef.current[segment.id]) {
+        pendingSegmentSavesRef.current.delete(segment.id);
+        void saveSegmentPayload(pending);
+      }
+    }
+  }
+
+  function scheduleSegmentSave(payload: SegmentSavePayload, delay = 700) {
+    if (!repository.saveSegment || isDemoId(payload.emission.id)) return;
+    pendingSegmentSavesRef.current.set(payload.segment.id, payload);
+    const existingTimer = segmentSaveTimersRef.current.get(payload.segment.id);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    setSegmentSyncStates((current) => ({ ...current, [payload.segment.id]: "pending" }));
+    const timer = window.setTimeout(() => {
+      segmentSaveTimersRef.current.delete(payload.segment.id);
+      const latest = pendingSegmentSavesRef.current.get(payload.segment.id);
+      if (!latest) return;
+      pendingSegmentSavesRef.current.delete(payload.segment.id);
+      void saveSegmentPayload(latest);
+    }, delay);
+    segmentSaveTimersRef.current.set(payload.segment.id, timer);
+  }
+
+  function updateSegmentDraft(segmentId: string, change: Partial<Segment>, delay = 700) {
+    if (!selectedEmission || !canEdit) return;
+    const sortOrder = selectedEmission.segments.findIndex((segment) => segment.id === segmentId);
+    if (sortOrder < 0) return;
+    const nextSegment = { ...selectedEmission.segments[sortOrder], ...change };
+    if (selectedEmissionIsDemo) {
+      updateEmission({ segments: selectedEmission.segments.map((segment) => segment.id === segmentId ? nextSegment : segment) });
+      return;
+    }
+    const nextEmission = {
+      ...selectedEmission,
+      status: selectedEmission.status === "empty" ? "draft" as const : selectedEmission.status,
+      segments: selectedEmission.segments.map((segment) => segment.id === segmentId ? nextSegment : segment),
+      updatedAt: new Date().toISOString(),
+    };
+    setWorkspace((current) => {
+      const exists = current.emissions.some((emission) => emission.id === selectedEmission.id);
+      return {
+        ...current,
+        emissions: exists
+          ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+          : [...current.emissions, nextEmission],
+      };
+    });
+    scheduleSegmentSave({ emission: nextEmission, segment: nextSegment, sortOrder }, delay);
+  }
+
+  function acceptRemoteSegment(segmentId: string) {
+    const conflict = segmentConflicts[segmentId];
+    if (!conflict) return;
+    replaceLocalSegment(segmentId, conflict.remoteSegment);
+    const nextConflicts = { ...segmentConflictsRef.current };
+    delete nextConflicts[segmentId];
+    segmentConflictsRef.current = nextConflicts;
+    setSegmentConflicts((current) => {
+      const next = { ...current };
+      delete next[segmentId];
+      return next;
+    });
+    setSegmentSyncStates((current) => ({ ...current, [segmentId]: "saved" }));
+  }
+
+  function overwriteRemoteSegment(segmentId: string) {
+    const conflict = segmentConflicts[segmentId];
+    if (!conflict?.remoteSegment || !selectedEmission) return;
+    const sortOrder = selectedEmission.segments.findIndex((segment) => segment.id === segmentId);
+    if (sortOrder < 0) return;
+    const localSegment = { ...conflict.localSegment, version: conflict.remoteSegment.version };
+    replaceLocalSegment(segmentId, localSegment);
+    const nextConflicts = { ...segmentConflictsRef.current };
+    delete nextConflicts[segmentId];
+    segmentConflictsRef.current = nextConflicts;
+    setSegmentConflicts((current) => {
+      const next = { ...current };
+      delete next[segmentId];
+      return next;
+    });
+    void saveSegmentPayload({ emission: selectedEmission, segment: localSegment, sortOrder });
+  }
+
+  async function openSegmentHistory(segment: Segment) {
+    setSegmentHistory({ segmentId: segment.id, title: segment.title, loading: true, entries: [] });
+    if (!repository.loadSegmentRevisions || isDemoId(selectedEmission?.id ?? "")) {
+      setSegmentHistory({ segmentId: segment.id, title: segment.title, loading: false, entries: [] });
+      return;
+    }
+    try {
+      const entries = await repository.loadSegmentRevisions(segment.id);
+      setSegmentHistory({ segmentId: segment.id, title: segment.title, loading: false, entries });
+    } catch (error) {
+      setSegmentHistory(null);
+      notify(error instanceof Error ? error.message : "No se pudo abrir el historial del bloque.");
+    }
+  }
+
+  function restoreSegmentRevision(revision: SegmentRevision) {
+    const emission = workspace.emissions.find((item) => item.segments.some((segment) => segment.id === revision.segment.id));
+    const currentSegment = emission?.segments.find((segment) => segment.id === revision.segment.id);
+    if (!emission || !currentSegment) return;
+    const restoredSegment = { ...revision.segment, id: currentSegment.id, version: currentSegment.version };
+    const sortOrder = emission.segments.findIndex((segment) => segment.id === currentSegment.id);
+    const nextEmission = { ...emission, segments: emission.segments.map((segment) => segment.id === currentSegment.id ? restoredSegment : segment), updatedAt: new Date().toISOString() };
+    replaceLocalSegment(currentSegment.id, restoredSegment);
+    setSegmentHistory(null);
+    void saveSegmentPayload({ emission: nextEmission, segment: restoredSegment, sortOrder });
+  }
+
   async function saveDraft() {
     if (selectedEmissionIsDemo && selectedEmission) {
       upsertDemoOverride(selectedEmission, true);
@@ -482,13 +691,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (sortOrder < 0) return;
     const nextSegment = { ...selectedEmission.segments[sortOrder], ...change };
     updatePostSegment(segmentId, change);
-    if (!repository.savePostSegment || isDemoId(selectedEmission.id)) return;
-    try {
-      await repository.savePostSegment(selectedEmission, nextSegment, sortOrder);
-      if (!hadUnsavedChanges) setDirty(false);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "No se pudo guardar este bloque.");
-    }
+    if (!repository.saveSegment || isDemoId(selectedEmission.id)) return;
+    const result = await saveSegmentPayload({ emission: selectedEmission, segment: nextSegment, sortOrder });
+    if (result?.status === "saved" && !hadUnsavedChanges) setDirty(false);
   }
 
   function liveTimeOr(fallback: string): string {
@@ -519,28 +724,82 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     void persistPostSegment(segment.id, { actualStart: segment.startTime, actualEnd: segment.endTime, disposition: "aired" });
   }
 
+  function updatePostStory(segment: Segment, storyIndex: number, change: Partial<StoryItem>) {
+    const stories = (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story);
+    updatePostSegment(segment.id, { stories });
+  }
+
+  function persistPostStory(segment: Segment, storyIndex: number, change: Partial<StoryItem>) {
+    const stories = (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story);
+    void persistPostSegment(segment.id, { stories });
+  }
+
+  function markPostStory(segment: Segment, storyIndex: number, disposition: NonNullable<StoryItem["disposition"]>) {
+    const stories = markStoryResult(segment.stories ?? [], storyIndex, disposition, liveTimeOr(""));
+    void persistPostSegment(segment.id, { stories });
+  }
+
+  function handleMovePostStory(event: MouseEvent<HTMLButtonElement>) {
+    const segment = selectedEmission?.segments.find((item) => item.id === event.currentTarget.dataset.segmentId);
+    const storyIndex = Number(event.currentTarget.dataset.storyIndex);
+    const direction = Number(event.currentTarget.dataset.direction) as -1 | 1;
+    if (!segment || !Number.isInteger(storyIndex)) return;
+    void persistPostSegment(segment.id, { stories: moveStoryInActualOrder(segment.stories ?? [], storyIndex, direction) });
+  }
+
+  function handleMarkPostStory(event: MouseEvent<HTMLButtonElement>) {
+    const segment = selectedEmission?.segments.find((item) => item.id === event.currentTarget.dataset.segmentId);
+    const storyIndex = Number(event.currentTarget.dataset.storyIndex);
+    const disposition = event.currentTarget.dataset.disposition as NonNullable<StoryItem["disposition"]>;
+    if (!segment || !Number.isInteger(storyIndex)) return;
+    markPostStory(segment, storyIndex, disposition);
+  }
+
+  function handlePostStorySummaryChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    const segment = selectedEmission?.segments.find((item) => item.id === event.currentTarget.dataset.segmentId);
+    const storyIndex = Number(event.currentTarget.dataset.storyIndex);
+    if (!segment || !Number.isInteger(storyIndex)) return;
+    updatePostStory(segment, storyIndex, { postSummary: event.currentTarget.value });
+  }
+
+  function handlePostStorySummaryBlur(event: FocusEvent<HTMLTextAreaElement>) {
+    const segment = selectedEmission?.segments.find((item) => item.id === event.currentTarget.dataset.segmentId);
+    const storyIndex = Number(event.currentTarget.dataset.storyIndex);
+    if (!segment || !Number.isInteger(storyIndex)) return;
+    persistPostStory(segment, storyIndex, { postSummary: event.currentTarget.value });
+  }
+
   function addLiveSegment() {
     if (!selectedEmission) return;
     const liveTime = liveTimeOr(selectedSlot?.startTime ?? "00:00");
-    updateEmission({
-      segments: [
-        ...selectedEmission.segments,
-        {
-          id: newId(),
-          startTime: liveTime,
-          endTime: liveTime,
-          actualStart: liveTime,
-          type: "other",
-          title: "Bloque añadido durante la emisión",
-          guest: "",
-          notes: "",
-          disposition: "added_live",
-          postSummary: "",
-          keyQuote: "",
-          quoteVerified: false,
-        },
-      ],
-    });
+    const nextSegment: Segment = {
+      id: newId(),
+      startTime: liveTime,
+      endTime: liveTime,
+      actualStart: liveTime,
+      type: "other",
+      title: "Bloque añadido durante la emisión",
+      guest: "",
+      notes: "",
+      disposition: "added_live",
+      postSummary: "",
+      keyQuote: "",
+      quoteVerified: false,
+      version: 0,
+    };
+    const nextEmission = { ...selectedEmission, segments: [...selectedEmission.segments, nextSegment], updatedAt: new Date().toISOString() };
+    if (selectedEmissionIsDemo) {
+      updateEmission({ segments: nextEmission.segments });
+      notify("Bloque imprevisto añadido a la demostración.");
+      return;
+    }
+    setWorkspace((current) => ({
+      ...current,
+      emissions: current.emissions.some((emission) => emission.id === selectedEmission.id)
+        ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+        : [...current.emissions, nextEmission],
+    }));
+    scheduleSegmentSave({ emission: nextEmission, segment: nextSegment, sortOrder: nextEmission.segments.length - 1 }, 0);
     notify("Bloque imprevisto añadido al final del registro.");
   }
 
@@ -659,26 +918,64 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const last = selectedEmission.segments.at(-1);
     const startTime = last?.endTime || selectedSlot.startTime;
     const id = newId();
-    updateEmission({
-      status: "draft",
-      segments: [
-        ...selectedEmission.segments,
-        { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "", stories: [] },
-      ],
-    });
+    const nextSegment: Segment = { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "", stories: [], version: 0 };
+    const nextEmission = { ...selectedEmission, status: "draft" as const, segments: [...selectedEmission.segments, nextSegment], updatedAt: new Date().toISOString() };
+    if (selectedEmissionIsDemo) updateEmission({ status: "draft", segments: nextEmission.segments });
+    else {
+      setWorkspace((current) => ({
+        ...current,
+        emissions: current.emissions.some((emission) => emission.id === selectedEmission.id)
+          ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+          : [...current.emissions, nextEmission],
+      }));
+      scheduleSegmentSave({ emission: nextEmission, segment: nextSegment, sortOrder: nextEmission.segments.length - 1 }, 0);
+    }
     setExpandedSavedSegments((current) => new Set([...current, id]));
   }
 
+  async function removeSegment(segment: Segment) {
+    if (!selectedEmission || !canEdit || (segment.stories?.length ?? 0) > 0) return;
+    if (!window.confirm(`¿Quitar el bloque “${segment.title}”?`)) return;
+    const timer = segmentSaveTimersRef.current.get(segment.id);
+    if (timer) window.clearTimeout(timer);
+    segmentSaveTimersRef.current.delete(segment.id);
+    pendingSegmentSavesRef.current.delete(segment.id);
+
+    if (selectedEmissionIsDemo || !repository.deleteSegment) {
+      updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) });
+      notify("Bloque quitado.");
+      return;
+    }
+
+    setSegmentSyncStates((current) => ({ ...current, [segment.id]: "saving" }));
+    try {
+      const result = await repository.deleteSegment(selectedEmission, segment);
+      if (result.status === "conflict") {
+        if (result.remoteSegment?.version !== undefined) latestSegmentVersionsRef.current.set(segment.id, result.remoteSegment.version);
+        setSegmentConflicts((current) => ({
+          ...current,
+          [segment.id]: { localSegment: segment, remoteSegment: result.remoteSegment, editorName: result.editorName },
+        }));
+        setSegmentSyncStates((current) => ({ ...current, [segment.id]: "conflict" }));
+        return;
+      }
+      replaceLocalSegment(segment.id);
+      latestSegmentVersionsRef.current.delete(segment.id);
+      setSegmentSyncStates((current) => {
+        const next = { ...current };
+        delete next[segment.id];
+        return next;
+      });
+      notify("Bloque quitado y orden actualizado.");
+    } catch (error) {
+      setSegmentSyncStates((current) => ({ ...current, [segment.id]: "error" }));
+      notify(error instanceof Error ? error.message : "No se pudo quitar este bloque.");
+    }
+  }
+
   function updateSegmentGuest(segment: Segment, value: string) {
-    if (!selectedEmission) return;
     const knownPerson = effectivePeople.find((person) => person.normalizedName === normalizePersonName(value));
-    updateEmission({
-      segments: selectedEmission.segments.map((item) => item.id === segment.id ? {
-        ...item,
-        guest: value,
-        guestRole: knownPerson?.primaryRole ?? "",
-      } : item),
-    });
+    updateSegmentDraft(segment.id, { guest: value, guestRole: knownPerson?.primaryRole ?? "" });
   }
 
   async function orderWithAi() {
@@ -735,15 +1032,30 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       setAiApplying(false);
       return;
     }
-    const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
-    const nextWorkspace: WorkspaceState = {
-      ...workspace,
-      emissions: exists
-        ? workspace.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
-        : [...workspace.emissions, nextEmission],
-    };
-
-    const saved = await commit(nextWorkspace, "Escaleta ordenada y guardada.");
+    let saved = false;
+    if (repository.replaceProgramEmission) {
+      setSaving(true);
+      try {
+        const savedWorkspace = await repository.replaceProgramEmission(nextEmission);
+        setWorkspace(savedWorkspace);
+        setDirty(false);
+        notify("Escaleta ordenada y guardada.");
+        saved = true;
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "No se pudo reemplazar la escaleta.");
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
+      const nextWorkspace: WorkspaceState = {
+        ...workspace,
+        emissions: exists
+          ? workspace.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+          : [...workspace.emissions, nextEmission],
+      };
+      saved = await commit(nextWorkspace, "Escaleta ordenada y guardada.");
+    }
     if (saved) {
       try {
         await repository.confirmImport(aiResult.importId);
@@ -875,21 +1187,15 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function setSavedDuration(segmentId: string, duration: number) {
-    if (!selectedEmission) return;
-    updateEmission({
-      segments: selectedEmission.segments.map((segment) => segment.id === segmentId
-        ? { ...segment, endTime: endTimeForDuration(segment.startTime, duration) }
-        : segment),
-    });
+    const segment = selectedEmission?.segments.find((item) => item.id === segmentId);
+    if (!segment) return;
+    updateSegmentDraft(segmentId, { endTime: endTimeForDuration(segment.startTime, duration) }, 0);
   }
 
   function updateSavedStory(segmentId: string, storyIndex: number, change: Partial<StoryItem>) {
-    if (!selectedEmission) return;
-    updateEmission({
-      segments: selectedEmission.segments.map((segment) => segment.id === segmentId
-        ? { ...segment, stories: (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story) }
-        : segment),
-    });
+    const segment = selectedEmission?.segments.find((item) => item.id === segmentId);
+    if (!segment) return;
+    updateSegmentDraft(segmentId, { stories: (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story) });
   }
 
   function withSavedStoryCount(segment: Segment, stories: StoryItem[]) {
@@ -904,23 +1210,52 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const source = selectedEmission.segments.find((segment) => segment.id === sourceSegmentId);
     const story = source?.stories?.[storyIndex];
     if (!source || !story) return;
-    updateEmission({
-      segments: selectedEmission.segments.map((segment) => {
-        if (segment.id === sourceSegmentId) return withSavedStoryCount(segment, (segment.stories ?? []).filter((_, index) => index !== storyIndex));
-        if (segment.id === targetSegmentId) return { ...segment, stories: [...(segment.stories ?? []), story] };
-        return segment;
-      }),
+    const nextSegments = selectedEmission.segments.map((segment) => {
+      if (segment.id === sourceSegmentId) return withSavedStoryCount(segment, (segment.stories ?? []).filter((_, index) => index !== storyIndex));
+      if (segment.id === targetSegmentId) return { ...segment, stories: [...(segment.stories ?? []), story] };
+      return segment;
     });
+    const nextEmission = { ...selectedEmission, segments: nextSegments, updatedAt: new Date().toISOString() };
+    if (selectedEmissionIsDemo) updateEmission({ segments: nextSegments });
+    else {
+      setWorkspace((current) => ({ ...current, emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission) }));
+      [sourceSegmentId, targetSegmentId].forEach((segmentId) => {
+        const sortOrder = nextSegments.findIndex((segment) => segment.id === segmentId);
+        if (sortOrder >= 0) scheduleSegmentSave({ emission: nextEmission, segment: nextSegments[sortOrder], sortOrder }, 0);
+      });
+    }
   }
 
-  function handleSavedRundownDrop(event: DragEndEvent) {
+  async function handleSavedRundownDrop(event: DragEndEvent) {
     if (event.canceled || !selectedEmission) return;
     const sourceId = String(event.operation.source?.id ?? "").replace("saved-block-", "");
     const targetId = String(event.operation.target?.id ?? "").replace("saved-block-", "");
     const sourceIndex = selectedEmission.segments.findIndex((segment) => segment.id === sourceId);
     const targetIndex = selectedEmission.segments.findIndex((segment) => segment.id === targetId);
     if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
-    updateEmission({ segments: reorderItems(selectedEmission.segments, sourceIndex, targetIndex) });
+    const nextSegments = reorderItems(selectedEmission.segments, sourceIndex, targetIndex);
+    const nextEmission = { ...selectedEmission, segments: nextSegments, updatedAt: new Date().toISOString() };
+    if (selectedEmissionIsDemo) updateEmission({ segments: nextSegments });
+    else {
+      setWorkspace((current) => ({ ...current, emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission) }));
+      if (repository.saveSegmentOrder) {
+        setSegmentSyncStates((current) => Object.fromEntries(Object.entries(current).concat(nextSegments.map((segment) => [segment.id, "saving" as const]))));
+        try {
+          const savedSegments = await repository.saveSegmentOrder(nextEmission, nextSegments);
+          savedSegments.forEach((segment) => latestSegmentVersionsRef.current.set(segment.id, segment.version ?? 0));
+          setWorkspace((current) => ({
+            ...current,
+            emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? { ...nextEmission, segments: savedSegments } : emission),
+          }));
+          setSegmentSyncStates((current) => Object.fromEntries(Object.entries(current).concat(savedSegments.map((segment) => [segment.id, "saved" as const]))));
+        } catch (error) {
+          setWorkspace((current) => ({ ...current, emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? selectedEmission : emission) }));
+          nextSegments.forEach((segment) => setSegmentSyncStates((current) => ({ ...current, [segment.id]: "error" })));
+          notify(error instanceof Error ? error.message : "No se pudo guardar el nuevo orden.");
+          return;
+        }
+      }
+    }
     notify("Bloque reordenado. Los horarios se conservaron.");
   }
 
@@ -941,6 +1276,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
             {selectedEmission.segments.map((segment, index) => {
               const exactGuest = effectivePeople.find((person) => person.normalizedName === normalizePersonName(segment.guest));
               const guestMatches = exactGuest ? [] : findSimilarPeople(segment.guest, effectivePeople, 2);
+              const syncState = segmentSyncStates[segment.id] ?? "saved";
+              const conflict = segmentConflicts[segment.id];
               return (
               <RundownBlock
                 id={`saved-block-${segment.id}`}
@@ -956,11 +1293,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 onToggle={() => toggleSavedSegment(segment.id)}
               >
                 <div className="ordered-fields">
-                  <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /></label>
-                  <label><span>Fin</span><input type="time" step="60" disabled={!canEdit} value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></label>
-                  <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  <div className="segment-sync-row wide" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Cambios pendientes" : syncState === "saving" ? "Guardando bloque" : syncState === "error" ? "No se pudo guardar" : syncState === "conflict" ? "Hay una edición más reciente" : "Bloque guardado"}</strong><span>{syncState === "saved" && segment.lastEditedAt ? `Actualizado ${new Date(segment.lastEditedAt).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}` : "El guardado es automático"}</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
+                  {conflict && <div className="segment-conflict wide" role="alert"><strong>{conflict.editorName} guardó este bloque antes que tú.</strong><p>Tus cambios siguen en pantalla. Elige qué versión conservar.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
+                  <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /></label>
+                  <label><span>Fin</span><input type="time" step="60" disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></label>
+                  <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                   <div className="duration-tools wide"><span>Duración rápida</span><div>{[15, 30, 45, 60].map((value) => <button disabled={!canEdit} key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setSavedDuration(segment.id, value)}>{value} min</button>)}<small>O escribe cualquier hora al minuto.</small></div></div>
-                  <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
+                  <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
                   <div className="guest-name-field">
                     <label><span>Invitado o invitada</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} placeholder="Nombre y apellido" /></label>
                     {segment.guest.trim().length >= 4 && (
@@ -971,9 +1310,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                           : <small className="guest-match new-person">No encontramos este nombre. Revisa la escritura; si es correcto se añadirá como persona nueva.</small>
                     )}
                   </div>
-                  <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
-                  <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
-                  <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
+                  <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { guestRole: event.target.value })} /></label>
+                  <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
+                  <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
                   {(segment.stories?.length ?? 0) > 0 && (
                     <section className="story-pool saved-story-pool wide">
                       <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Abre una noticia para editarla o moverla.</span></div></header>
@@ -994,7 +1333,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       </div>
                     </section>
                   )}
-                  <button className="remove ordered-remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar bloque</button>
+                  <button className="remove ordered-remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => void removeSegment(segment)}>Quitar bloque</button>
                 </div>
               </RundownBlock>
               );
@@ -1104,9 +1443,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function renderPostPauta() {
     const postPauta = selectedEmission?.postPauta ?? emptyPostPauta();
-    const registeredSegments = selectedEmission?.segments.filter((segment) => segment.disposition || segment.actualStart || segment.actualEnd).length ?? 0;
-    const completedSegments = selectedEmission?.segments.filter((segment) => segment.disposition === "skipped" || Boolean(segment.postSummary?.trim())).length ?? 0;
+    const registeredSegments = selectedEmission?.segments.filter((segment) => segment.disposition || segment.actualStart || segment.actualEnd || segment.stories?.some((story) => story.disposition)).length ?? 0;
+    const completedSegments = selectedEmission?.segments.filter((segment) => segment.disposition === "skipped" || ((segment.stories?.length ?? 0) > 0 ? segment.stories?.every(storyResultComplete) : Boolean(segment.postSummary?.trim()))).length ?? 0;
     const totalSegments = selectedEmission?.segments.length ?? 0;
+    const allStories = selectedEmission?.segments.flatMap((segment) => segment.stories ?? []) ?? [];
+    const completedStories = allStories.filter(storyResultComplete).length;
     const isSelectedProgramLive = Boolean(
       selectedSlot
       && now?.date === selectedDate
@@ -1147,7 +1488,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <>
                 <section className="post-overview" aria-label="Progreso de la post-pauta">
                   <div><strong>{registeredSegments}/{totalSegments}</strong><span>bloques registrados</span></div>
-                  <div><strong>{completedSegments}/{totalSegments}</strong><span>con resultado escrito</span></div>
+                  <div><strong>{allStories.length ? `${completedStories}/${allStories.length}` : `${completedSegments}/${totalSegments}`}</strong><span>{allStories.length ? "noticias cerradas" : "con resultado escrito"}</span></div>
                   <div><strong>{selectedEmission.segments.filter((segment) => segment.quoteVerified).length}</strong><span>citas verificadas</span></div>
                   <button disabled={!canEdit} onClick={addLiveSegment}>+ Bloque imprevisto</button>
                 </section>
@@ -1166,6 +1507,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     const isRunning = Boolean(segment.actualStart && !segment.actualEnd && !segment.disposition);
                     const disposition = segment.disposition;
                     const stateLabel = isRunning ? "Al aire" : disposition ? dispositionLabel[disposition] : "Pendiente";
+                    const syncState = segmentSyncStates[segment.id] ?? "saved";
+                    const conflict = segmentConflicts[segment.id];
                     return (
                       <article className={`post-segment ${isRunning ? "running" : ""}`} data-disposition={disposition ?? "pending"} key={segment.id}>
                         <header>
@@ -1173,6 +1516,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                           <div><span>{segment.startTime}–{segment.endTime} · {segmentTypeLabel[segment.type]}</span><h3>{segment.title}</h3>{segment.guest && <p>{segment.guest}{segment.guestRole ? ` · ${segment.guestRole}` : ""}</p>}</div>
                           <b>{stateLabel}</b>
                         </header>
+                        <div className="post-sync-line" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Pendiente de guardar" : syncState === "saving" ? "Guardando" : syncState === "error" ? "Error de guardado" : syncState === "conflict" ? "Conflicto de edición" : "Guardado"}</strong><span>Este bloque se guarda por separado.</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
+                        {conflict && <div className="segment-conflict post-conflict" role="alert"><strong>{conflict.editorName} actualizó este bloque.</strong><p>El registro que tienes abierto no fue reemplazado.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
                         <div className="post-live-actions" aria-label={`Acciones rápidas para ${segment.title}`}>
                           <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Entró ahora</button>
                           <button disabled={!canEdit || !segment.actualStart} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>
@@ -1184,9 +1529,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                           <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
                           <div>
                             {(segment.stories?.length ?? 0) > 0 && (
-                              <section className="post-story-index">
-                                <strong>{segment.stories?.length} noticias previstas en este bloque</strong>
-                                <ol>{segment.stories?.map((story) => <li key={`${story.reference}-${story.title}`}><span>{story.reference}</span><p>{story.title}</p>{story.format && <b>{story.format}</b>}</li>)}</ol>
+                              <section className="post-story-run">
+                                <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Marca el resultado y corrige el orden mientras salen al aire.</span></div><b>{segment.stories?.filter((story) => story.disposition).length}/{segment.stories?.length}</b></header>
+                                <ol>{segment.stories?.map((story, storyIndex) => <li key={`${story.reference}-${story.title}`} data-disposition={story.disposition ?? "pending"}>
+                                  <div className="post-story-heading"><span>{story.reference || storyIndex + 1}</span><div><strong>{story.title}</strong><small>{story.format || "Noticia"}{story.actualStart ? ` desde ${story.actualStart}` : ""}</small></div><b>{story.disposition ? dispositionLabel[story.disposition] : "Pendiente"}</b></div>
+                                  <div className="post-story-actions"><button disabled={!canEdit || storyIndex === 0} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={-1} onClick={handleMovePostStory}>Subir</button><button disabled={!canEdit || storyIndex === (segment.stories?.length ?? 0) - 1} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={1} onClick={handleMovePostStory}>Bajar</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="aired" onClick={handleMarkPostStory}>Emitida</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="partial" onClick={handleMarkPostStory}>Parcial</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="skipped" onClick={handleMarkPostStory}>No salió</button></div>
+                                  <label><span>Qué se dijo o qué ocurrió</span><textarea disabled={!canEdit || story.disposition === "skipped"} rows={2} value={story.postSummary ?? ""} data-segment-id={segment.id} data-story-index={storyIndex} onChange={handlePostStorySummaryChange} onBlur={handlePostStorySummaryBlur} placeholder="Resumen breve para el histórico" /></label>
+                                </li>)}</ol>
                               </section>
                             )}
                             <div className="post-actual-times">
@@ -1608,22 +1957,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       <div className="segment-list">
                         {selectedEmission.segments.map((segment) => (
                           <article className="segment" key={segment.id}>
-                            <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, startTime: event.target.value } : item) })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, endTime: event.target.value } : item) })} /></div>
-                            <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, type: event.target.value as Segment["type"] } : item) })}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                            <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, title: event.target.value } : item) })} /></label>
+                            <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div>
+                            <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                            <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
                             <label className="segment-guest"><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} placeholder="Empieza a escribir un nombre" /></label>
-                            <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, notes: event.target.value } : item) })} /></label>
+                            <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { notes: event.target.value })} /></label>
                             <details className="segment-details">
                               <summary>Detalles extraídos</summary>
                               <div>
-                                <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, guestRole: event.target.value } : item) })} /></label>
-                                <label><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, topic: event.target.value } : item) })} /></label>
-                                <label><span>Enfoque</span><textarea disabled={!canEdit} rows={3} value={segment.focus ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, focus: event.target.value } : item) })} /></label>
-                                <label><span>Pregunta al público</span><textarea disabled={!canEdit} rows={2} value={segment.audienceQuestion ?? ""} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, audienceQuestion: event.target.value } : item) })} /></label>
-                                <label><span>Indicaciones de producción</span><textarea disabled={!canEdit} rows={2} value={(segment.productionCues ?? []).join("\n")} onChange={(event) => updateEmission({ segments: selectedEmission.segments.map((item) => item.id === segment.id ? { ...item, productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) } : item) })} /></label>
+                                <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { guestRole: event.target.value })} /></label>
+                                <label><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
+                                <label><span>Enfoque</span><textarea disabled={!canEdit} rows={3} value={segment.focus ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
+                                <label><span>Pregunta al público</span><textarea disabled={!canEdit} rows={2} value={segment.audienceQuestion ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { audienceQuestion: event.target.value })} /></label>
+                                <label><span>Indicaciones de producción</span><textarea disabled={!canEdit} rows={2} value={(segment.productionCues ?? []).join("\n")} onChange={(event) => updateSegmentDraft(segment.id, { productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) })} /></label>
                               </div>
                             </details>
-                            <button className="remove" disabled={!canEdit} onClick={() => updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) })}>Quitar</button>
+                            <button className="remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => void removeSegment(segment)}>Quitar</button>
                           </article>
                         ))}
                         {!selectedEmission.segments.length && <div className="empty-state compact"><strong>Aún no hay segmentos</strong><p>Puedes pegar el texto original y construir la escaleta manualmente.</p></div>}
@@ -1682,6 +2031,26 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} onClose={() => setShowArchiveSearch(false)} />}
+
+      {segmentHistory && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSegmentHistory(null)}>
+          <section className="modal segment-history-modal" role="dialog" aria-modal="true" aria-labelledby="segment-history-title">
+            <header><div><span>Historial editorial</span><h2 id="segment-history-title">{segmentHistory.title}</h2></div><button onClick={() => setSegmentHistory(null)}>Cerrar</button></header>
+            <div className="segment-history-list">
+              {segmentHistory.loading && <div className="empty-state compact"><strong>Cargando cambios</strong><p>Buscando las versiones anteriores de este bloque.</p></div>}
+              {!segmentHistory.loading && segmentHistory.entries.map((entry) => (
+                <article key={entry.id}>
+                  <header><div><strong>{entry.actorName}</strong><time>{new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</time></div><button disabled={!canEdit} onClick={() => restoreSegmentRevision(entry)}>Restaurar</button></header>
+                  <h3>{entry.segment.title}</h3>
+                  <p>{entry.segment.topic || entry.segment.focus || entry.segment.notes || "Esta versión no tenía contenido adicional."}</p>
+                  <footer><span>{entry.segment.startTime || "--:--"} a {entry.segment.endTime || "--:--"}</span><span>Versión {entry.segment.version ?? 1}</span></footer>
+                </article>
+              ))}
+              {!segmentHistory.loading && !segmentHistory.entries.length && <div className="empty-state compact"><strong>Aún no hay versiones anteriores</strong><p>El historial comenzará con el próximo guardado compartido.</p></div>}
+            </div>
+          </section>
+        </div>
+      )}
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
 

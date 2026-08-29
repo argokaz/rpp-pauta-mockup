@@ -1,5 +1,5 @@
 import { normalizePersonName } from "../domain/people-history";
-import type { Emission, Person, ScheduleSlot, Segment, WorkspaceState } from "../domain/schemas";
+import type { Emission, Person, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "../domain/schemas";
 import { programs, scheduleSlots } from "./seed";
 
 export const DEMO_WEEK_START = "2026-08-24";
@@ -141,7 +141,7 @@ function buildSegments(slot: ScheduleSlot, date: string): Segment[] {
     const segmentEnd = index === count - 1
       ? end
       : start + Math.round((duration * (index + 1) / count) / 15) * 15;
-    return {
+    const segment: Segment = {
       id: `${DEMO_PREFIX}segment-${slot.programId}-${date}-${index + 1}`,
       startTime: formatClock(segmentStart),
       endTime: formatClock(segmentEnd),
@@ -158,6 +158,30 @@ function buildSegments(slot: ScheduleSlot, date: string): Segment[] {
       confidence: 1,
       sourceExcerpt: `[DEMO] ${story.title}${story.guest ? ` — ${story.guest}` : ""}`,
     };
+    if (slot.programId === "rotativa-am" && date === "2026-08-28" && index === 0) {
+      const storyPool: StoryItem[] = newsStories.slice(0, 4).map((newsStory, storyIndex) => ({
+        reference: `N${storyIndex + 1}`,
+        title: newsStory.title,
+        format: newsStory.type === "live" ? "Vivo" : newsStory.type === "interview" ? "Entrevista" : "Informe",
+        mediaCue: `DEMO ${storyIndex + 1}`,
+        summary: newsStory.focus || newsStory.notes,
+        notes: newsStory.notes,
+        confidence: 1,
+        sourceExcerpt: `[DEMO] ${newsStory.title}`,
+      }));
+      return {
+        ...segment,
+        type: "other",
+        title: `Noticias por ubicar (${storyPool.length})`,
+        guest: "",
+        guestRole: "",
+        topic: "Bandeja informativa",
+        focus: "Ordenar las noticias según las pausas y registrar su salida real.",
+        notes: "Ejemplo ficticio para probar el flujo de noticias dentro de un bloque.",
+        stories: storyPool,
+      };
+    }
+    return segment;
   });
 }
 
