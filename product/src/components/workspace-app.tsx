@@ -37,12 +37,25 @@ import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPa
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
+const DEMO_SHOWCASE_DATE = "2026-08-28";
+const DEMO_SHOWCASE_PROGRAM_ID = "encendidos";
 const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
 
 type ProducerComposerMode = "paste" | "write";
 type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
 type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
 type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
+type DemoReturnContext = {
+  activeView: WorkspaceView;
+  selectedDate: string;
+  selectedSlotId: string;
+  producerExperience: boolean;
+  activeProducerProgramId: string;
+  producerSection: "today" | "people" | "post";
+  postSourceText: string;
+  postSourceType: "document" | "youtube_captions";
+  postAiResult: StructurePostPautaResponse | null;
+};
 
 function editorialDayForDate(date: string) {
   const parsedDate = new Date(`${date}T12:00:00`);
@@ -295,6 +308,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const segmentSyncStatesRef = useRef<Record<string, SegmentSyncStatus>>({});
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
   const producerDashboardHistoryRef = useRef(false);
+  const demoReturnContextRef = useRef<DemoReturnContext | null>(null);
   const programs = workspace.programs.length ? workspace.programs : seedPrograms;
   const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
   const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
@@ -561,11 +575,72 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function toggleDemoData() {
     if (!DEMO_DATA_AVAILABLE) return;
+    if (saving || aiProcessing || aiApplying || postAiProcessing || postAiApplying) {
+      notify("Espera a que termine el proceso actual antes de cambiar el modo demo.");
+      return;
+    }
     const next = !demoDataEnabled;
     setDemoDataEnabled(next);
     setDirty(false);
     window.localStorage.setItem(DEMO_TOGGLE_STORAGE_KEY, String(next));
-    notify(next ? "Datos de prueba activados." : "Datos de prueba ocultos. Las pautas reales siguen intactas.");
+
+    if (next) {
+      demoReturnContextRef.current = {
+        activeView,
+        selectedDate,
+        selectedSlotId,
+        producerExperience,
+        activeProducerProgramId,
+        producerSection,
+        postSourceText,
+        postSourceType,
+        postAiResult,
+      };
+      const canUseEncendidos = !isRestrictedProducer || producerProgramIds?.includes(DEMO_SHOWCASE_PROGRAM_ID);
+      const showcaseProgramId = canUseEncendidos ? DEMO_SHOWCASE_PROGRAM_ID : activeProducerProgramId;
+      const showcaseSlot = scheduleSlots.find((slot) => slot.programId === showcaseProgramId
+        && slot.dayOfWeek === editorialDayForDate(DEMO_SHOWCASE_DATE).dayOfWeek
+        && slotAppliesOnDate(slot, DEMO_SHOWCASE_DATE));
+      chooseCaptureDate(DEMO_SHOWCASE_DATE);
+      if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
+      setPostSourceText("");
+      setPostSourceType("document");
+      setPostAiResult(null);
+      if (producerExperience) {
+        setActiveProducerProgramId(showcaseProgramId);
+        setProducerSection("post");
+      } else {
+        setActiveView("post");
+      }
+      const showcaseProgram = programs.find((program) => program.id === showcaseProgramId);
+      notify(`Modo demo activado: ${showcaseProgram?.shortName ?? "programa"} del viernes 28 abierto en Post-pauta.`);
+      return;
+    }
+
+    const previous = demoReturnContextRef.current;
+    demoReturnContextRef.current = null;
+    if (previous) {
+      chooseCaptureDate(previous.selectedDate);
+      setSelectedSlotId(previous.selectedSlotId);
+      setActiveView(previous.activeView);
+      setProducerExperience(previous.producerExperience);
+      setActiveProducerProgramId(previous.activeProducerProgramId);
+      setProducerSection(previous.producerSection);
+      setPostSourceText(previous.postSourceText);
+      setPostSourceType(previous.postSourceType);
+      setPostAiResult(previous.postAiResult);
+      notify("Modo demo cerrado. Volvimos a tu vista anterior y las pautas reales siguen intactas.");
+      return;
+    }
+
+    const normalDate = todayInLima();
+    chooseCaptureDate(normalDate);
+    setPostSourceText("");
+    setPostSourceType("document");
+    setPostAiResult(null);
+    if (producerExperience) setProducerSection("today");
+    else setActiveView("agenda");
+    notify("Modo demo cerrado. Volvimos a la programación actual y las pautas reales siguen intactas.");
   }
 
   function resetDemoData() {
@@ -2261,8 +2336,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         </header>
 
         {DEMO_DATA_AVAILABLE && <aside className={`producer-demo-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
-          <div><b>{demoDataEnabled ? "Ejemplos activos" : "Ejemplos ocultos"}</b><span>{demoDataEnabled ? producerDemoEmptyTarget ? `${longSpanishDate(producerDemoEmptyTarget.date)} está disponible para practicar una pauta nueva.` : "No hay un viernes libre para este programa en las próximas semanas." : "Muestra ejemplos ficticios para recorrer la herramienta sin tocar una pauta real."}</span></div>
-          <div>{demoDataEnabled && producerDemoEmptyTarget && <button className="demo-empty-day" onClick={openProducerDemoEmptyDay}>Ver día vacío</button>}<button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Ocultar demo" : "Mostrar demo"}</button></div>
+          <div><b>{demoDataEnabled ? "Modo demo activo" : "Modo demo desactivado"}</b><span>{demoDataEnabled ? "Encendidos del viernes 28 está listo para demostrar video, captions y Post-pauta." : "Actívalo para abrir el recorrido de demostración sin tocar una pauta real."}</span></div>
+          <div>{demoDataEnabled && producerDemoEmptyTarget && <button className="demo-empty-day" onClick={openProducerDemoEmptyDay}>Ver día vacío</button>}<button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button></div>
         </aside>}
 
         <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
@@ -2529,13 +2604,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       {DEMO_DATA_AVAILABLE && (
         <aside className={`demo-data-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
           <div>
-            <b>{demoDataEnabled ? "Demo activa para esta semana" : "Datos de prueba ocultos"}</b>
-            <span>{demoDataEnabled ? adminDemoEmptyTarget ? `${longSpanishDate(adminDemoEmptyTarget.date)} está disponible para probar una pauta desde cero. Los datos reales siempre tienen prioridad.` : "No encontramos un viernes libre en las próximas semanas." : "Actívala en cualquier semana para cargar ejemplos sin modificar la información de Supabase."}</span>
+            <b>{demoDataEnabled ? "Modo demo activo: viernes 28" : "Modo demo desactivado"}</b>
+            <span>{demoDataEnabled ? "Encendidos y Post-pauta están listos para demostrar video, captions, transcripción y edición." : "Actívalo para abrir el recorrido de demostración sin modificar la información de Supabase."}</span>
           </div>
           <div className="demo-data-actions">
             {demoDataEnabled && demoOverrides.length > 0 && <button className="demo-reset" onClick={resetDemoData}>Restablecer demo</button>}
             {demoDataEnabled && adminDemoEmptyTarget && <button className="demo-empty-day" onClick={openDemoEmptyDay}>Ver día vacío</button>}
-            <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Ocultar datos de prueba" : "Mostrar datos de prueba"}</button>
+            <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button>
           </div>
         </aside>
       )}

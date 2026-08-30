@@ -5,9 +5,20 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.33.1";
+export const CURRENT_VERSION = "0.34.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.34.0",
+    date: "2026-08-30",
+    title: "Recorrido directo para el modo demo",
+    changes: [
+      "Activar el modo demo abre automáticamente Encendidos del viernes 28 de agosto en Post-pauta.",
+      "El recorrido deja listos el video de YouTube, captions, transcripción y bloques emitidos para una demostración inmediata.",
+      "Salir del modo demo recupera el programa, fecha y sección desde donde se activó, sin alterar las pautas reales.",
+      "El comportamiento funciona tanto en el dashboard general como en la vista de Producción.",
+    ],
+  },
   {
     version: "0.33.1",
     date: "2026-08-30",
