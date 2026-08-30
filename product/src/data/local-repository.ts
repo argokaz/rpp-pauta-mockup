@@ -15,6 +15,7 @@ export function loadWorkspace(): WorkspaceState {
       ...parsed,
       programs: parsed.programs.length ? parsed.programs : initialWorkspaceState.programs,
       scheduleSlots: parsed.scheduleSlots.length ? parsed.scheduleSlots : initialWorkspaceState.scheduleSlots,
+      fixedBlocks: parsed.fixedBlocks.length ? parsed.fixedBlocks : initialWorkspaceState.fixedBlocks,
     };
   } catch {
     return initialWorkspaceState;

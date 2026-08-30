@@ -6,6 +6,7 @@ import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from 
 import { PautaAiReview } from "@/components/pauta-ai-review";
 import { ArchiveSearch } from "@/components/archive-search";
 import { AnnualCalendar } from "@/components/annual-calendar";
+import { FixedBlocksManager } from "@/components/fixed-blocks-manager";
 import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
@@ -13,7 +14,7 @@ import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
-import { initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
+import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
@@ -22,6 +23,7 @@ import { findSimilarPeople, normalizePersonName } from "@/domain/people-history"
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
+import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
 
@@ -120,6 +122,7 @@ function emptyEmission(programId: string, date: string, producerName = ""): Emis
     rawText: "",
     producerName,
     segments: [],
+    appliedFixedBlockIds: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -250,6 +253,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [showArchiveSearch, setShowArchiveSearch] = useState(false);
   const [showAnnualCalendar, setShowAnnualCalendar] = useState(false);
   const [showOperationsAdmin, setShowOperationsAdmin] = useState(false);
+  const [showFixedBlocks, setShowFixedBlocks] = useState(false);
   const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramIds?.length));
   const [activeProducerProgramId, setActiveProducerProgramId] = useState(producerProgramIds?.[0] ?? "encendidos");
   const [producerSection, setProducerSection] = useState<"today" | "people" | "post">("today");
@@ -276,6 +280,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
   const programs = workspace.programs.length ? workspace.programs : seedPrograms;
   const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
+  const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
   const days = useMemo(() => weekDaysFor(selectedDate), [selectedDate]);
   const visibleWeekStart = days[0].date;
   const visibleBulletins = useMemo(
@@ -416,7 +421,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
   );
   const selectedEmission = selectedProgram && selectedSlot
-    ? storedEmission ?? emptyEmission(selectedProgram.id, selectedDate, rememberedProducer)
+    ? prefillEmissionWithFixedBlocks(
+      storedEmission ?? emptyEmission(selectedProgram.id, selectedDate, rememberedProducer),
+      fixedBlocks,
+      (block) => fixedSegmentId(block.id, selectedDate),
+    )
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
   const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
@@ -440,6 +449,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   function notify(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2500);
+  }
+
+  function needsFullEmissionSave(emission: Emission): boolean {
+    if (!storedEmission) return true;
+    const storedApplied = new Set(storedEmission.appliedFixedBlockIds ?? []);
+    if ((emission.appliedFixedBlockIds ?? []).some((blockId) => !storedApplied.has(blockId))) return true;
+    return emission.segments.some((segment) => {
+      if (!segment.fixedBlockId) return false;
+      const storedSegment = storedEmission.segments.find((candidate) => candidate.id === segment.id);
+      return !storedSegment || storedSegment.fixedBlockId !== segment.fixedBlockId;
+    });
   }
 
   function upsertDemoOverride(nextEmission: Emission, persist = false) {
@@ -625,6 +645,18 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           : [...current.emissions, nextEmission],
       };
     });
+    if (needsFullEmissionSave(nextEmission) && repository.replaceProgramEmission) {
+      setSegmentSyncStates((current) => Object.fromEntries(Object.entries(current).concat(nextEmission.segments.map((segment) => [segment.id, "saving" as const]))));
+      void repository.replaceProgramEmission(nextEmission).then((saved) => {
+        setWorkspace(saved);
+        setDirty(false);
+        setSegmentSyncStates((current) => Object.fromEntries(Object.entries(current).concat(nextEmission.segments.map((segment) => [segment.id, "saved" as const]))));
+      }).catch((error: unknown) => {
+        setSegmentSyncStates((current) => ({ ...current, [segmentId]: "error" }));
+        notify(error instanceof Error ? error.message : "No se pudo preparar la pauta con sus bloques fijos.");
+      });
+      return;
+    }
     scheduleSegmentSave({ emission: nextEmission, segment: nextSegment, sortOrder }, delay);
   }
 
@@ -954,6 +986,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
           : [...current.emissions, nextEmission],
       }));
+      if (needsFullEmissionSave(nextEmission) && repository.replaceProgramEmission) {
+        void repository.replaceProgramEmission(nextEmission)
+          .then((saved) => { setWorkspace(saved); setDirty(false); })
+          .catch((error: unknown) => notify(error instanceof Error ? error.message : "No se pudo preparar la pauta."));
+        setExpandedSavedSegments((current) => new Set([...current, id]));
+        return;
+      }
       scheduleSegmentSave({ emission: nextEmission, segment: nextSegment, sortOrder: nextEmission.segments.length - 1 }, 0);
     }
     setExpandedSavedSegments((current) => new Set([...current, id]));
@@ -970,6 +1009,24 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (selectedEmissionIsDemo || !repository.deleteSegment) {
       updateEmission({ segments: selectedEmission.segments.filter((item) => item.id !== segment.id) });
       notify("Bloque quitado.");
+      return;
+    }
+
+    if (needsFullEmissionSave(selectedEmission) && repository.replaceProgramEmission) {
+      const nextEmission = { ...selectedEmission, status: "draft" as const, segments: selectedEmission.segments.filter((item) => item.id !== segment.id), updatedAt: new Date().toISOString() };
+      setWorkspace((current) => ({
+        ...current,
+        emissions: current.emissions.some((emission) => emission.id === selectedEmission.id)
+          ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+          : [...current.emissions, nextEmission],
+      }));
+      try {
+        setWorkspace(await repository.replaceProgramEmission(nextEmission));
+        setDirty(false);
+        notify(segment.fixedBlockId ? "Bloque fijo omitido solo para esta fecha." : "Bloque quitado.");
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "No se pudo omitir el bloque fijo.");
+      }
       return;
     }
 
@@ -1042,7 +1099,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const nextEmission: Emission = {
       ...selectedEmission,
       status: "draft",
-      segments: aiResult.proposal.segments.map(proposalSegmentToSegment),
+      segments: mergeImportedSegmentsWithFixedBlocks(aiResult.proposal.segments.map(proposalSegmentToSegment), selectedEmission.segments),
       updatedAt: new Date().toISOString(),
     };
     if (isDemoId(selectedEmission.id)) {
@@ -1268,6 +1325,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (selectedEmissionIsDemo) updateEmission({ segments: nextSegments });
     else {
       setWorkspace((current) => ({ ...current, emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission) }));
+      if (needsFullEmissionSave(nextEmission) && repository.replaceProgramEmission) {
+        void repository.replaceProgramEmission(nextEmission)
+          .then((saved) => { setWorkspace(saved); setDirty(false); })
+          .catch((error: unknown) => notify(error instanceof Error ? error.message : "No se pudo preparar la pauta con sus bloques fijos."));
+        return;
+      }
       [sourceSegmentId, targetSegmentId].forEach((segmentId) => {
         const sortOrder = nextSegments.findIndex((segment) => segment.id === segmentId);
         if (sortOrder >= 0) scheduleSegmentSave({ emission: nextEmission, segment: nextSegments[sortOrder], sortOrder }, 0);
@@ -1286,7 +1349,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const nextEmission = { ...selectedEmission, segments: nextSegments, updatedAt: new Date().toISOString() };
     if (selectedEmissionIsDemo) updateEmission({ segments: nextSegments });
     else {
-      setWorkspace((current) => ({ ...current, emissions: current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission) }));
+      setWorkspace((current) => ({
+        ...current,
+        emissions: current.emissions.some((emission) => emission.id === selectedEmission.id)
+          ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+          : [...current.emissions, nextEmission],
+      }));
+      if (needsFullEmissionSave(nextEmission) && repository.replaceProgramEmission) {
+        try {
+          setWorkspace(await repository.replaceProgramEmission(nextEmission));
+          setDirty(false);
+          notify("Bloque reordenado solo para esta fecha.");
+        } catch (error) { notify(error instanceof Error ? error.message : "No se pudo guardar el nuevo orden."); }
+        return;
+      }
       if (repository.saveSegmentOrder) {
         setSegmentSyncStates((current) => Object.fromEntries(Object.entries(current).concat(nextSegments.map((segment) => [segment.id, "saving" as const]))));
         try {
@@ -1337,11 +1413,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 type={segment.type}
                 title={segment.title}
                 guest={segment.guest}
+                badge={segment.fixedBlockId ? "Fijo" : undefined}
                 expanded={expandedSavedSegments.has(segment.id)}
                 canDrag={canEdit}
                 onToggle={() => toggleSavedSegment(segment.id)}
               >
                 <div className="ordered-fields">
+                  {segment.fixedBlockId && <div className="fixed-block-inline-note wide"><div><strong>Pre-pautado para este día</strong><span>Puedes moverlo, cambiarlo o quitarlo sin afectar las próximas fechas.</span></div><button onClick={() => setShowFixedBlocks(true)}>Editar repetición</button></div>}
                   <div className="segment-sync-row wide" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Cambios pendientes" : syncState === "saving" ? "Guardando bloque" : syncState === "error" ? "No se pudo guardar" : syncState === "conflict" ? "Hay una edición más reciente" : "Bloque guardado"}</strong><span>{syncState === "saved" && segment.lastEditedAt ? `Actualizado ${new Date(segment.lastEditedAt).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}` : "El guardado es automático"}</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
                   {conflict && <div className="segment-conflict wide" role="alert"><strong>{conflict.editorName} guardó este bloque antes que tú.</strong><p>Tus cambios siguen en pantalla. Elige qué versión conservar.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
                   <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /></label>
@@ -1629,7 +1707,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const producerProgram = programs.find((program) => program.id === activeProducerProgramId);
     const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek && slotAppliesOnDate(slot, day.date)));
     const guestSegments = selectedEmission?.segments.filter((segment) => segment.guest.trim()) ?? [];
-    const producerPautaIsBlank = !selectedEmission?.segments.length && !selectedEmission?.rawText.trim();
+    const producerPautaIsBlank = !selectedEmission?.segments.some((segment) => !segment.fixedBlockId) && !selectedEmission?.rawText.trim();
     const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
     const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
     const matchingPeople = effectivePeople.filter((person) => {
@@ -1712,7 +1790,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
               <div className="producer-today-grid">
                 <section className="producer-rundown-panel">
-                  <header><div><span>Escaleta editable</span><h2>{producerProgram?.shortName}</h2></div><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></header>
+                  <header><div><span>Escaleta editable</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Bloques fijos</button><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
                   {renderSavedRundown()}
                 </section>
 
@@ -1793,6 +1871,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <footer><button onClick={() => setShowProducerNewPauta(false)}>Cancelar</button><button className="primary" onClick={beginProducerPauta}>Empezar pauta</button></footer>
             </section>
           </div>
+        )}
+
+        {showFixedBlocks && producerProgram && (
+          <FixedBlocksManager
+            repository={repository}
+            workspace={{ ...workspace, fixedBlocks }}
+            program={producerProgram}
+            initialDate={selectedDate}
+            onWorkspaceChange={(next) => {
+              setWorkspace(next);
+              setDirty(false);
+            }}
+            onClose={() => setShowFixedBlocks(false)}
+          />
         )}
 
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
@@ -2086,6 +2178,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
+      {showFixedBlocks && selectedProgram && <FixedBlocksManager repository={repository} workspace={{ ...workspace, fixedBlocks }} program={selectedProgram} initialDate={selectedDate} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowFixedBlocks(false)} />}
 
       {segmentHistory && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSegmentHistory(null)}>

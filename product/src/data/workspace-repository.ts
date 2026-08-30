@@ -1,4 +1,4 @@
-import type { Emission, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
+import type { Emission, FixedBlock, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
 import type { ArchiveSearchFilters, ArchiveSearchPage } from "@/domain/archive-search";
 
 export type StorageMode = "local" | "supabase";
@@ -37,6 +37,8 @@ export interface WorkspaceRepository {
   saveProgram?(program: Program): Promise<Program>;
   saveScheduleSlot?(slot: ScheduleSlot): Promise<ScheduleSlot>;
   deleteScheduleSlot?(slotId: string, effectiveTo?: string): Promise<void>;
+  saveFixedBlock?(block: FixedBlock): Promise<FixedBlock>;
+  deleteFixedBlock?(blockId: string, stopFrom?: string): Promise<void>;
   loadEditorialUsers?(): Promise<EditorialUser[]>;
   saveEditorialUser?(user: EditorialUser): Promise<EditorialUser>;
   subscribe?(onChange: () => void): () => void;

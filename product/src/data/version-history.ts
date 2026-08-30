@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.19.0";
+export const CURRENT_VERSION = "0.20.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.20.0",
+    date: "2026-08-29",
+    title: "Bloques fijos que siguen siendo flexibles",
+    changes: [
+      "Cada programa puede configurar secuencias recurrentes con días, hora sugerida y una duración libre.",
+      "Tecnoverso queda pre-pautado en Encendidos los miércoles y viernes a las 11:30 con una duración inicial de diez minutos.",
+      "La copia de cada fecha se puede mover, editar, reemplazar o quitar sin alterar la repetición de las semanas siguientes.",
+      "Cambiar una repetición crea una nueva vigencia y conserva intactas las pautas y reglas anteriores.",
+      "La herramienta reconoce un bloque fijo que ya venía en el texto importado y evita duplicarlo.",
+      "La persona, cargo y nota habitual pueden quedar preparados como punto de partida para completar el tema del día.",
+      "El configurador está disponible en la vista de producción y funciona sin desborde en teléfonos de 375 px.",
+    ],
+  },
   {
     version: "0.19.0",
     date: "2026-08-29",

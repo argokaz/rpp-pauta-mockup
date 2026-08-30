@@ -1,4 +1,4 @@
-import type { Program, ScheduleSlot, WorkspaceState } from "@/domain/schemas";
+import type { FixedBlock, Program, ScheduleSlot, WorkspaceState } from "@/domain/schemas";
 
 export const programs: Program[] = [
   { id: "rotativa-campo", name: "La Rotativa del Campo", shortName: "Rotativa del Campo", hosts: "Jesús Miguel Calderón", managed: false, active: true },
@@ -109,9 +109,27 @@ export const scheduleSlots: ScheduleSlot[] = [...weekdaySchedule, ...weekendSche
   active: true,
 }));
 
+export const fixedBlocks: FixedBlock[] = [{
+  id: "00000000-0000-4000-8000-000000000801",
+  programId: "encendidos",
+  title: "Tecnoverso",
+  sequence: "Tecnoverso",
+  type: "sequence",
+  guest: "Arturo Goga",
+  guestRole: "Periodista especializado en tecnología",
+  notes: "Secuencia de tecnología. El tema se completa en la pauta de cada fecha.",
+  daysOfWeek: [3, 5],
+  startTime: "11:30",
+  durationMinutes: 10,
+  effectiveFrom: "2026-01-01",
+  effectiveTo: null,
+  active: true,
+}];
+
 export const initialWorkspaceState: WorkspaceState = {
   programs,
   scheduleSlots,
+  fixedBlocks,
   bulletins: [
     {
       id: "bulletin-elections",

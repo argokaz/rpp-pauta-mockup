@@ -1,6 +1,6 @@
 # Pauta RPP, producto funcional
 
-Aplicación funcional de las Fases 1 a 7. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
+Aplicación funcional de las Fases 1 a 8. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
 
 La Fase 3 incorpora la operación diaria: Mesa editorial con drag and drop,
 cambio accesible de estados y una base responsive para escritorio, tablet y teléfono.
@@ -17,6 +17,10 @@ versionada: los cambios futuros no reescriben los horarios históricos.
 
 La Fase 7 permite administrar programas, invitar usuarios, asignar roles y
 limitar el acceso de productores a programas concretos desde la propia app.
+
+La Fase 8 añade bloques fijos por programa. Una regla recurrente prellena cada
+pauta aplicable, pero su copia diaria sigue siendo un bloque normal que se puede
+mover, editar, reemplazar o quitar sin modificar las fechas siguientes.
 
 Producción: https://rpp-pauta.vercel.app
 

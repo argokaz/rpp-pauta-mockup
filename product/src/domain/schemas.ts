@@ -22,6 +22,23 @@ export const scheduleSlotSchema = z.object({
 
 export const segmentTypeSchema = z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]);
 
+export const fixedBlockSchema = z.object({
+  id: z.string(),
+  programId: z.string(),
+  title: z.string(),
+  sequence: z.string().default(""),
+  type: segmentTypeSchema.default("sequence"),
+  guest: z.string().default(""),
+  guestRole: z.string().default(""),
+  notes: z.string().default(""),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+  startTime: z.string(),
+  durationMinutes: z.number().int().min(1).max(360),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable().optional(),
+  active: z.boolean().default(true),
+});
+
 export const storyItemSchema = z.object({
   reference: z.string(),
   title: z.string(),
@@ -61,6 +78,7 @@ export const segmentSchema = z.object({
   postSummary: z.string().optional(),
   keyQuote: z.string().optional(),
   quoteVerified: z.boolean().optional(),
+  fixedBlockId: z.string().optional(),
   version: z.number().int().nonnegative().optional(),
   lastEditedAt: z.string().optional(),
 });
@@ -82,6 +100,7 @@ export const emissionSchema = z.object({
   rawText: z.string(),
   producerName: z.string().default(""),
   segments: z.array(segmentSchema),
+  appliedFixedBlockIds: z.array(z.string()).optional(),
   postPauta: postPautaSchema.optional(),
   updatedAt: z.string(),
 });
@@ -136,6 +155,7 @@ export const personSchema = z.object({
 export const workspaceStateSchema = z.object({
   programs: z.array(programSchema).default([]),
   scheduleSlots: z.array(scheduleSlotSchema).default([]),
+  fixedBlocks: z.array(fixedBlockSchema).default([]),
   bulletins: z.array(bulletinSchema),
   importantDates: z.array(importantDateSchema),
   emissions: z.array(emissionSchema),
@@ -144,6 +164,7 @@ export const workspaceStateSchema = z.object({
 
 export type Program = z.infer<typeof programSchema>;
 export type ScheduleSlot = z.infer<typeof scheduleSlotSchema>;
+export type FixedBlock = z.infer<typeof fixedBlockSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
 export type StoryItem = z.infer<typeof storyItemSchema>;
 export type PostPauta = z.infer<typeof postPautaSchema>;

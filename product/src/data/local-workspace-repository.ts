@@ -73,7 +73,7 @@ export const localWorkspaceRepository: WorkspaceRepository = {
     saveWorkspace({
       ...workspace,
       emissions: workspace.emissions.map((item) => item.programId === emission.programId && item.date === emission.date
-        ? { ...item, segments: item.segments.filter((candidate) => candidate.id !== segment.id), updatedAt: new Date().toISOString() }
+        ? { ...item, segments: item.segments.filter((candidate) => candidate.id !== segment.id), appliedFixedBlockIds: emission.appliedFixedBlockIds, updatedAt: new Date().toISOString() }
         : item),
     });
     return { status: "deleted" };
@@ -113,6 +113,31 @@ export const localWorkspaceRepository: WorkspaceRepository = {
   async deleteScheduleSlot(slotId, effectiveTo) {
     const workspace = loadWorkspace();
     saveWorkspace({ ...workspace, scheduleSlots: workspace.scheduleSlots.map((slot) => slot.id === slotId ? { ...slot, active: false, effectiveTo: effectiveTo ?? new Date().toISOString().slice(0, 10) } : slot) });
+  },
+  async saveFixedBlock(block) {
+    const workspace = loadWorkspace();
+    const sourceId = block.id.startsWith("version-") ? block.id.slice("version-".length) : "";
+    const saved = block.id.startsWith("new-") || sourceId ? { ...block, id: crypto.randomUUID() } : block;
+    const priorDate = new Date(`${block.effectiveFrom}T12:00:00`);
+    priorDate.setDate(priorDate.getDate() - 1);
+    const retired = sourceId ? workspace.fixedBlocks.map((item) => item.id === sourceId
+      ? { ...item, active: false, effectiveTo: priorDate.toISOString().slice(0, 10) }
+      : item) : workspace.fixedBlocks;
+    const exists = retired.some((item) => item.id === saved.id);
+    saveWorkspace({ ...workspace, fixedBlocks: exists ? retired.map((item) => item.id === saved.id ? saved : item) : [...retired, saved] });
+    return saved;
+  },
+  async deleteFixedBlock(blockId, stopFrom) {
+    const workspace = loadWorkspace();
+    const stopDate = stopFrom ?? new Date().toISOString().slice(0, 10);
+    const previousDate = new Date(`${stopDate}T12:00:00`);
+    previousDate.setDate(previousDate.getDate() - 1);
+    saveWorkspace({
+      ...workspace,
+      fixedBlocks: workspace.fixedBlocks.map((block) => block.id === blockId
+        ? { ...block, active: false, effectiveTo: stopDate === block.effectiveFrom ? null : previousDate.toISOString().slice(0, 10) }
+        : block),
+    });
   },
   async loadEditorialUsers() {
     return [{ id: "local-admin", email: "demo@local", fullName: "Administración local", role: "superadmin", active: true, programIds: [] }];

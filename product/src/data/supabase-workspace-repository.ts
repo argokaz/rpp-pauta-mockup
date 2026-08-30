@@ -48,6 +48,7 @@ function databaseSegmentToDomain(value: unknown): Segment {
     postSummary: typeof segment.post_summary === "string" ? segment.post_summary : "",
     keyQuote: typeof segment.key_quote === "string" ? segment.key_quote : "",
     quoteVerified: segment.quote_verified === true,
+    fixedBlockId: typeof segment.fixed_block_id === "string" ? segment.fixed_block_id : undefined,
     version: typeof segment.row_version === "number" ? segment.row_version : 0,
     lastEditedAt: typeof segment.last_edited_at === "string" ? segment.last_edited_at : undefined,
   });
@@ -58,18 +59,20 @@ export function createSupabaseWorkspaceRepository(
   userId: string,
 ): WorkspaceRepository {
   async function load(): Promise<WorkspaceState> {
-    const [programsResult, scheduleResult, bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
+    const [programsResult, scheduleResult, fixedBlocksResult, bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
       supabase.from("programs").select("id,name,short_name,hosts,managed,active").order("name"),
       supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
+      supabase.from("recurring_blocks").select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").order("start_time"),
       supabase.from("bulletins").select("id,week_start,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,row_version,last_edited_at)").order("emission_date"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
 
     assertNoError(programsResult.error, "No se pudieron cargar los programas");
     assertNoError(scheduleResult.error, "No se pudo cargar la parrilla");
+    assertNoError(fixedBlocksResult.error, "No se pudieron cargar los bloques fijos");
     assertNoError(bulletinsResult.error, "No se pudieron cargar las indicaciones");
     assertNoError(datesResult.error, "No se pudieron cargar las fechas");
     assertNoError(emissionsResult.error, "No se pudieron cargar las pautas");
@@ -104,6 +107,22 @@ export function createSupabaseWorkspaceRepository(
         effectiveTo: row.effective_to,
         active: row.active,
       })),
+      fixedBlocks: (fixedBlocksResult.data ?? []).map((row) => ({
+        id: row.id,
+        programId: row.program_id,
+        title: row.title,
+        sequence: row.sequence_name ?? "",
+        type: row.segment_type,
+        guest: row.guest_text ?? "",
+        guestRole: row.guest_role ?? "",
+        notes: row.notes,
+        daysOfWeek: row.days_of_week,
+        startTime: shortTime(row.start_time),
+        durationMinutes: row.duration_minutes,
+        effectiveFrom: row.effective_from,
+        effectiveTo: row.effective_to,
+        active: row.active,
+      })),
       bulletins: (bulletinsResult.data ?? []).map((row) => ({
         id: row.id,
         weekStart: row.week_start,
@@ -125,6 +144,7 @@ export function createSupabaseWorkspaceRepository(
         status: (["empty", "draft", "ready", "post"].includes(row.status) ? row.status : "post") as Emission["status"],
         rawText: row.raw_text,
         producerName: row.producer_name ?? "",
+        appliedFixedBlockIds: row.applied_fixed_block_ids ?? [],
         postPauta: {
           reviewStatus: row.post_review_status ?? "capture",
           sourceType: row.media_source_type ?? "none",
@@ -237,6 +257,7 @@ export function createSupabaseWorkspaceRepository(
           status: emission.status,
           raw_text: emission.rawText,
           producer_name: emission.producerName,
+          applied_fixed_block_ids: emission.appliedFixedBlockIds ?? [],
           post_review_status: emission.postPauta?.reviewStatus ?? "capture",
           post_notes: emission.postPauta?.notes ?? "",
           media_source_type: emission.postPauta?.sourceType ?? "none",
@@ -308,6 +329,7 @@ export function createSupabaseWorkspaceRepository(
               post_summary: segment.postSummary ?? "",
               key_quote: segment.keyQuote ?? "",
               quote_verified: segment.quoteVerified ?? false,
+              fixed_block_id: segment.fixedBlockId ?? null,
               row_version: 1,
               last_edited_by: userId,
               last_edited_at: new Date().toISOString(),
@@ -342,21 +364,22 @@ export function createSupabaseWorkspaceRepository(
         status: emission.status,
         raw_text: emission.rawText,
         producer_name: emission.producerName,
+        applied_fixed_block_ids: emission.appliedFixedBlockIds ?? [],
         producer_id: userId,
       }, { onConflict: "program_id,emission_date" });
     assertNoError(error, "No se pudo actualizar el estado de la pauta");
   }
 
   async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
-    return save({ programs: [], scheduleSlots: [], bulletins: [], importantDates: [], emissions: [emission], people: [] });
+    return save({ programs: [], scheduleSlots: [], fixedBlocks: [], bulletins: [], importantDates: [], emissions: [emission], people: [] });
   }
 
   async function replaceProgramEmission(emission: Emission): Promise<WorkspaceState> {
-    return persistState({ programs: [], scheduleSlots: [], bulletins: [], importantDates: [], emissions: [emission], people: [] }, true);
+    return persistState({ programs: [], scheduleSlots: [], fixedBlocks: [], bulletins: [], importantDates: [], emissions: [emission], people: [] }, true);
   }
 
   async function saveSegment(emission: Emission, segment: Segment, sortOrder: number): Promise<SegmentSaveResult> {
-    const { data, error } = await supabase.rpc("save_pauta_segment", {
+    const { data, error } = await supabase.rpc("save_pauta_segment_v2", {
       p_program_id: emission.programId,
       p_emission_date: emission.date,
       p_emission_status: emission.status,
@@ -366,6 +389,8 @@ export function createSupabaseWorkspaceRepository(
       p_sort_order: sortOrder,
       p_expected_version: segment.version ?? 0,
       p_segment: segment,
+      p_fixed_block_id: segment.fixedBlockId ?? null,
+      p_applied_fixed_block_ids: emission.appliedFixedBlockIds ?? [],
     });
     assertNoError(error, "No se pudo guardar este bloque");
     const result = data?.[0] as { save_status?: unknown; saved_segment?: unknown; editor_name?: unknown } | undefined;
@@ -393,11 +418,12 @@ export function createSupabaseWorkspaceRepository(
   }
 
   async function deleteSegment(emission: Emission, segment: Segment): Promise<SegmentDeleteResult> {
-    const { data, error } = await supabase.rpc("delete_pauta_segment", {
+    const { data, error } = await supabase.rpc("delete_pauta_segment_v2", {
       p_program_id: emission.programId,
       p_emission_date: emission.date,
       p_segment_id: segment.id,
       p_expected_version: segment.version ?? 0,
+      p_applied_fixed_block_ids: emission.appliedFixedBlockIds ?? [],
     });
     assertNoError(error, "No se pudo quitar este bloque");
     const result = data?.[0] as { delete_status?: unknown; current_segment?: unknown; editor_name?: unknown } | undefined;
@@ -541,6 +567,56 @@ export function createSupabaseWorkspaceRepository(
     assertNoError(error, "No se pudo retirar el horario");
   }
 
+  async function saveFixedBlock(block: Parameters<NonNullable<WorkspaceRepository["saveFixedBlock"]>>[0]) {
+    const payload = {
+      program_id: block.programId,
+      title: block.title,
+      sequence_name: block.sequence || null,
+      segment_type: block.type,
+      guest_text: block.guest || null,
+      guest_role: block.guestRole || null,
+      notes: block.notes,
+      days_of_week: block.daysOfWeek,
+      start_time: block.startTime,
+      duration_minutes: block.durationMinutes,
+      effective_from: block.effectiveFrom,
+      effective_to: block.effectiveTo ?? null,
+      active: block.active,
+    };
+    if (block.id.startsWith("version-")) {
+      const { data, error } = await supabase.rpc("version_recurring_block", {
+        p_block_id: block.id.slice("version-".length),
+        p_title: block.title,
+        p_sequence_name: block.sequence || null,
+        p_segment_type: block.type,
+        p_guest_text: block.guest || null,
+        p_guest_role: block.guestRole || null,
+        p_notes: block.notes,
+        p_days_of_week: block.daysOfWeek,
+        p_start_time: block.startTime,
+        p_duration_minutes: block.durationMinutes,
+        p_effective_from: block.effectiveFrom,
+        p_effective_to: block.effectiveTo ?? null,
+      });
+      assertNoError(error, "No se pudo crear la nueva vigencia del bloque fijo");
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error("Supabase no devolvió el bloque fijo versionado.");
+      return { id: row.id, programId: row.program_id, title: row.title, sequence: row.sequence_name ?? "", type: row.segment_type, guest: row.guest_text ?? "", guestRole: row.guest_role ?? "", notes: row.notes, daysOfWeek: row.days_of_week, startTime: shortTime(row.start_time), durationMinutes: row.duration_minutes, effectiveFrom: row.effective_from, effectiveTo: row.effective_to, active: row.active };
+    }
+    const query = block.id.startsWith("new-")
+      ? supabase.from("recurring_blocks").insert(payload)
+      : supabase.from("recurring_blocks").upsert({ id: block.id, ...payload });
+    const { data, error } = await query.select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").single();
+    assertNoError(error, "No se pudo guardar el bloque fijo");
+    if (!data) throw new Error("Supabase no devolvió el bloque fijo guardado.");
+    return { id: data.id, programId: data.program_id, title: data.title, sequence: data.sequence_name ?? "", type: data.segment_type, guest: data.guest_text ?? "", guestRole: data.guest_role ?? "", notes: data.notes, daysOfWeek: data.days_of_week, startTime: shortTime(data.start_time), durationMinutes: data.duration_minutes, effectiveFrom: data.effective_from, effectiveTo: data.effective_to, active: data.active };
+  }
+
+  async function deleteFixedBlock(blockId: string, stopFrom?: string) {
+    const { error } = await supabase.rpc("retire_recurring_block", { p_block_id: blockId, p_stop_from: stopFrom ?? new Date().toISOString().slice(0, 10) });
+    assertNoError(error, "No se pudo retirar el bloque fijo");
+  }
+
   async function loadEditorialUsers() {
     const [profilesResult, membershipsResult] = await Promise.all([
       supabase.from("profiles").select("id,email,full_name,app_role,active").order("full_name"),
@@ -579,5 +655,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

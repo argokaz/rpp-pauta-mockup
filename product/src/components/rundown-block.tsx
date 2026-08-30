@@ -25,13 +25,14 @@ type RundownBlockProps = {
   title: string;
   guest?: string;
   confidence?: string;
+  badge?: string;
   expanded: boolean;
   canDrag: boolean;
   onToggle: () => void;
   children: ReactNode;
 };
 
-export function RundownBlock({ id, index, startTime, endTime, type, title, guest, confidence, expanded, canDrag, onToggle, children }: RundownBlockProps) {
+export function RundownBlock({ id, index, startTime, endTime, type, title, guest, confidence, badge, expanded, canDrag, onToggle, children }: RundownBlockProps) {
   const { ref: dragRef, handleRef, isDragging } = useDraggable({ id, type: "rundown-block", disabled: !canDrag });
   const { ref: dropRef, isDropTarget } = useDroppable({ id, type: "rundown-target", accept: "rundown-block", disabled: !canDrag });
   const panelId = `rundown-panel-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -57,7 +58,7 @@ export function RundownBlock({ id, index, startTime, endTime, type, title, guest
           <time><strong>{startTime || "--:--"}</strong><span>{endTime || "--:--"}</span></time>
           <span className="rundown-copy">
             <strong>{title || "Bloque sin título"}</strong>
-            <small><span className="rundown-type">{labels[type]}</span>{guest ? <span>{guest}</span> : null}</small>
+            <small><span className="rundown-type">{labels[type]}</span>{badge ? <span className="rundown-fixed-badge">{badge}</span> : null}{guest ? <span>{guest}</span> : null}</small>
           </span>
           <span className="rundown-duration">{formatDuration(duration)}</span>
           {confidence ? <span className={`confidence confidence-${confidence.toLowerCase()}`}>{confidence}</span> : null}
