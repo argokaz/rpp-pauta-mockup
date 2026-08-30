@@ -2051,6 +2051,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .post-sync-line button { width: 100%; min-height: 40px; }
   .post-segment-edit-heading { align-items: flex-start; flex-direction: column; justify-content: center; gap: 3px; }
   .post-segment-edit-heading span { margin-left: 0; }
+  .post-segment-details input, .post-segment-details select, .post-segment-details textarea { font-size: 16px; }
   .post-story-heading { grid-template-columns: 28px minmax(0, 1fr); }
   .post-story-heading > b { grid-column: 2; justify-self: start; }
   .post-story-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
