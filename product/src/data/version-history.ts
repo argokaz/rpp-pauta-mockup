@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.30.0";
+export const CURRENT_VERSION = "0.30.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.30.1",
+    date: "2026-08-30",
+    title: "Creación de eventos sin toques accidentales",
+    changes: [
+      "Seleccionar un día vacío muestra Añadir evento dentro de su celda sin abrir el formulario automáticamente.",
+      "El modal se abre únicamente al pulsar la acción Añadir evento o Crear evento.",
+      "La acción permanece visible dentro del día seleccionado también en teléfonos.",
+    ],
+  },
   {
     version: "0.30.0",
     date: "2026-08-30",
