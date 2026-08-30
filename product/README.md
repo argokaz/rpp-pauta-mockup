@@ -1,6 +1,6 @@
 # Pauta RPP, producto funcional
 
-Aplicación funcional de las Fases 1 a 8. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
+Aplicación funcional de las Fases 1 a 9. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
 
 La Fase 3 incorpora la operación diaria: Mesa editorial con drag and drop,
 cambio accesible de estados y una base responsive para escritorio, tablet y teléfono.
@@ -15,12 +15,16 @@ errores pequeños en nombres.
 La Fase 6 convierte la agenda en un calendario anual real y añade una parrilla
 versionada: los cambios futuros no reescriben los horarios históricos.
 
-La Fase 7 permite administrar programas, invitar usuarios, asignar roles y
-limitar el acceso de productores a programas concretos desde la propia app.
+La Fase 7 permite administrar programas, usuarios, roles y asignaciones desde
+la propia app.
 
 La Fase 8 añade bloques fijos por programa. Una regla recurrente prellena cada
 pauta aplicable, pero su copia diaria sigue siendo un bloque normal que se puede
 mover, editar, reemplazar o quitar sin modificar las fechas siguientes.
+
+La Fase 9 permite al superadmin detectar programas sin productor y crearles un
+usuario directo con una contraseña generada, sin depender de correo ni de una
+invitación. Las credenciales se muestran una sola vez y se pueden renovar.
 
 Producción: https://rpp-pauta.vercel.app
 
@@ -60,9 +64,9 @@ no llega al navegador, la ruta valida la sesión y el modelo solo devuelve una
 propuesta editable. El guardado de la escaleta ocurre después de la confirmación
 humana.
 
-`SUPABASE_SERVICE_ROLE_KEY` se usa exclusivamente en la ruta de invitaciones y
-debe configurarse como variable privada del servidor. Nunca debe usar el prefijo
-`NEXT_PUBLIC_` ni incluirse en Git.
+`SUPABASE_SERVICE_ROLE_KEY` se usa exclusivamente en la ruta administrativa que
+crea y renueva accesos. Debe configurarse como variable privada del servidor.
+Nunca debe usar el prefijo `NEXT_PUBLIC_` ni incluirse en Git.
 
 ## Verificación
 

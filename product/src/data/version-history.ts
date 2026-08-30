@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.20.0";
+export const CURRENT_VERSION = "0.21.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.21.0",
+    date: "2026-08-29",
+    title: "Accesos directos para cada programa",
+    changes: [
+      "El superadmin identifica desde el dashboard qué programas administrados todavía no tienen un productor asociado.",
+      "Cada programa pendiente puede recibir un usuario y una contraseña segura sin depender de una invitación por correo.",
+      "Las credenciales se muestran una sola vez y se pueden copiar juntas para entregarlas al equipo del programa.",
+      "Un acceso directo abre únicamente el espacio de producción del programa que tiene asignado.",
+      "El superadmin puede generar una contraseña nueva si el equipo pierde o necesita renovar sus credenciales.",
+      "Las cuentas personales, roles, programas asignados y accesos suspendidos continúan administrándose desde la misma vista.",
+      "La creación y renovación vuelven a validar la sesión y el rol de superadmin en el servidor; la clave administrativa no llega al navegador.",
+    ],
+  },
   {
     version: "0.20.0",
     date: "2026-08-29",

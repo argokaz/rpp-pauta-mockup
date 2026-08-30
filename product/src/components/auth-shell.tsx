@@ -7,6 +7,7 @@ import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { localWorkspaceRepository } from "@/data/local-workspace-repository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/data/supabase-client";
 import { createSupabaseWorkspaceRepository } from "@/data/supabase-workspace-repository";
+import { emailForLogin } from "@/domain/program-access";
 import type { WorkspaceState } from "@/domain/schemas";
 
 type Profile = {
@@ -136,12 +137,7 @@ function SignIn({ supabase, initialError }: { supabase: ReturnType<typeof getSup
     event.preventDefault();
     setSending(true);
     setMessage("");
-    const normalizedUsername = username.trim().toLowerCase();
-    const email = normalizedUsername === "demo"
-      ? "demo@rpp-pauta.local"
-      : normalizedUsername === "produccion"
-        ? "produccion@rpp-pauta.com"
-        : username.trim();
+    const email = emailForLogin(username);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,

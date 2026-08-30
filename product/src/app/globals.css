@@ -738,6 +738,24 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .programs-admin > div > button b { flex: 0 0 auto; padding: 5px 7px; border-radius: 999px; background: var(--surface-soft); font-size: 8px; }
 .team-admin { padding: 10px; display: grid; grid-template-columns: minmax(300px, .72fr) minmax(430px, 1.28fr); align-items: start; gap: 9px; }
 .invite-card, .team-list { overflow: hidden; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.program-access-card { overflow: hidden; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.program-access-card > header { min-height: 68px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.program-access-card > header > div { min-width: 0; display: grid; gap: 4px; }
+.program-access-card > header strong { font-size: 13px; }
+.program-access-card > header span { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.program-access-card > header b { min-width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--yellow); font-size: 13px; }
+.program-access-list { max-height: 520px; padding: 7px; display: grid; gap: 5px; overflow: auto; }
+.program-access-list article { min-height: 62px; padding: 8px 9px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.program-access-list article > div { min-width: 0; display: grid; gap: 3px; }
+.program-access-list article strong, .program-access-list article span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.program-access-list article strong { font-size: 10px; }
+.program-access-list article span { color: var(--muted); font-size: 8px; }
+.program-access-list article button { min-height: 38px; padding: 0 10px; border: 1px solid var(--ink); border-radius: var(--control-radius); background: var(--ink); color: #fff; font-size: 8px; font-weight: 850; white-space: nowrap; }
+.program-access-list article button:disabled { opacity: .45; }
+.admin-access-loading, .admin-access-empty { min-height: 112px; padding: 18px; display: grid; place-content: center; gap: 5px; text-align: center; }
+.admin-access-loading strong, .admin-access-empty strong { font-size: 11px; }
+.admin-access-loading span, .admin-access-empty span { max-width: 32ch; color: var(--muted); font-size: 9px; line-height: 1.4; }
+.program-access-card > footer { padding: 10px 12px; border-top: 1px solid var(--line); background: var(--yellow-soft); color: var(--muted); font-size: 8px; line-height: 1.45; }
 .invite-card > header, .team-list > header { min-height: 60px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); }
 .invite-card > header { align-items: start; flex-direction: column; }
 .invite-card > header strong, .team-list > header strong { font-size: 12px; }
@@ -769,6 +787,11 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .admin-switch { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
 .admin-switch input { width: auto; }
 .admin-switch span { color: var(--ink) !important; }
+.admin-secondary-action { min-height: 42px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface); font-size: 9px; font-weight: 850; }
+.generated-access-drawer > header > div { display: grid; gap: 3px; }
+.generated-access-drawer > header span { color: var(--muted); font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.generated-access-drawer > div > small { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.generated-access-drawer input { font-size: 14px; font-weight: 750; }
 
 .fixed-blocks-backdrop { padding: 10px; }
 .fixed-blocks-modal { position: relative; width: min(980px, 100%); height: min(820px, calc(100dvh - 20px)); display: flex; flex-direction: column; overflow: hidden; }
@@ -1510,6 +1533,8 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .admin-schedule-list article > b { display: none; }
   .admin-schedule-list article > button { min-height: 40px; }
   .team-admin { padding: 7px; }
+  .program-access-list { max-height: none; }
+  .program-access-list article { min-height: 68px; }
   .program-checks { grid-template-columns: 1fr; }
   .team-list > div > button { grid-template-columns: minmax(0, 1fr) auto; }
   .team-list button em { grid-column: 2; }
