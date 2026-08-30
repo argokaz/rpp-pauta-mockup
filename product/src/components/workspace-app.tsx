@@ -35,7 +35,7 @@ import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLa
 import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, SegmentParticipant, StoryItem, WorkspaceState } from "@/domain/schemas";
 
-const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
+const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled-v2";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
 const DEMO_SHOWCASE_DATE = "2026-08-28";
 const DEMO_SHOWCASE_PROGRAM_ID = "encendidos";
@@ -296,7 +296,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
   const [expandedAgendaSlots, setExpandedAgendaSlots] = useState<Set<string>>(() => new Set());
-  const [demoDataEnabled, setDemoDataEnabled] = useState(DEMO_DATA_AVAILABLE);
+  const [demoDataEnabled, setDemoDataEnabled] = useState(false);
   const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
   const [segmentSyncStates, setSegmentSyncStates] = useState<Record<string, SegmentSyncStatus>>({});
   const [segmentConflicts, setSegmentConflicts] = useState<Record<string, SegmentConflict>>({});
@@ -432,7 +432,23 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (!DEMO_DATA_AVAILABLE) return;
     const frame = window.requestAnimationFrame(() => {
       const storedToggle = window.localStorage.getItem(DEMO_TOGGLE_STORAGE_KEY);
-      if (storedToggle === "false") setDemoDataEnabled(false);
+      if (storedToggle === "true") {
+        const availableProgramId = !producerProgramIds?.length || producerProgramIds.includes(DEMO_SHOWCASE_PROGRAM_ID)
+          ? DEMO_SHOWCASE_PROGRAM_ID
+          : producerProgramIds[0];
+        const showcaseSlot = seedScheduleSlots.find((slot) => slot.programId === availableProgramId
+          && slot.dayOfWeek === editorialDayForDate(DEMO_SHOWCASE_DATE).dayOfWeek
+          && slotAppliesOnDate(slot, DEMO_SHOWCASE_DATE));
+        setDemoDataEnabled(true);
+        setSelectedDate(DEMO_SHOWCASE_DATE);
+        if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
+        if (producerProgramIds?.length) {
+          setActiveProducerProgramId(availableProgramId);
+          setProducerSection("post");
+        } else {
+          setActiveView("post");
+        }
+      }
 
       const storedOverrides = window.localStorage.getItem(DEMO_OVERRIDES_STORAGE_KEY);
       if (!storedOverrides) return;
@@ -444,7 +460,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [producerProgramIds]);
 
   useEffect(() => {
     if (!repository.subscribe) return;
