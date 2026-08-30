@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.32.0";
+export const CURRENT_VERSION = "0.32.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.32.1",
+    date: "2026-08-30",
+    title: "Candidatos de IA separados de contactos confirmados",
+    changes: [
+      "Los nombres dudosos detectados en captions quedan señalados como pendientes y no crean fichas en el directorio.",
+      "Los nombres añadidos manualmente por producción conservan el flujo normal de creación de una ficha nueva.",
+      "Programa explica con claridad cuándo hay que corregir un candidato o crear su ficha desde Invitados.",
+    ],
+  },
   {
     version: "0.32.0",
     date: "2026-08-30",
