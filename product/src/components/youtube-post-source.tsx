@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { extractYoutubeCaptions } from "@/data/youtube-captions-client";
 import {
-  captionsAsPostDocument,
   formatCaptionTime,
+  prepareCaptionsForPostPauta,
   readableCaptionBlocks,
   youtubeVideoId,
   type YoutubeCaptionResponse,
@@ -38,6 +38,7 @@ const RPP_LIVE_STREAMS_URL = "https://www.youtube.com/@RPPNoticias/streams";
 
 type YoutubePostSourceProps = {
   programId: string;
+  programName: string;
   targetDate: string;
   sourceUrl: string;
   transcriptStatus: PostPauta["transcriptStatus"];
@@ -50,6 +51,7 @@ type YoutubePostSourceProps = {
 
 export function YoutubePostSource({
   programId,
+  programName,
   targetDate,
   sourceUrl,
   transcriptStatus,
@@ -74,8 +76,8 @@ export function YoutubePostSource({
       ? readableBlocks.filter((block) => block.text.toLocaleLowerCase("es").includes(normalizedQuery))
       : readableBlocks;
   }, [query, readableBlocks]);
-  const postDocument = useMemo(() => captionsAsPostDocument(activeResult?.segments ?? []), [activeResult]);
-  const postDocumentFits = postDocument.length <= 118_000;
+  const preparedDocument = useMemo(() => prepareCaptionsForPostPauta(activeResult?.segments ?? [], { programAliases: [programName] }), [activeResult, programName]);
+  const postDocumentFits = preparedDocument.document.length <= 118_000;
   const fridayStream = targetDate === "2026-08-28" ? FRIDAY_28_STREAMS[programId] : undefined;
   const playerUrl = videoId
     ? `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&start=${seekSeconds}${seekSeconds ? "&autoplay=1" : ""}`
@@ -205,8 +207,11 @@ export function YoutubePostSource({
                   {filteredBlocks.length > 160 && <small>Mostrando los primeros 160 resultados. Escribe una palabra para acotar la búsqueda.</small>}
                 </div>
                 <footer>
-                  <p>{postDocumentFits ? "Luna marcará como emitido todo bloque respaldado por el video y propondrá tiempos e invitados." : "Esta emisión supera el límite de una sola pasada. Debe procesarse por bloques."}</p>
-                  <button type="button" disabled={!postDocumentFits || analyzing} onClick={() => onUseTranscript(postDocument)}>{analyzing ? "Analizando emisión..." : "Analizar emisión"}</button>
+                  <div className="youtube-analysis-summary">
+                    <p>{postDocumentFits ? "Luna recibirá solo el contenido editorial. Las pausas se descartan antes del análisis." : "Esta emisión supera el límite de una sola pasada. Debe procesarse por bloques."}</p>
+                    {preparedDocument.discardedBlocks > 0 && <span><strong>{preparedDocument.discardedBlocks} fragmentos de pausa omitidos</strong><small>{Math.max(1, Math.round(preparedDocument.discardedMs / 60_000))} min que no consumen tokens</small></span>}
+                  </div>
+                  <button type="button" disabled={!postDocumentFits || analyzing} onClick={() => onUseTranscript(preparedDocument.document)}>{analyzing ? "Analizando emisión..." : "Analizar emisión"}</button>
                 </footer>
               </>
             )}

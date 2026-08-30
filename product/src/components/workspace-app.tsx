@@ -2092,6 +2092,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     <YoutubePostSource
                       key={`${selectedProgram.id}-${selectedDate}`}
                       programId={selectedProgram.id}
+                      programName={selectedProgram.name}
                       targetDate={selectedDate}
                       sourceUrl={postPauta.sourceUrl}
                       transcriptStatus={postPauta.transcriptStatus}

@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.32.1";
+export const CURRENT_VERSION = "0.33.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.33.0",
+    date: "2026-08-30",
+    title: "Pausas fuera del análisis y revisión responsive",
+    changes: [
+      "Los captions detectan cortes, promociones y boletines intermedios antes de llamar a Luna, lo que reduce texto y tiempo de análisis.",
+      "Cada corte conserva solo marcadores de inicio y regreso; el contenido editorial retoma su timestamp real.",
+      "Los regresos se reconocen por locución, hora al aire, cortina del programa o inicio directo de una conversación.",
+      "La revisión de bloques, horarios y personas se adapta al ancho del panel sin campos recortados ni columnas superpuestas.",
+      "Superadmin y Producción usan el mismo flujo de video, captions, contraste y corrección desde Post-pauta.",
+    ],
+  },
   {
     version: "0.32.1",
     date: "2026-08-30",

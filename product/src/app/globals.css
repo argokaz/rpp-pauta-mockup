@@ -610,6 +610,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .post-ai-import-actions { padding: 10px 14px 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .post-ai-import-actions p { margin: 0; max-width: 66ch; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .post-ai-import-actions button { flex: 0 0 auto; }
+.post-ai-review { container-type: inline-size; }
 .post-ai-review > header { padding: 13px 14px; display: flex; align-items: start; justify-content: space-between; gap: 12px; background: var(--surface); }
 .post-ai-review > header > div { display: grid; gap: 3px; }
 .post-ai-review > header span { color: #786500; font-size: 8px; font-weight: 850; text-transform: uppercase; }
@@ -639,25 +640,27 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .post-ai-blocks summary em { font-size: 8px; font-style: normal; font-weight: 850; }
 .post-ai-blocks summary em[data-review="ready"] { padding: 5px 7px; border-radius: 999px; background: #e5f0e7; color: #294a32; }
 .post-ai-blocks summary em[data-review="pending"] { padding: 5px 7px; border-radius: 999px; background: var(--yellow-soft); color: #5d510f; }
-.post-ai-blocks details > div { padding: 11px; display: grid; grid-template-columns: 150px minmax(180px, 1fr); gap: 9px; border-top: 1px solid var(--line); }
-.post-ai-blocks label { display: grid; align-content: start; gap: 4px; }
+.post-ai-blocks details > div { padding: 11px; display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 9px; border-top: 1px solid var(--line); }
+.post-ai-blocks label { min-width: 0; display: grid; align-content: start; gap: 4px; }
 .post-ai-blocks label > span { font-size: 8px; font-weight: 800; }
-.post-ai-blocks input, .post-ai-blocks select, .post-ai-blocks textarea { width: 100%; min-height: 40px; }
+.post-ai-blocks input, .post-ai-blocks select, .post-ai-blocks textarea { width: 100%; min-width: 0; min-height: 40px; }
 .post-ai-blocks label.wide, .post-ai-blocks blockquote { grid-column: 1 / -1; }
 .post-ai-blocks label small { color: var(--muted); font-size: 8px; }
 .post-ai-review-reasons { grid-column: 1 / -1; padding: 8px 10px; border: 1px solid #d9c66a; background: var(--yellow-soft); }
 .post-ai-review-reasons p { margin: 0; color: #5d510f; font-size: 8px; line-height: 1.4; }
 .post-ai-review-reasons p + p { margin-top: 3px; }
-.post-ai-people { padding: 10px; border: 1px solid var(--line); background: var(--surface-soft); }
+.post-ai-people { min-width: 0; grid-column: 1 / -1; padding: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-soft); }
 .post-ai-people > header { margin-bottom: 8px; display: grid; gap: 2px; }
 .post-ai-people > header strong { font-size: 10px; }
 .post-ai-people > header span { color: var(--muted); font-size: 8px; }
-.post-ai-people article { padding: 8px; display: grid; grid-template-columns: 1.15fr .75fr 1fr 1fr auto; align-items: end; gap: 7px; border: 1px solid var(--line); background: var(--surface); }
+.post-ai-people article { min-width: 0; padding: 8px; display: grid; grid-template-columns: minmax(150px, 1.15fr) minmax(130px, .75fr) minmax(160px, 1fr) minmax(150px, 1fr) auto; align-items: end; gap: 7px; border: 1px solid var(--line); background: var(--surface); }
 .post-ai-people article + article { margin-top: 6px; }
 .post-ai-people article > b { align-self: center; padding: 5px 7px; border-radius: 999px; background: #e5f0e7; color: #294a32; font-size: 7px; white-space: nowrap; }
 .post-ai-people article > b[data-match="database_fuzzy"], .post-ai-people article > b[data-match="review"] { background: var(--yellow-soft); color: #5d510f; }
 .post-ai-people article > b[data-match="new"] { background: #f7e4dd; color: #7a3a28; }
-.post-ai-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.post-ai-times { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(180px, 240px)); gap: 9px; }
+.post-ai-times input[type="time"] { font-variant-numeric: tabular-nums; }
+.post-ai-sequence { grid-column: 1 / -1; }
 .post-ai-blocks blockquote { margin: 0; padding: 9px 10px; border-left: 3px solid var(--yellow-dark); background: var(--yellow-soft); font-size: 9px; line-height: 1.45; }
 .post-ai-review > footer { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); background: var(--surface); }
 .post-ai-review > footer span { color: var(--muted); font-size: 8px; }
@@ -710,6 +713,24 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .youtube-caption-list > p, .youtube-caption-list > small { margin: 0; padding: 14px; display: block; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .youtube-transcript-column > footer { min-height: 60px; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); background: var(--surface-soft); }
 .youtube-transcript-column > footer p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.youtube-analysis-summary { min-width: 0; display: grid; gap: 5px; }
+.youtube-analysis-summary > span { display: flex; align-items: baseline; gap: 7px; color: #526357; }
+.youtube-analysis-summary > span strong { font-size: 8px; }
+.youtube-analysis-summary > span small { color: var(--muted); font-size: 8px; }
+
+@container (max-width: 760px) {
+  .post-ai-blocks details > div { grid-template-columns: 1fr; }
+  .post-ai-blocks label.wide, .post-ai-blocks blockquote, .post-ai-review-reasons, .post-ai-people, .post-ai-times { grid-column: auto; }
+  .post-ai-times { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .post-ai-people article { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .post-ai-people article > b { justify-self: start; }
+}
+
+@container (max-width: 480px) {
+  .post-ai-blocks summary { grid-template-columns: 1fr; }
+  .post-ai-blocks summary em { justify-self: start; }
+  .post-ai-times, .post-ai-people article { grid-template-columns: 1fr; }
+}
 .youtube-transcript-column > footer button:disabled { border-color: var(--line-strong); background: #e8e8e3; color: #777; }
 .youtube-caption-empty, .youtube-caption-loading { min-height: 360px; padding: 24px; display: grid; place-content: center; gap: 7px; text-align: center; }
 .youtube-caption-empty strong { font-size: 12px; }

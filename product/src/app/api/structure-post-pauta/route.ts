@@ -16,6 +16,7 @@ Reglas obligatorias:
 1. Si hay bloques planificados, devuelve exactamente una fila por cada uno y añade filas para contenido nuevo. Si no hay pre-pauta, reconstruye una escaleta editorial completa desde la fuente.
 2. Usa matchedSegmentId únicamente con un id recibido. Para un bloque nuevo usa una cadena vacía.
 3. En captions de YouTube, cada etiqueta [HH:MM:SS] es tiempo transcurrido desde el inicio del video. Si un tema, secuencia o invitado aparece con evidencia, fue emitido: usa aired para un bloque planificado o added_live para uno nuevo. No pidas confirmar algo que está en el stream.
+3a. [INICIO DE PAUSA] y [REGRESO AL PROGRAMA] son límites detectados antes del análisis. No crees bloques para la pausa ni para publicidad. Termina el contenido anterior al iniciar la pausa y comienza el siguiente contenido al regresar.
 4. Estima evidenceStartMs y evidenceEndMs a partir de esas etiquetas. Usa el inicio del contenido completo, no una mención, adelanto o saludo que lo anuncie. Cubre el tramo editorial completo. La aplicación convertirá esos offsets en horas y duraciones de 15 minutos.
 5. Si no hay pre-pauta, crea bloques editoriales de aproximadamente 15 minutos. Puedes unir dos intervalos cuando mantienen claramente el mismo tema o entrevista, pero ningún bloque nuevo debe exceder 30 minutos. Si una cobertura reaparece más tarde, usa el primer tramo o sepárala en bloques distintos; no crees un único bloque que atraviese contenidos intermedios.
 5a. Cuando recibas segmentos titulados "Tramo de video", son contenedores obligatorios de una grilla. Usa exactamente el intervalo indicado en topic, reemplaza el título genérico por un título editorial concreto y reemplaza topic por un tema buscable. No añadas filas adicionales para contenidos ya cubiertos por esa grilla.
@@ -46,7 +47,8 @@ function gridFallback(rawText: string, gridId: string): { excerpt: string; summa
   const texts: string[] = []; let match: RegExpExecArray | null;
   while ((match = pattern.exec(rawText))) {
     const seconds = (Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3]);
-    if (seconds >= startSeconds && seconds < endSeconds && match[4].trim()) texts.push(match[4].trim());
+    const text = match[4].trim();
+    if (seconds >= startSeconds && seconds < endSeconds && text && !/^\[(?:INICIO DE PAUSA|REGRESO AL PROGRAMA)\]$/.test(text)) texts.push(text);
   }
   if (!texts.length) return null;
   const words = texts.join(" ").replace(/\s+/g, " ").trim().split(" ");
