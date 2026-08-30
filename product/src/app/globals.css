@@ -764,7 +764,8 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .post-segment-toggle::before { content: "+"; font-size: 17px; font-weight: 700; line-height: 1; }
 .post-segment[open] .post-segment-toggle { border-color: var(--yellow-dark); background: var(--yellow); }
 .post-segment[open] .post-segment-toggle::before { content: "−"; }
-.post-segment-body { background: #fffef8; }
+.post-segment-body { display: none; background: #fffef8; }
+.post-segment[open] > .post-segment-body { display: block; }
 .post-live-actions { padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--line); background: var(--surface-soft); }
 .post-live-actions button { min-height: 40px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface); font-size: 10px; font-weight: 800; }
 .post-live-actions button:first-child { border-color: var(--ink); background: var(--ink); color: #fff; }
