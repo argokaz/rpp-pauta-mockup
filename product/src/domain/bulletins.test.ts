@@ -16,13 +16,13 @@ describe("bulletins", () => {
     expect(sortBulletins(bulletins).map((item) => item.id)).toEqual(["pin-1", "pin-2", "pin-3", "pin-4", "new", "old"]);
   });
 
-  it("mantiene las fijadas visibles y agrupa el resto", () => {
+  it("mantiene todas las indicaciones visibles y ordena primero las fijadas", () => {
     const result = splitBulletins(bulletins);
-    expect(result.featured.map((item) => item.id)).toEqual(["pin-1", "pin-2", "pin-3", "pin-4"]);
-    expect(result.remaining.map((item) => item.id)).toEqual(["new", "old"]);
+    expect(result.featured.map((item) => item.id)).toEqual(["pin-1", "pin-2", "pin-3", "pin-4", "new", "old"]);
+    expect(result.remaining).toEqual([]);
   });
 
-  it("muestra las dos más recientes cuando todavía no hay fijadas", () => {
+  it("muestra todas las indicaciones recientes cuando todavía no hay fijadas", () => {
     const result = splitBulletins(bulletins.filter((item) => item.pinnedRank === null));
     expect(result.featured.map((item) => item.id)).toEqual(["new", "old"]);
     expect(result.remaining).toEqual([]);

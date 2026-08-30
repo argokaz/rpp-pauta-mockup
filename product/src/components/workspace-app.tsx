@@ -459,7 +459,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     return new Map(visibleBulletins.map((bulletin) => [bulletin.id, bulletinUpdateState(bulletin, seenVersions)]));
   }, [producerNoticesStorageKey, producerSeenBulletinVersions, producerSeenNoticesContext, visibleBulletins]);
   const producerBulletinUpdateCount = [...producerBulletinUpdates.values()].filter(Boolean).length;
-  const producerRemainingBulletinUpdateCount = bulletinPresentation.remaining.filter((bulletin) => producerBulletinUpdates.get(bulletin.id)).length;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -2153,16 +2152,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 })}
                 {!bulletinPresentation.featured.length && <div className="producer-bulletin-empty">No hay indicaciones para esta semana.</div>}
               </div>
-              {bulletinPresentation.remaining.length > 0 && <details className={`producer-bulletin-more ${producerRemainingBulletinUpdateCount ? "has-unseen" : ""}`}>
-                <summary><span>Ver {bulletinPresentation.remaining.length} {bulletinPresentation.remaining.length === 1 ? "indicación más" : "indicaciones más"}</span>{producerRemainingBulletinUpdateCount > 0 && <b>{producerRemainingBulletinUpdateCount} por revisar</b>}</summary>
-                <div>{bulletinPresentation.remaining.map((bulletin) => {
-                  const updateState = producerBulletinUpdates.get(bulletin.id);
-                  return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
-                    <div className="bulletin-card-meta">{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
-                    <strong>{bulletin.title}</strong><p>{bulletin.body}</p>
-                  </article>;
-                })}</div>
-              </details>}
             </div>
             <div className="producer-dates">
               <div className="producer-alert-title"><span>Próximas fechas</span><b>{producerImportantDates.length}</b></div>
@@ -2450,20 +2439,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <header><strong>Indicaciones de la semana</strong><button onClick={() => setShowBulletinCenter(true)}>Abrir panel</button></header>
               <div className={`bulletin-featured-grid count-${bulletinPresentation.featured.length}`}>
                 {bulletinPresentation.featured.map((item) => (
-                  <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
-                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Fijada {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
+                  <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => { setBulletinDraft(item); setShowBulletinCenter(true); }}>
+                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Prioridad {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{programs.find((program) => program.id === item.scope || program.name === item.scope || program.shortName === item.scope)?.shortName ?? item.scope}</b>
                   </button>
                 ))}
                 {!bulletinPresentation.featured.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
               </div>
-              {bulletinPresentation.remaining.length > 0 && <details className="bulletin-more">
-                <summary>Ver {bulletinPresentation.remaining.length} {bulletinPresentation.remaining.length === 1 ? "indicación más" : "indicaciones más"}</summary>
-                <div className="bulletin-list">{bulletinPresentation.remaining.map((item) => (
-                  <button className="bulletin-item" key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
-                    <span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
-                  </button>
-                ))}</div>
-              </details>}
             </article>
             <article className="dates-panel">
               <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir fecha</button></header>
@@ -2531,18 +2512,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       {activeView === "reception" && renderCaptureWorkspace(true)}
       {activeView === "post" && renderPostPauta()}
 
-      {bulletinDraft && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="bulletin-title">
-            <header><div><span>Tablero semanal</span><h2 id="bulletin-title">Editar indicación</h2></div><button onClick={() => setBulletinDraft(null)}>Cerrar</button></header>
-            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option>{programs.filter((program) => program.managed && program.active).map((program) => <option key={program.id} value={program.id}>Solo {program.shortName}</option>)}</select><small>La indicación aparecerá únicamente en la vista de producción elegida.</small></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option><option value="3">Fijada en posición 3</option><option value="4">Fijada en posición 4</option></select><small>Puedes mantener hasta cuatro indicaciones importantes siempre visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
-            <footer><button onClick={() => setBulletinDraft(null)}>Cancelar</button><button className="primary" onClick={saveBulletin}>Guardar indicación</button></footer>
-          </section>
-        </div>
-      )}
-
       {dateDraft && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDateDraft(null)}>
+        <div className="modal-backdrop modal-backdrop-editor" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDateDraft(null)}>
           <section className="modal wide" role="dialog" aria-modal="true" aria-labelledby="date-title">
             <header><div><span>Planificación anticipada</span><h2 id="date-title">Programación del día</h2></div><button onClick={() => setDateDraft(null)}>Cerrar</button></header>
             <div className="date-modal-grid">
@@ -2563,7 +2534,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
-      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => setShowBulletinCenter(false)} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} />}
+      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => { setBulletinDraft(null); setShowBulletinCenter(false); }} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} draft={bulletinDraft} saving={saving} onDraftChange={setBulletinDraft} onPinnedRankChange={setBulletinPinnedRank} onCancelEdit={() => setBulletinDraft(null)} onSave={saveBulletin} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} programs={programs} scheduleSlots={scheduleSlots} initialDate={selectedDate} canEdit={canEdit} onClose={() => setShowAnnualCalendar(false)} onCreateImportantDate={(date) => setDateDraft({ id: newId(), date, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })} onEditImportantDate={setDateDraft} onOpenProgram={openProgramSlot} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
       {showFixedBlocks && selectedProgram && <FixedBlocksManager repository={repository} workspace={{ ...workspace, fixedBlocks }} program={selectedProgram} initialDate={selectedDate} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowFixedBlocks(false)} />}

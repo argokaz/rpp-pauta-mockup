@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.28.1";
+export const CURRENT_VERSION = "0.29.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.29.0",
+    date: "2026-08-30",
+    title: "Indicaciones visibles y jerarquía visual limpia",
+    changes: [
+      "Editar una indicación ocurre dentro del mismo panel, sin un segundo popup que pueda quedar oculto detrás.",
+      "Todas las indicaciones activas aparecen simultáneamente en dashboard y producción; fijarlas solo cambia su prioridad y nunca oculta las demás.",
+      "Las superficies principales reemplazan sombras decorativas por bordes, contraste y espaciado más consistentes.",
+      "Los modales bloquean el desplazamiento del fondo y los editores secundarios del calendario conservan la capa correcta.",
+      "En móvil, Indicaciones ocupa toda la pantalla, mantiene acciones accesibles y apila los controles de edición en una sola columna.",
+    ],
+  },
   {
     version: "0.28.1",
     date: "2026-08-30",
