@@ -7,16 +7,18 @@ const bulletins: Bulletin[] = [
   { id: "pin-2", weekStart: "2026-08-24", title: "Fijada dos", body: "B", scope: "Todos los programas", pinnedRank: 2, updatedAt: "2026-08-29T11:00:00Z" },
   { id: "new", weekStart: "2026-08-24", title: "Reciente", body: "C", scope: "Todos los programas", pinnedRank: null, updatedAt: "2026-08-29T12:00:00Z" },
   { id: "pin-1", weekStart: "2026-08-24", title: "Fijada uno", body: "D", scope: "Todos los programas", pinnedRank: 1, updatedAt: "2026-08-28T12:00:00Z" },
+  { id: "pin-4", weekStart: "2026-08-24", title: "Fijada cuatro", body: "E", scope: "Todos los programas", pinnedRank: 4, updatedAt: "2026-08-29T13:00:00Z" },
+  { id: "pin-3", weekStart: "2026-08-24", title: "Fijada tres", body: "F", scope: "Todos los programas", pinnedRank: 3, updatedAt: "2026-08-29T14:00:00Z" },
 ];
 
 describe("bulletins", () => {
-  it("ordena primero las dos posiciones fijadas", () => {
-    expect(sortBulletins(bulletins).map((item) => item.id)).toEqual(["pin-1", "pin-2", "new", "old"]);
+  it("ordena primero las cuatro posiciones fijadas", () => {
+    expect(sortBulletins(bulletins).map((item) => item.id)).toEqual(["pin-1", "pin-2", "pin-3", "pin-4", "new", "old"]);
   });
 
   it("mantiene las fijadas visibles y agrupa el resto", () => {
     const result = splitBulletins(bulletins);
-    expect(result.featured.map((item) => item.id)).toEqual(["pin-1", "pin-2"]);
+    expect(result.featured.map((item) => item.id)).toEqual(["pin-1", "pin-2", "pin-3", "pin-4"]);
     expect(result.remaining.map((item) => item.id)).toEqual(["new", "old"]);
   });
 

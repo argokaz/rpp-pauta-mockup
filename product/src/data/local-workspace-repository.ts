@@ -58,6 +58,9 @@ export const localWorkspaceRepository: WorkspaceRepository = {
     });
     return person;
   },
+  async loadPersonRevisions() {
+    return [];
+  },
   async saveSegment(emission, segment, sortOrder) {
     const workspace = loadWorkspace();
     const existing = workspace.emissions.find((item) => item.programId === emission.programId && item.date === emission.date);

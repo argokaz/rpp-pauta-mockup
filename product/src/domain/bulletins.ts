@@ -23,7 +23,7 @@ export function sortBulletins(items: Bulletin[]): Bulletin[] {
 
 export function splitBulletins(items: Bulletin[]): { featured: Bulletin[]; remaining: Bulletin[] } {
   const sorted = sortBulletins(items);
-  const pinned = sorted.filter((item) => item.pinnedRank !== null).slice(0, 2);
+  const pinned = sorted.filter((item) => item.pinnedRank !== null).slice(0, 4);
   const featured = pinned.length ? pinned : sorted.slice(0, 2);
   const featuredIds = new Set(featured.map((item) => item.id));
   return {

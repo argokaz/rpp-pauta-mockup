@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.25.0";
+export const CURRENT_VERSION = "0.26.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.26.0",
+    date: "2026-08-29",
+    title: "Contactos auditables e indicaciones ampliadas",
+    changes: [
+      "La ficha de cada invitado abre una conversación de WhatsApp con el número internacional normalizado.",
+      "Cada edición de nombre, especialidad, organización, teléfono, tags, vínculo o notas registra responsable, fecha y valor anterior.",
+      "Un dato incorrecto se restaura de manera individual sin deshacer los demás cambios válidos de la ficha.",
+      "Restaurar genera una versión nueva y el historial anterior permanece inmutable para conservar la trazabilidad.",
+      "Las fichas importadas reciben un punto de partida histórico y los cambios posteriores se sincronizan entre sesiones.",
+      "El tablero permite fijar hasta cuatro indicaciones importantes y mantiene todas visibles en dashboard y producción.",
+      "La vista móvil apila contactos, historial e indicaciones sin ocultar acciones de restauración.",
+    ],
+  },
   {
     version: "0.25.0",
     date: "2026-08-29",

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { segmentSchema, workspaceStateSchema, type Emission, type Segment, type WorkspaceState } from "@/domain/schemas";
-import type { SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
+import type { PersonRevision, PersonSnapshot, SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import type { ArchiveSearchPage, ArchiveSearchRecord } from "@/domain/archive-search";
 
 const scopeToDatabase: Record<string, "all" | "informative"> = {
@@ -52,6 +52,35 @@ function databaseSegmentToDomain(value: unknown): Segment {
     version: typeof segment.row_version === "number" ? segment.row_version : 0,
     lastEditedAt: typeof segment.last_edited_at === "string" ? segment.last_edited_at : undefined,
   });
+}
+
+const personSnapshotFields: Array<keyof PersonSnapshot> = [
+  "displayName",
+  "normalizedName",
+  "aliases",
+  "primaryRole",
+  "organization",
+  "phone",
+  "tags",
+  "relationshipType",
+  "notes",
+];
+
+function databasePersonSnapshot(value: unknown): PersonSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as Record<string, unknown>;
+  if (typeof snapshot.displayName !== "string") return null;
+  return {
+    displayName: snapshot.displayName,
+    normalizedName: typeof snapshot.normalizedName === "string" ? snapshot.normalizedName : "",
+    aliases: Array.isArray(snapshot.aliases) ? snapshot.aliases.filter((item): item is string => typeof item === "string") : [],
+    primaryRole: typeof snapshot.primaryRole === "string" ? snapshot.primaryRole : "",
+    organization: typeof snapshot.organization === "string" ? snapshot.organization : "",
+    phone: typeof snapshot.phone === "string" ? snapshot.phone : "",
+    tags: Array.isArray(snapshot.tags) ? snapshot.tags.filter((item): item is string => typeof item === "string") : [],
+    relationshipType: snapshot.relationshipType === "collaborator" ? "collaborator" : "guest",
+    notes: typeof snapshot.notes === "string" ? snapshot.notes : "",
+  };
 }
 
 export function createSupabaseWorkspaceRepository(
@@ -413,6 +442,57 @@ export function createSupabaseWorkspaceRepository(
     return person;
   }
 
+  async function loadPersonRevisions(personId: string): Promise<PersonRevision[]> {
+    const { data, error } = await supabase
+      .from("person_revisions")
+      .select("id,person_id,actor_name,action,before_snapshot,after_snapshot,changed_fields,created_at")
+      .eq("person_id", personId)
+      .order("created_at", { ascending: false });
+    assertNoError(error, "No se pudo cargar el historial de la ficha");
+    return (data ?? []).flatMap((row) => {
+      if (!["insert", "update", "delete"].includes(row.action)) return [];
+      return [{
+        id: row.id,
+        personId: row.person_id,
+        createdAt: row.created_at,
+        action: row.action as PersonRevision["action"],
+        actorName: row.actor_name || "Usuario editorial",
+        changedFields: Array.isArray(row.changed_fields)
+          ? row.changed_fields.filter((field): field is keyof PersonSnapshot => personSnapshotFields.includes(field as keyof PersonSnapshot))
+          : [],
+        before: databasePersonSnapshot(row.before_snapshot),
+        after: databasePersonSnapshot(row.after_snapshot),
+      }];
+    });
+  }
+
+  async function restorePersonField(
+    person: Parameters<NonNullable<WorkspaceRepository["restorePersonField"]>>[0],
+    revisionId: string,
+    field: Parameters<NonNullable<WorkspaceRepository["restorePersonField"]>>[2],
+  ) {
+    const { data, error } = await supabase.rpc("restore_person_field", {
+      p_person_id: person.id,
+      p_revision_id: revisionId,
+      p_field: field,
+    });
+    assertNoError(error, "No se pudo restaurar el dato");
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error("Supabase no devolvió la ficha restaurada.");
+    return {
+      ...person,
+      displayName: row.display_name,
+      normalizedName: row.normalized_name,
+      aliases: Array.isArray(row.aliases) ? row.aliases.filter((item: unknown): item is string => typeof item === "string") : [],
+      primaryRole: row.primary_role ?? "",
+      organization: row.organization ?? "",
+      phone: row.contact_phone ?? "",
+      tags: Array.isArray(row.tags) ? row.tags.filter((item: unknown): item is string => typeof item === "string") : [],
+      relationshipType: row.relationship_type === "collaborator" ? "collaborator" as const : "guest" as const,
+      notes: row.notes ?? "",
+    };
+  }
+
   async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
     return save({ programs: [], scheduleSlots: [], fixedBlocks: [], bulletins: [], importantDates: [], emissions: [emission], people: [] });
   }
@@ -695,9 +775,10 @@ export function createSupabaseWorkspaceRepository(
       .on("postgres_changes", { event: "*", schema: "public", table: "emissions" }, onChange)
       .on("postgres_changes", { event: "*", schema: "public", table: "segments" }, onChange)
       .on("postgres_changes", { event: "*", schema: "public", table: "bulletins" }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "people" }, onChange)
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, loadPersonRevisions, restorePersonField, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

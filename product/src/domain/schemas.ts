@@ -111,7 +111,7 @@ export const bulletinSchema = z.object({
   title: z.string(),
   body: z.string(),
   scope: z.string(),
-  pinnedRank: z.number().int().min(1).max(2).nullable().default(null),
+  pinnedRank: z.number().int().min(1).max(4).nullable().default(null),
   updatedAt: z.string().default(""),
 });
 

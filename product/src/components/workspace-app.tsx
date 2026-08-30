@@ -16,7 +16,7 @@ import { structurePauta } from "@/data/ai-pauta-client";
 import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, findDemoEmptyTarget, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
 import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
-import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
+import type { PersonSnapshot, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
 import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
@@ -249,6 +249,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
+  const [peopleDirectorySelectedId, setPeopleDirectorySelectedId] = useState("");
   const [showArchiveSearch, setShowArchiveSearch] = useState(false);
   const [showAnnualCalendar, setShowAnnualCalendar] = useState(false);
   const [showOperationsAdmin, setShowOperationsAdmin] = useState(false);
@@ -1030,7 +1031,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function setBulletinPinnedRank(value: string) {
     if (!bulletinDraft) return;
-    const pinnedRank = value ? Number(value) as 1 | 2 : null;
+    const pinnedRank = value ? Number(value) as 1 | 2 | 3 | 4 : null;
     const occupied = pinnedRank === null ? undefined : visibleBulletins.find((item) => item.id !== bulletinDraft.id && item.pinnedRank === pinnedRank);
     if (occupied) {
       notify(`La posición ${pinnedRank} ya está ocupada por “${occupied.title}”. Desfíjala primero.`);
@@ -1085,6 +1086,29 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     } catch (error) {
       notify(error instanceof Error ? error.message : "No se pudo guardar la ficha.");
       return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function restorePersonRecord(
+    person: Person,
+    revisionId: string,
+    field: Exclude<keyof PersonSnapshot, "normalizedName">,
+  ): Promise<Person | null> {
+    if (!canEdit || !repository.restorePersonField) return null;
+    setSaving(true);
+    try {
+      const restored = await repository.restorePersonField(person, revisionId, field);
+      setWorkspace((current) => ({
+        ...current,
+        people: current.people.map((item) => item.id === restored.id ? restored : item),
+      }));
+      notify("Dato restaurado. La corrección quedó registrada en el historial.");
+      return restored;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudo restaurar el dato.");
+      return null;
     } finally {
       setSaving(false);
     }
@@ -1984,7 +2008,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <header><label><span>Buscar por persona, especialidad o tema tratado</span><input autoFocus type="search" value={producerPeopleQuery} onChange={(event) => setProducerPeopleQuery(event.target.value)} placeholder="Ej. psicología infantil, tecnología, economía" /></label><button onClick={() => setShowArchiveSearch(true)}>Buscar entrevistas y temas</button></header>
               <div>{matchingPeople.map((person) => {
                 const latest = person.appearances[0];
-                return <article key={person.id}><span className="person-initials">{person.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.displayName}</strong><b className="producer-person-specialty">{person.primaryRole || "Especialidad por completar"}</b><small>{isEditorialCollaborator(person) ? "Colaborador habitual" : "Invitado"}{person.organization ? ` | ${person.organization}` : ""}</small><div className="producer-person-tags">{person.tags.slice(0, 3).map((tag) => <em key={tag}>{tag}</em>)}</div><p>{latest?.summary || latest?.topic || "Aún no tiene temas registrados."}</p></div><footer><span>{person.appearances.length} apariciones | {person.phone || "teléfono por completar"}</span><button onClick={() => setShowPeopleDirectory(true)}>Ver historial</button></footer></article>;
+                return <article key={person.id}><span className="person-initials">{person.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.displayName}</strong><b className="producer-person-specialty">{person.primaryRole || "Especialidad por completar"}</b><small>{isEditorialCollaborator(person) ? "Colaborador habitual" : "Invitado"}{person.organization ? ` | ${person.organization}` : ""}</small><div className="producer-person-tags">{person.tags.slice(0, 3).map((tag) => <em key={tag}>{tag}</em>)}</div><p>{latest?.summary || latest?.topic || "Aún no tiene temas registrados."}</p></div><footer><span>{person.appearances.length} apariciones | {person.phone || "teléfono por completar"}</span><button onClick={() => { setPeopleDirectorySelectedId(person.id); setShowPeopleDirectory(true); }}>Abrir ficha</button></footer></article>;
               })}</div>
               {!matchingPeople.length && <div className="empty-state compact"><strong>No encontramos especialistas</strong><p>Prueba con otro tema o registra una persona nueva desde la escaleta.</p></div>}
             </section>
@@ -2042,7 +2066,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
-        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} onSave={savePersonRecord} onClose={() => setShowPeopleDirectory(false)} />}
+        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
         {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
@@ -2310,7 +2334,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="bulletin-title">
             <header><div><span>Tablero semanal</span><h2 id="bulletin-title">Editar indicación</h2></div><button onClick={() => setBulletinDraft(null)}>Cerrar</button></header>
-            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option></select><small>Puedes mantener una o dos indicaciones visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
+            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option><option value="3">Fijada en posición 3</option><option value="4">Fijada en posición 4</option></select><small>Puedes mantener hasta cuatro indicaciones importantes siempre visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
             <footer><button onClick={() => setBulletinDraft(null)}>Cancelar</button><button className="primary" onClick={saveBulletin}>Guardar indicación</button></footer>
           </section>
         </div>
@@ -2336,7 +2360,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         {producerSuggestions.map((producer) => <option key={producer} value={producer} />)}
       </datalist>
 
-      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} onSave={savePersonRecord} onClose={() => setShowPeopleDirectory(false)} />}
+      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
