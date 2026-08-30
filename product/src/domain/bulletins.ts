@@ -2,6 +2,14 @@ import type { Bulletin } from "@/domain/schemas";
 
 export type BulletinUpdateState = "new" | "updated" | null;
 
+export function bulletinVisibleToProgram(bulletin: Bulletin, programId: string, programName: string, shortName: string): boolean {
+  return bulletin.scope === "Todos los programas"
+    || bulletin.scope === "Programas informativos"
+    || bulletin.scope === programId
+    || bulletin.scope === programName
+    || bulletin.scope === shortName;
+}
+
 export function bulletinVersion(bulletin: Bulletin): string {
   return JSON.stringify([
     bulletin.title.trim(),

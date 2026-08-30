@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSPropert
 import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
+import { PostPautaAiReview } from "@/components/post-pauta-ai-review";
 import { ArchiveSearch } from "@/components/archive-search";
 import { AnnualCalendar } from "@/components/annual-calendar";
+import { BulletinCenter } from "@/components/bulletin-center";
 import { FixedBlocksManager } from "@/components/fixed-blocks-manager";
 import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
@@ -13,16 +15,18 @@ import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
+import { structurePostPauta } from "@/data/ai-post-pauta-client";
 import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, findDemoEmptyTarget, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
 import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { PersonSnapshot, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
+import type { StructurePostPautaResponse } from "@/domain/post-pauta-import";
 import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
-import { bulletinUpdateState, bulletinVersion, splitBulletins } from "@/domain/bulletins";
+import { bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, splitBulletins } from "@/domain/bulletins";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLabels, segmentParticipants, withParticipantCompatibility } from "@/domain/editorial-participants";
@@ -248,11 +252,16 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
+  const [postSourceText, setPostSourceText] = useState("");
+  const [postAiProcessing, setPostAiProcessing] = useState(false);
+  const [postAiApplying, setPostAiApplying] = useState(false);
+  const [postAiResult, setPostAiResult] = useState<StructurePostPautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
   const [peopleDirectorySelectedId, setPeopleDirectorySelectedId] = useState("");
   const [showArchiveSearch, setShowArchiveSearch] = useState(false);
   const [showAnnualCalendar, setShowAnnualCalendar] = useState(false);
+  const [showBulletinCenter, setShowBulletinCenter] = useState(false);
   const [showOperationsAdmin, setShowOperationsAdmin] = useState(false);
   const [showFixedBlocks, setShowFixedBlocks] = useState(false);
   const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramIds?.length));
@@ -270,6 +279,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
+  const [expandedAgendaSlots, setExpandedAgendaSlots] = useState<Set<string>>(() => new Set());
   const [demoDataEnabled, setDemoDataEnabled] = useState(DEMO_DATA_AVAILABLE);
   const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
   const [segmentSyncStates, setSegmentSyncStates] = useState<Record<string, SegmentSyncStatus>>({});
@@ -286,10 +296,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
   const days = useMemo(() => weekDaysFor(selectedDate), [selectedDate]);
   const visibleWeekStart = days[0].date;
-  const visibleBulletins = useMemo(
-    () => workspace.bulletins.filter((bulletin) => bulletin.weekStart === visibleWeekStart),
-    [visibleWeekStart, workspace.bulletins],
-  );
+  const visibleBulletins = useMemo(() => {
+    const currentProgram = programs.find((program) => program.id === activeProducerProgramId);
+    return workspace.bulletins
+      .filter((bulletin) => bulletin.weekStart === visibleWeekStart)
+      .filter((bulletin) => !producerExperience || !currentProgram || bulletinVisibleToProgram(bulletin, currentProgram.id, currentProgram.name, currentProgram.shortName));
+  }, [activeProducerProgramId, producerExperience, programs, visibleWeekStart, workspace.bulletins]);
   const bulletinPresentation = useMemo(() => splitBulletins(visibleBulletins), [visibleBulletins]);
   const visibleImportantDates = useMemo(
     () => workspace.importantDates
@@ -1032,6 +1044,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (await commit(next, exists ? "Indicación actualizada." : "Indicación añadida.")) setBulletinDraft(null);
   }
 
+  async function resendBulletin(item: Bulletin) {
+    const resent: Bulletin = {
+      ...item,
+      id: newId(),
+      weekStart: visibleWeekStart,
+      pinnedRank: null,
+      updatedAt: new Date().toISOString(),
+    };
+    await commit({ ...workspace, bulletins: [...workspace.bulletins, resent] }, "Indicación reenviada a la semana actual.");
+  }
+
   function setBulletinPinnedRank(value: string) {
     if (!bulletinDraft) return;
     const pinnedRank = value ? Number(value) as 1 | 2 | 3 | 4 : null;
@@ -1337,6 +1360,112 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setAiApplying(false);
   }
 
+  async function comparePostWithAi() {
+    if (!selectedEmission || !selectedProgram || !getAccessToken) {
+      notify("El contraste requiere una sesión activa y una pauta seleccionada.");
+      return;
+    }
+    if (postSourceText.trim().length < 20) {
+      notify("Pega un documento más completo antes de contrastarlo.");
+      return;
+    }
+    setPostAiProcessing(true);
+    try {
+      const result = await structurePostPauta({
+        programId: selectedProgram.id,
+        programName: selectedProgram.name,
+        targetDate: selectedDate,
+        rawText: postSourceText,
+        plannedSegments: selectedEmission.segments.map((segment) => ({
+          id: segment.id,
+          startTime: segment.startTime,
+          endTime: segment.endTime,
+          title: segment.title,
+          topic: segment.topic ?? "",
+          guest: segmentParticipants(segment).map((participant) => participant.name).join(", ") || segment.guest,
+          stories: (segment.stories ?? []).map((story) => story.title),
+        })),
+      }, getAccessToken);
+      setPostAiResult(result);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No pudimos contrastar la post-pauta.");
+    } finally {
+      setPostAiProcessing(false);
+    }
+  }
+
+  async function applyPostAiProposal() {
+    if (!postAiResult || !selectedEmission) return;
+    setPostAiApplying(true);
+    const actionable = postAiResult.proposal.blocks.filter((block) => block.disposition !== "unconfirmed");
+    const updates = new Map(actionable.filter((block) => block.matchedSegmentId).map((block) => [block.matchedSegmentId, block]));
+    const updatedSegments = selectedEmission.segments.map((segment) => {
+      const block = updates.get(segment.id);
+      if (!block) return segment;
+      return {
+        ...segment,
+        actualStart: block.actualStart || segment.actualStart,
+        actualEnd: block.actualEnd || segment.actualEnd,
+        disposition: block.disposition === "unconfirmed" ? segment.disposition : block.disposition,
+        postSummary: block.postSummary || segment.postSummary,
+        keyQuote: block.keyQuote || segment.keyQuote,
+        quoteVerified: false,
+      };
+    });
+    const addedSegments: Segment[] = actionable.filter((block) => !block.matchedSegmentId && block.disposition === "added_live").map((block) => ({
+      id: newId(),
+      startTime: block.actualStart || selectedSlot?.startTime || "00:00",
+      endTime: block.actualEnd || block.actualStart || selectedSlot?.startTime || "00:00",
+      actualStart: block.actualStart || undefined,
+      actualEnd: block.actualEnd || undefined,
+      type: "other",
+      title: block.title,
+      guest: "",
+      notes: "",
+      participants: [],
+      entities: [],
+      disposition: "added_live",
+      postSummary: block.postSummary,
+      keyQuote: block.keyQuote,
+      quoteVerified: false,
+      version: 0,
+    }));
+    const nextEmission: Emission = {
+      ...selectedEmission,
+      status: "post",
+      segments: [...updatedSegments, ...addedSegments],
+      postPauta: { ...(selectedEmission.postPauta ?? emptyPostPauta()), reviewStatus: "review", sourceType: "internal" },
+      updatedAt: new Date().toISOString(),
+    };
+    let saved = false;
+    if (isDemoId(nextEmission.id)) {
+      upsertDemoOverride(nextEmission, true);
+      saved = true;
+      notify("Propuesta aplicada a la demo en este navegador.");
+    } else if (repository.replaceProgramEmission) {
+      try {
+        setSaving(true);
+        setWorkspace(await repository.replaceProgramEmission(nextEmission));
+        setDirty(false);
+        saved = true;
+        notify("Post-pauta propuesta y enviada a revisión.");
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "No se pudo guardar la post-pauta.");
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      const exists = workspace.emissions.some((emission) => emission.id === nextEmission.id);
+      saved = await commit({ ...workspace, emissions: exists ? workspace.emissions.map((emission) => emission.id === nextEmission.id ? nextEmission : emission) : [...workspace.emissions, nextEmission] }, "Post-pauta propuesta y enviada a revisión.");
+    }
+    if (saved) {
+      try { await repository.confirmImport(postAiResult.importId); } catch { notify("La post-pauta se guardó, pero falta cerrar el registro de importación."); }
+      setPostAiResult(null);
+      setPostSourceText("");
+    }
+    setPostAiApplying(false);
+  }
+
   const scheduledProgramsForDraft = dateDraft
     ? scheduleSlots
       .filter((slot) => slot.dayOfWeek === new Date(`${dateDraft.date}T12:00:00`).getDay())
@@ -1352,6 +1481,24 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setAiResult(null);
     setCaptureCollapsed(false);
     setExpandedSavedSegments(new Set());
+  }
+
+  function openProgramSlot(slotId: string, date = selectedDate) {
+    if (date !== selectedDate) chooseCaptureDate(date);
+    chooseSlot(slotId);
+    setProducerExperience(false);
+    setShowAnnualCalendar(false);
+    setActiveView("program");
+  }
+
+  function toggleAgendaSlot(slotId: string) {
+    chooseSlot(slotId);
+    setExpandedAgendaSlots((current) => {
+      const next = new Set(current);
+      if (next.has(slotId)) next.delete(slotId);
+      else next.add(slotId);
+      return next;
+    });
   }
 
   function openArchiveResult(record: ArchiveSearchRecord) {
@@ -1821,6 +1968,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   <button disabled={!canEdit} onClick={addLiveSegment}>+ Bloque imprevisto</button>
                 </section>
 
+                <section className="post-ai-import">
+                  <header><div><span>Completar desde un documento</span><strong>Contrastar con la pre-pauta</strong><p>Pega el registro recibido. Luna propondrá qué salió, qué cambió y qué quedó sin evidencia.</p></div><b>Revisión obligatoria</b></header>
+                  {!postAiResult && <><label><span>Documento posterior a la emisión</span><textarea disabled={!canEdit || postAiProcessing} rows={6} value={postSourceText} onChange={(event) => setPostSourceText(event.target.value)} placeholder="Pega aquí el documento, minuta, reporte o texto posterior a la emisión." /></label><div className="post-ai-import-actions"><p>La pre-pauta no se reemplaza. Los bloques ausentes quedan sin confirmar y las citas requieren revisión con el audio.</p><button className="ai-action" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Contrastando..." : "Contrastar con Luna"}</button></div></>}
+                  {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
+                </section>
+
                 <section className="post-source-card">
                   <header><div><span>Fuente para transcripción</span><strong>Audio o video de la emisión</strong></div><b data-transcript={postPauta.transcriptStatus}>{postPauta.transcriptStatus === "none" ? "No solicitada" : postPauta.transcriptStatus === "pending" ? "Pendiente" : postPauta.transcriptStatus === "processing" ? "Procesando" : postPauta.transcriptStatus === "ready" ? "Lista" : "Con error"}</b></header>
                   <div>
@@ -2237,7 +2390,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <label className="sidebar-filter"><span>Programa</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Todos los programas</option><option value="managed">Solo administrados</option></select></label>
         <nav className="main-nav" aria-label="Navegación principal">
           <button className="active">Agenda semanal <b>35</b></button>
-          <button onClick={() => { setActiveView("agenda"); document.querySelector(".notices")?.scrollIntoView({ behavior: "smooth" }); }}>Indicaciones <b>{visibleBulletins.length}</b></button>
+          <button onClick={() => setShowBulletinCenter(true)}>Indicaciones <b>{visibleBulletins.length}</b></button>
           <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{effectivePeople.length}</b></button>
           <button onClick={() => setShowArchiveSearch(true)}>Archivo</button>
           <button onClick={() => setShowAnnualCalendar(true)}>Calendario anual</button>
@@ -2261,7 +2414,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="workspace-body">
           <section className="notices" aria-label="Indicaciones y fechas importantes">
             <article className="bulletin-panel">
-              <header><strong>Indicaciones de la semana</strong><button disabled={!isEditorialAdmin} onClick={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })}>Añadir indicación</button></header>
+              <header><strong>Indicaciones de la semana</strong><button onClick={() => setShowBulletinCenter(true)}>Abrir panel</button></header>
               <div className={`bulletin-featured-grid count-${bulletinPresentation.featured.length}`}>
                 {bulletinPresentation.featured.map((item) => (
                   <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
@@ -2302,77 +2455,37 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <button className="primary" disabled={!isEditorialAdmin} onClick={() => setShowOperationsAdmin(true)}>Editar parrilla</button>
             </header>
 
-            <div className="agenda-layout">
-              <section className="timeline-panel">
-                <header><div><strong>{selectedDay.label}</strong><span>{daySlots.length} bloques programados</span></div><div className="legend"><span>Administrado</span><span>Solo horario</span></div></header>
-                <div className="slot-list">
+            <div className="agenda-layout compact-agenda-layout">
+              <section className="timeline-panel compact-timeline-panel">
+                <header><div><strong>{selectedDay.label}</strong><span>{daySlots.length} programas. Abre solo el que necesitas.</span></div><div className="legend"><span>Administrado</span><span>Solo horario</span></div></header>
+                <div className="slot-list compact-slot-list">
                   {daySlots.map((slot) => {
                     const program = programs.find((item) => item.id === slot.programId);
                     if (!program) return null;
                     const emission = effectiveEmissions.find((item) => item.programId === program.id && item.date === selectedDate);
                     const status = emission?.status ?? "empty";
                     const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
+                    const expanded = expandedAgendaSlots.has(slot.id);
                     return (
-                      <div className="schedule-row" key={slot.id}>
-                        <time className="schedule-time">{slot.startTime}</time>
-                        <button className={`schedule-card status-${status} ${selectedSlot?.id === slot.id ? "selected" : ""} ${!program.managed ? "schedule-only" : ""} ${isLive ? "live" : ""} ${emission && isDemoId(emission.id) ? "demo-card" : ""}`} onClick={() => setSelectedSlotId(slot.id)}>
-                          <span className="schedule-main"><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span>
-                          <span className="slot-badges">{isLive && <b>Al aire ahora</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span>
+                      <article className={`agenda-program-row ${expanded ? "expanded" : ""} ${isLive ? "live" : ""}`} key={slot.id}>
+                        <button className="agenda-program-summary" aria-expanded={expanded} onClick={() => toggleAgendaSlot(slot.id)}>
+                          <time>{slot.startTime}</time><span><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span><span className="slot-badges">{isLive && <b>Al aire ahora</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span><b className="agenda-expand-label">{expanded ? "Cerrar" : emission?.segments.length ? `${emission.segments.length} bloques` : "Ver"}</b>
                         </button>
-                        <button className="row-actions" onClick={() => setSelectedSlotId(slot.id)}>Más</button>
-                      </div>
+                        {expanded && <div className="agenda-program-detail">
+                          {program.managed ? <>
+                            <header><div><strong>Escaleta compacta</strong><span>{emission?.producerName || "Productor por confirmar"}</span></div><div><button onClick={() => openProducerExperience(program.id)}>Ver como producción</button><button className="primary" onClick={() => openProgramSlot(slot.id)}>Abrir Programa C</button></div></header>
+                            <div className="agenda-rundown-list">{(emission?.segments ?? []).map((segment) => <details key={segment.id}><summary><time>{segment.startTime}</time><span><strong>{segment.title}</strong><small>{segment.guest || segment.topic || segmentTypeLabel[segment.type]}</small></span><b>Editar</b></summary><div><label><span>Horario</span><div className="agenda-time-fields"><input disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div></label><label><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label><label><span>Tema o notas</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? segment.notes} onChange={(event) => updateSegmentDraft(segment.id, segment.topic !== undefined ? { topic: event.target.value } : { notes: event.target.value })} /></label></div></details>)}</div>
+                            {!emission?.segments.length && <div className="empty-state compact"><strong>Esta pauta aún está vacía</strong><p>Ábrela en Programa C para pegar o crear la escaleta.</p></div>}
+                            {dirty && selectedSlot?.id === slot.id && <footer className="agenda-inline-save"><span>Cambios sin guardar</span><button className="primary" disabled={saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar"}</button></footer>}
+                          </> : <div className="empty-state compact"><strong>Solo aparece en la parrilla</strong><p>Este programa todavía no se administra desde la herramienta.</p></div>}
+                        </div>}
+                        {program.managed && <button className="agenda-direct-open" onClick={() => openProgramSlot(slot.id)}>Abrir programa</button>}
+                      </article>
                     );
                   })}
                   {!daySlots.length && <div className="empty-state"><strong>No hay horarios configurados</strong><p>Este día quedará disponible cuando carguemos la programación correspondiente.</p></div>}
                 </div>
               </section>
-
-              <aside className="editor">
-                {selectedProgram && selectedEmission && selectedSlot ? selectedProgram.managed ? (
-                  <>
-                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><div className="editor-header-actions"><button onClick={() => openProducerExperience(selectedProgram.id)}>Ver como producción</button><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></div></header>
-                    <div className="editor-scroll">
-                      <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
-                      <div className="phase-two">
-                        <div><strong>Ordenar automáticamente</strong><span>Reconoce primero la estructura existente y usa Luna solo cuando hace falta. El original se conserva.</span></div>
-                        <button className="ai-action" disabled={!canEdit || !getAccessToken || aiProcessing || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Ordenar pauta"}</button>
-                      </div>
-                      {aiResult && (
-                        <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission.producerName} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
-                      )}
-                      <div className="segments-heading"><div><strong>Escaleta</strong><span>{selectedEmission.segments.length} segmentos</span></div><button disabled={!canEdit} onClick={addSegment}>Añadir segmento</button></div>
-                      <div className="segment-list">
-                        {selectedEmission.segments.map((segment) => (
-                          <article className="segment" key={segment.id}>
-                            <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div>
-                            <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                            <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
-                            {renderSegmentParticipantsEditor(segment, true)}
-                            <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { notes: event.target.value })} /></label>
-                            <details className="segment-details">
-                              <summary>Detalles extraídos</summary>
-                              <div>
-                                <label><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
-                                <label><span>Enfoque</span><textarea disabled={!canEdit} rows={3} value={segment.focus ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
-                                <label><span>Pregunta al público</span><textarea disabled={!canEdit} rows={2} value={segment.audienceQuestion ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { audienceQuestion: event.target.value })} /></label>
-                                <label><span>Indicaciones de producción</span><textarea disabled={!canEdit} rows={2} value={(segment.productionCues ?? []).join("\n")} onChange={(event) => updateSegmentDraft(segment.id, { productionCues: event.target.value.split("\n").map((cue) => cue.trim()).filter(Boolean) })} /></label>
-                              </div>
-                            </details>
-                            <button className="remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => void removeSegment(segment)}>Quitar</button>
-                          </article>
-                        ))}
-                        {!selectedEmission.segments.length && <div className="empty-state compact"><strong>Aún no hay segmentos</strong><p>Puedes pegar el texto original y construir la escaleta manualmente.</p></div>}
-                      </div>
-                    </div>
-                    <footer className="editor-footer"><span>{saving ? "Guardando" : dirty ? "Cambios sin guardar" : repository.mode === "supabase" ? "Guardado para el equipo" : "Guardado local"}</span><button className="primary" onClick={saveDraft} disabled={!dirty || saving || !canEdit}>{saving ? "Guardando..." : "Guardar borrador"}</button></footer>
-                  </>
-                ) : (
-                  <div className="empty-state">
-                    <strong>{selectedProgram.shortName} aparece solo como horario</strong>
-                    <p>Este programa completa la señal, pero no se administra desde la herramienta. Puedes cambiar esa condición más adelante en la configuración de programas.</p>
-                  </div>
-                ) : <div className="empty-state"><strong>Elige un bloque</strong><p>Selecciona un programa de la agenda para editarlo.</p></div>}
-              </aside>
             </div>
           </section>
         </div>
@@ -2389,7 +2502,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="bulletin-title">
             <header><div><span>Tablero semanal</span><h2 id="bulletin-title">Editar indicación</h2></div><button onClick={() => setBulletinDraft(null)}>Cerrar</button></header>
-            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option><option value="3">Fijada en posición 3</option><option value="4">Fijada en posición 4</option></select><small>Puedes mantener hasta cuatro indicaciones importantes siempre visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
+            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option>{programs.filter((program) => program.managed && program.active).map((program) => <option key={program.id} value={program.id}>Solo {program.shortName}</option>)}</select><small>La indicación aparecerá únicamente en la vista de producción elegida.</small></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option><option value="3">Fijada en posición 3</option><option value="4">Fijada en posición 4</option></select><small>Puedes mantener hasta cuatro indicaciones importantes siempre visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
             <footer><button onClick={() => setBulletinDraft(null)}>Cancelar</button><button className="primary" onClick={saveBulletin}>Guardar indicación</button></footer>
           </section>
         </div>
@@ -2417,7 +2530,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
-      {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
+      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => setShowBulletinCenter(false)} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} />}
+      {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} programs={programs} scheduleSlots={scheduleSlots} initialDate={selectedDate} canEdit={canEdit} onClose={() => setShowAnnualCalendar(false)} onCreateImportantDate={(date) => setDateDraft({ id: newId(), date, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })} onEditImportantDate={setDateDraft} onOpenProgram={openProgramSlot} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
       {showFixedBlocks && selectedProgram && <FixedBlocksManager repository={repository} workspace={{ ...workspace, fixedBlocks }} program={selectedProgram} initialDate={selectedDate} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowFixedBlocks(false)} />}
 

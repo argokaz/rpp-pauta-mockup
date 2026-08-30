@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulletinUpdateState, bulletinVersion, sortBulletins, splitBulletins } from "./bulletins";
+import { bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, sortBulletins, splitBulletins } from "./bulletins";
 import type { Bulletin } from "./schemas";
 
 const bulletins: Bulletin[] = [
@@ -34,5 +34,11 @@ describe("bulletins", () => {
     expect(bulletinUpdateState(item, { old: bulletinVersion({ ...item, body: "Texto anterior" }) })).toBe("updated");
     expect(bulletinUpdateState(item, { old: bulletinVersion(item) })).toBeNull();
     expect(bulletinUpdateState({ ...item, updatedAt: "2026-08-30T10:00:00Z" }, { old: bulletinVersion(item) })).toBeNull();
+  });
+
+  it("muestra una indicación global o asignada al programa exacto", () => {
+    expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "Todos los programas" }, "encendidos", "Encendidos", "Encendidos")).toBe(true);
+    expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "encendidos" }, "encendidos", "Encendidos", "Encendidos")).toBe(true);
+    expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "encendidos" }, "conexion", "Conexión", "Conexión")).toBe(false);
   });
 });

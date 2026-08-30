@@ -5,9 +5,24 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.27.0";
+export const CURRENT_VERSION = "0.28.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.28.0",
+    date: "2026-08-30",
+    title: "Planificación directa y post-pauta asistida",
+    changes: [
+      "El Calendario Anual abre el detalle del día dentro del propio calendario y permite crear o editar fechas sin regresar al dashboard.",
+      "Cada día del calendario muestra sus fechas importantes y la programación, con acceso directo al programa correspondiente.",
+      "Indicaciones cuenta con un panel propio para revisar la semana actual, buscar el historial, fijar, editar, asignar por programa y volver a enviar.",
+      "La vista de producción recibe únicamente las indicaciones globales o asignadas a su programa.",
+      "Agenda presenta los programas como filas compactas y colapsadas; cada escaleta puede expandirse para una edición rápida.",
+      "Abrir programa lleva siempre a Programa C y Ver como producción abre el perfil editorial exacto desde el dashboard general.",
+      "Post permite pegar un documento posterior a la emisión y contrastarlo con la pre-pauta mediante Luna antes de aplicar una propuesta revisable.",
+      "Los bloques ausentes quedan sin confirmar, las citas requieren verificación humana y el documento original se conserva para auditoría.",
+    ],
+  },
   {
     version: "0.27.0",
     date: "2026-08-30",
