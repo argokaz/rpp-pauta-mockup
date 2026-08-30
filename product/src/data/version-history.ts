@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.28.0";
+export const CURRENT_VERSION = "0.28.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.28.1",
+    date: "2026-08-30",
+    title: "Regreso seguro desde Producción",
+    changes: [
+      "Al entrar a Ver como producción, el superadmin crea una navegación interna segura en lugar de depender de la pestaña del navegador.",
+      "La flecha de la interfaz y el botón Atrás del navegador regresan al dashboard general sin cerrar ni abandonar la aplicación.",
+      "Las cuentas de producción no muestran el acceso al dashboard ni heredan esta navegación administrativa.",
+    ],
+  },
   {
     version: "0.28.0",
     date: "2026-08-30",

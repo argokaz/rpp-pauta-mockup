@@ -291,6 +291,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const latestSegmentVersionsRef = useRef<Map<string, number>>(new Map());
   const segmentSyncStatesRef = useRef<Record<string, SegmentSyncStatus>>({});
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
+  const producerDashboardHistoryRef = useRef(false);
   const programs = workspace.programs.length ? workspace.programs : seedPrograms;
   const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
   const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
@@ -323,6 +324,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   );
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
+  const canReturnToDashboard = appRole === "superadmin";
   const adminDemoEmptyTarget = useMemo(
     () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots),
     [programs, scheduleSlots, visibleWeekStart, workspace.emissions],
@@ -336,6 +338,25 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     segmentSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     segmentSaveTimersRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (!canReturnToDashboard) return;
+    function handleProducerHistory(event: PopStateEvent) {
+      const programId = typeof event.state?.rppPautaProducerProgramId === "string" ? event.state.rppPautaProducerProgramId : "";
+      if (programId && programs.some((program) => program.id === programId)) {
+        producerDashboardHistoryRef.current = true;
+        setActiveProducerProgramId(programId);
+        setProducerSection("today");
+        setProducerExperience(true);
+        return;
+      }
+      if (!producerDashboardHistoryRef.current) return;
+      producerDashboardHistoryRef.current = false;
+      setProducerExperience(false);
+    }
+    window.addEventListener("popstate", handleProducerHistory);
+    return () => window.removeEventListener("popstate", handleProducerHistory);
+  }, [canReturnToDashboard, programs]);
 
   useEffect(() => {
     workspace.emissions.forEach((emission) => emission.segments.forEach((segment) => {
@@ -1540,7 +1561,19 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSelectedSlotId(slot.id);
     setActiveProducerProgramId(programId);
     setProducerSection("today");
+    if (canReturnToDashboard && !producerExperience && !producerDashboardHistoryRef.current) {
+      window.history.pushState({ ...window.history.state, rppPautaProducerProgramId: programId }, "", window.location.href);
+      producerDashboardHistoryRef.current = true;
+    }
     setProducerExperience(true);
+  }
+
+  function returnToDashboard() {
+    if (!canReturnToDashboard) return;
+    setProducerExperience(false);
+    if (!producerDashboardHistoryRef.current) return;
+    producerDashboardHistoryRef.current = false;
+    window.history.back();
   }
 
   function producerSlotForDate(date: string) {
@@ -2082,7 +2115,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       <main className="producer-portal" style={{ "--program-accent": producerProgram?.accentColor ?? "#f4d800" } as CSSProperties}>
         <header className="producer-topbar">
           <div className="producer-leading">
-            {!isRestrictedProducer && <button className="producer-dashboard-back" onClick={() => setProducerExperience(false)}><span aria-hidden="true">←</span> Dashboard general</button>}
+            {canReturnToDashboard && <button className="producer-dashboard-back" onClick={returnToDashboard}><span aria-hidden="true">←</span> Dashboard general</button>}
             <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><small>Espacio de producción</small><strong>{producerProgram?.name ?? "Mi programa"}</strong></span></div>
             {isRestrictedProducer && (producerProgramIds?.length ?? 0) > 1 && <label className="producer-program-switch"><span>Programa</span><select aria-label="Programa de producción" value={activeProducerProgramId} onChange={(event) => setActiveProducerProgramId(event.target.value)}>{programs.filter((program) => producerProgramIds?.includes(program.id)).map((program) => <option key={program.id} value={program.id}>{program.shortName}</option>)}</select></label>}
           </div>
