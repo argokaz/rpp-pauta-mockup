@@ -293,7 +293,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [producerSeenNoticesContext, setProducerSeenNoticesContext] = useState("");
   const [kanbanSavingId, setKanbanSavingId] = useState("");
   const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
-  const [captureCollapsed, setCaptureCollapsed] = useState(false);
+  const [captureCollapseOverride, setCaptureCollapseOverride] = useState<{ selectionKey: string; collapsed: boolean } | null>(null);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
   const [expandedAgendaSlots, setExpandedAgendaSlots] = useState<Set<string>>(() => new Set());
   const [demoDataEnabled, setDemoDataEnabled] = useState(false);
@@ -544,7 +544,16 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       )
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
+  const captureHasPreparedPauta = Boolean(selectedEmission?.segments.length);
+  const captureSelectionKey = `${selectedProgram?.id ?? "none"}:${selectedDate}`;
+  const captureCollapsed = captureCollapseOverride?.selectionKey === captureSelectionKey
+    ? captureCollapseOverride.collapsed
+    : captureHasPreparedPauta;
   const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+
+  function setCaptureCollapsed(collapsed: boolean) {
+    setCaptureCollapseOverride({ selectionKey: captureSelectionKey, collapsed });
+  }
 
   useEffect(() => {
     if (!producerExperience || daySlots.length) return;
@@ -2100,7 +2109,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(false); }} onApply={applyAiProposal} />
+              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(captureHasPreparedPauta); }} onApply={applyAiProposal} />
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>

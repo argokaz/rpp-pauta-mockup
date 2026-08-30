@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.34.0";
+export const CURRENT_VERSION = "0.34.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.34.1",
+    date: "2026-08-30",
+    title: "Original plegado en pautas preparadas",
+    changes: [
+      "Las pre-pautas que ya tienen bloques ordenados abren siempre con el texto original plegado.",
+      "Los textos aún no procesados permanecen abiertos para que producción pueda pegarlos y corregirlos.",
+      "Ver original ahora se presenta como una acción de alto contraste y mayor tamaño en escritorio y móvil.",
+    ],
+  },
   {
     version: "0.34.0",
     date: "2026-08-30",
