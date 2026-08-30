@@ -1,6 +1,6 @@
 # Pauta RPP, producto funcional
 
-Aplicación funcional de las Fases 1 a 5. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
+Aplicación funcional de las Fases 1 a 7. Convive con el mockup estático y se despliega en Vercel usando `product/` como directorio raíz.
 
 La Fase 3 incorpora la operación diaria: Mesa editorial con drag and drop,
 cambio accesible de estados y una base responsive para escritorio, tablet y teléfono.
@@ -11,6 +11,12 @@ de conflictos, historial recuperable y registro de post-pauta por noticia.
 La Fase 5 incorpora un histórico paginado desde Supabase por invitado, tema,
 programa, rango de fechas, contenido y resultado al aire, con tolerancia a
 errores pequeños en nombres.
+
+La Fase 6 convierte la agenda en un calendario anual real y añade una parrilla
+versionada: los cambios futuros no reescriben los horarios históricos.
+
+La Fase 7 permite administrar programas, invitar usuarios, asignar roles y
+limitar el acceso de productores a programas concretos desde la propia app.
 
 Producción: https://rpp-pauta.vercel.app
 
@@ -37,6 +43,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://ecywwvlijuvspdngbqhh.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=tu_clave_publica
 OPENAI_API_KEY=tu_clave_privada
 OPENAI_MODEL=gpt-5.6-luna
+SUPABASE_SERVICE_ROLE_KEY=tu_clave_de_servicio
 ```
 
 La autenticación del piloto funciona con credenciales asignadas. El usuario debe
@@ -48,6 +55,10 @@ La estructuración con IA se ejecuta en `/api/structure-pauta`. La clave privada
 no llega al navegador, la ruta valida la sesión y el modelo solo devuelve una
 propuesta editable. El guardado de la escaleta ocurre después de la confirmación
 humana.
+
+`SUPABASE_SERVICE_ROLE_KEY` se usa exclusivamente en la ruta de invitaciones y
+debe configurarse como variable privada del servidor. Nunca debe usar el prefijo
+`NEXT_PUBLIC_` ni incluirse en Git.
 
 ## Verificación
 

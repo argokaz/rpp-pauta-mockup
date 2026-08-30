@@ -5,9 +5,37 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.17.0";
+export const CURRENT_VERSION = "0.19.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.19.0",
+    date: "2026-08-29",
+    title: "Equipo y permisos desde la herramienta",
+    changes: [
+      "El superadmin puede invitar personas, asignar su rol y limitar productores o lectores a programas específicos.",
+      "Las cuentas existentes se administran sin entrar al panel técnico de Supabase.",
+      "Un productor asignado a varios programas puede cambiar de espacio sin volver a iniciar sesión.",
+      "Las cuentas suspendidas quedan bloqueadas aunque todavía conserven una sesión anterior.",
+      "Producción general puede configurar programas y parrilla, mientras que la gestión de accesos queda reservada al superadmin.",
+      "La herramienta impide desactivar o cambiar de rol al último superadmin activo.",
+      "Las invitaciones se envían desde una ruta segura del servidor y la clave administrativa nunca llega al navegador.",
+      "Programas administrados, programas solo visibles e inactivos se distinguen desde una misma pantalla.",
+    ],
+  },
+  {
+    version: "0.18.0",
+    date: "2026-08-29",
+    title: "Calendario anual y parrilla con historia",
+    changes: [
+      "La Agenda navega semanas reales y permite volver a hoy, avanzar o retroceder sin depender de una semana fija.",
+      "Un calendario anual abre cualquier fecha y resalta los días con hitos editoriales.",
+      "Indicaciones y fechas importantes se muestran únicamente en la semana a la que pertenecen.",
+      "La parrilla se edita por fecha efectiva para añadir, cambiar o retirar horarios sin borrar el pasado.",
+      "Cada cambio de horario conserva la vigencia anterior y crea la nueva versión en una operación atómica.",
+      "La vista de producción encuentra la emisión disponible más cercana del programa dentro del calendario real.",
+    ],
+  },
   {
     version: "0.17.0",
     date: "2026-08-29",

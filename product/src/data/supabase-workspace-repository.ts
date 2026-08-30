@@ -3,8 +3,6 @@ import { segmentSchema, workspaceStateSchema, type Emission, type Segment, type 
 import type { SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import type { ArchiveSearchPage, ArchiveSearchRecord } from "@/domain/archive-search";
 
-const WEEK_START = "2026-08-24";
-
 const scopeToDatabase: Record<string, "all" | "informative"> = {
   "Todos los programas": "all",
   "Programas informativos": "informative",
@@ -60,14 +58,18 @@ export function createSupabaseWorkspaceRepository(
   userId: string,
 ): WorkspaceRepository {
   async function load(): Promise<WorkspaceState> {
-    const [bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
-      supabase.from("bulletins").select("id,title,body,scope").eq("active", true).order("created_at"),
+    const [programsResult, scheduleResult, bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
+      supabase.from("programs").select("id,name,short_name,hosts,managed,active").order("name"),
+      supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
+      supabase.from("bulletins").select("id,week_start,title,body,scope").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
       supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,row_version,last_edited_at)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
 
+    assertNoError(programsResult.error, "No se pudieron cargar los programas");
+    assertNoError(scheduleResult.error, "No se pudo cargar la parrilla");
     assertNoError(bulletinsResult.error, "No se pudieron cargar las indicaciones");
     assertNoError(datesResult.error, "No se pudieron cargar las fechas");
     assertNoError(emissionsResult.error, "No se pudieron cargar las pautas");
@@ -84,8 +86,27 @@ export function createSupabaseWorkspaceRepository(
     );
 
     return workspaceStateSchema.parse({
+      programs: (programsResult.data ?? []).map((row) => ({
+        id: row.id,
+        name: row.name,
+        shortName: row.short_name,
+        hosts: row.hosts,
+        managed: row.managed,
+        active: row.active,
+      })),
+      scheduleSlots: (scheduleResult.data ?? []).map((row) => ({
+        id: row.id,
+        programId: row.program_id,
+        dayOfWeek: row.day_of_week,
+        startTime: shortTime(row.start_time),
+        endTime: shortTime(row.end_time),
+        effectiveFrom: row.effective_from,
+        effectiveTo: row.effective_to,
+        active: row.active,
+      })),
       bulletins: (bulletinsResult.data ?? []).map((row) => ({
         id: row.id,
+        weekStart: row.week_start,
         title: row.title,
         body: row.body,
         scope: scopeFromDatabase[row.scope] ?? "Todos los programas",
@@ -166,7 +187,7 @@ export function createSupabaseWorkspaceRepository(
     for (const bulletin of state.bulletins) {
       const { error } = await supabase.from("bulletins").upsert({
         id: bulletin.id,
-        week_start: WEEK_START,
+        week_start: bulletin.weekStart,
         title: bulletin.title,
         body: bulletin.body,
         scope: scopeToDatabase[bulletin.scope] ?? "all",
@@ -327,11 +348,11 @@ export function createSupabaseWorkspaceRepository(
   }
 
   async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
-    return save({ bulletins: [], importantDates: [], emissions: [emission], people: [] });
+    return save({ programs: [], scheduleSlots: [], bulletins: [], importantDates: [], emissions: [emission], people: [] });
   }
 
   async function replaceProgramEmission(emission: Emission): Promise<WorkspaceState> {
-    return persistState({ bulletins: [], importantDates: [], emissions: [emission], people: [] }, true);
+    return persistState({ programs: [], scheduleSlots: [], bulletins: [], importantDates: [], emissions: [emission], people: [] }, true);
   }
 
   async function saveSegment(emission: Emission, segment: Segment, sortOrder: number): Promise<SegmentSaveResult> {
@@ -458,6 +479,97 @@ export function createSupabaseWorkspaceRepository(
     return { items, total, hasMore: filters.offset + items.length < total };
   }
 
+  async function saveProgram(program: Parameters<NonNullable<WorkspaceRepository["saveProgram"]>>[0]) {
+    const { data, error } = await supabase.from("programs").upsert({
+      id: program.id,
+      name: program.name,
+      short_name: program.shortName,
+      hosts: program.hosts,
+      managed: program.managed,
+      active: program.active,
+    }).select("id,name,short_name,hosts,managed,active").single();
+    assertNoError(error, "No se pudo guardar el programa");
+    if (!data) throw new Error("Supabase no devolvió el programa guardado.");
+    return { id: data.id, name: data.name, shortName: data.short_name, hosts: data.hosts, managed: data.managed, active: data.active };
+  }
+
+  async function saveScheduleSlot(slot: Parameters<NonNullable<WorkspaceRepository["saveScheduleSlot"]>>[0]) {
+    const payload = {
+      program_id: slot.programId,
+      day_of_week: slot.dayOfWeek,
+      start_time: slot.startTime,
+      end_time: slot.endTime,
+      effective_from: slot.effectiveFrom,
+      effective_to: slot.effectiveTo ?? null,
+      active: slot.active,
+    };
+    if (slot.id.startsWith("version-")) {
+      const { data, error } = await supabase.rpc("version_schedule_slot", {
+        p_slot_id: slot.id.slice("version-".length),
+        p_program_id: slot.programId,
+        p_day_of_week: slot.dayOfWeek,
+        p_start_time: slot.startTime,
+        p_end_time: slot.endTime,
+        p_effective_from: slot.effectiveFrom,
+        p_effective_to: slot.effectiveTo ?? null,
+      });
+      assertNoError(error, "No se pudo crear la nueva vigencia del horario");
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error("Supabase no devolvió el horario versionado.");
+      return { id: row.id, programId: row.program_id, dayOfWeek: row.day_of_week, startTime: shortTime(row.start_time), endTime: shortTime(row.end_time), effectiveFrom: row.effective_from, effectiveTo: row.effective_to, active: row.active };
+    }
+    const query = slot.id.startsWith("new-")
+      ? supabase.from("schedule_slots").insert(payload)
+      : supabase.from("schedule_slots").upsert({ id: slot.id, ...payload });
+    const { data, error } = await query.select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").single();
+    assertNoError(error, "No se pudo guardar el horario");
+    if (!data) throw new Error("Supabase no devolvió el horario guardado.");
+    return {
+      id: data.id,
+      programId: data.program_id,
+      dayOfWeek: data.day_of_week,
+      startTime: shortTime(data.start_time),
+      endTime: shortTime(data.end_time),
+      effectiveFrom: data.effective_from,
+      effectiveTo: data.effective_to,
+      active: data.active,
+    };
+  }
+
+  async function deleteScheduleSlot(slotId: string, effectiveTo?: string) {
+    const { error } = await supabase.rpc("retire_schedule_slot", { p_slot_id: slotId, p_effective_to: effectiveTo ?? new Date().toISOString().slice(0, 10) });
+    assertNoError(error, "No se pudo retirar el horario");
+  }
+
+  async function loadEditorialUsers() {
+    const [profilesResult, membershipsResult] = await Promise.all([
+      supabase.from("profiles").select("id,email,full_name,app_role,active").order("full_name"),
+      supabase.from("program_memberships").select("user_id,program_id"),
+    ]);
+    assertNoError(profilesResult.error, "No se pudieron cargar los usuarios");
+    assertNoError(membershipsResult.error, "No se pudieron cargar las asignaciones");
+    return (profilesResult.data ?? []).map((profile) => ({
+      id: profile.id,
+      email: profile.email ?? "",
+      fullName: profile.full_name,
+      role: profile.app_role,
+      active: profile.active,
+      programIds: (membershipsResult.data ?? []).filter((membership) => membership.user_id === profile.id).map((membership) => membership.program_id),
+    }));
+  }
+
+  async function saveEditorialUser(user: Parameters<NonNullable<WorkspaceRepository["saveEditorialUser"]>>[0]) {
+    const { error } = await supabase.rpc("admin_save_editorial_user", {
+      p_user_id: user.id,
+      p_full_name: user.fullName,
+      p_app_role: user.role,
+      p_active: user.active,
+      p_program_ids: user.programIds,
+    });
+    assertNoError(error, "No se pudo guardar el usuario");
+    return user;
+  }
+
   function subscribe(onChange: () => void): () => void {
     const channel = supabase
       .channel(`workspace-live-${userId}`)
@@ -467,5 +579,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

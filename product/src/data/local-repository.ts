@@ -10,7 +10,12 @@ export function loadWorkspace(): WorkspaceState {
   if (!stored) return initialWorkspaceState;
 
   try {
-    return workspaceStateSchema.parse(JSON.parse(stored));
+    const parsed = workspaceStateSchema.parse(JSON.parse(stored));
+    return {
+      ...parsed,
+      programs: parsed.programs.length ? parsed.programs : initialWorkspaceState.programs,
+      scheduleSlots: parsed.scheduleSlots.length ? parsed.scheduleSlots : initialWorkspaceState.scheduleSlots,
+    };
   } catch {
     return initialWorkspaceState;
   }

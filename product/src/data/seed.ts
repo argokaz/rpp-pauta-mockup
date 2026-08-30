@@ -102,18 +102,27 @@ const weekendSchedule = [
   ...sundaySlots.map(([startTime, endTime, programId], index) => ({ id: `${programId}-0-${index}`, programId, dayOfWeek: 0, startTime, endTime })),
 ];
 
-export const scheduleSlots: ScheduleSlot[] = [...weekdaySchedule, ...weekendSchedule];
+export const scheduleSlots: ScheduleSlot[] = [...weekdaySchedule, ...weekendSchedule].map((slot) => ({
+  ...slot,
+  effectiveFrom: "2026-01-01",
+  effectiveTo: null,
+  active: true,
+}));
 
 export const initialWorkspaceState: WorkspaceState = {
+  programs,
+  scheduleSlots,
   bulletins: [
     {
       id: "bulletin-elections",
+      weekStart: "2026-08-24",
       title: "Elecciones 2026: confirmar voceros antes de las 15:00",
       body: "Registrar nombre, cargo y teléfono de coordinación de cada invitado.",
       scope: "Todos los programas",
     },
     {
       id: "bulletin-audio",
+      weekStart: "2026-08-24",
       title: "Nombrar los audios antes de subirlos",
       body: "Usar fecha, programa e invitado para facilitar el archivo y la búsqueda.",
       scope: "Programas informativos",

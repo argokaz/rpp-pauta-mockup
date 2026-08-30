@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isDemoId } from "@/data/demo-week";
-import { programs } from "@/data/seed";
+import { programs as seedPrograms } from "@/data/seed";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { searchArchiveLocally, type ArchiveDisposition, type ArchiveSearchRecord } from "@/domain/archive-search";
-import type { Emission } from "@/domain/schemas";
+import type { Emission, Program } from "@/domain/schemas";
 
 type ArchiveSearchProps = {
   emissions: Emission[];
@@ -13,6 +13,7 @@ type ArchiveSearchProps = {
   onOpenResult?: (record: ArchiveSearchRecord) => void;
   programId?: string;
   searchArchive?: WorkspaceRepository["searchArchive"];
+  programs?: Program[];
 };
 
 const PAGE_SIZE = 20;
@@ -47,7 +48,7 @@ function mergeUnique(primary: ArchiveSearchRecord[], secondary: ArchiveSearchRec
     : merged;
 }
 
-export function ArchiveSearch({ emissions, onClose, onOpenResult, programId, searchArchive }: ArchiveSearchProps) {
+export function ArchiveSearch({ emissions, onClose, onOpenResult, programId, searchArchive, programs = seedPrograms }: ArchiveSearchProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedProgramId, setSelectedProgramId] = useState(programId ?? "all");
@@ -69,7 +70,7 @@ export function ArchiveSearch({ emissions, onClose, onOpenResult, programId, sea
 
   const availablePrograms = useMemo(
     () => programs.filter((program) => program.active && program.managed),
-    [],
+    [programs],
   );
 
   useEffect(() => {

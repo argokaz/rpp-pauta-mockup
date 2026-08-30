@@ -93,5 +93,32 @@ export const localWorkspaceRepository: WorkspaceRepository = {
   async searchArchive(filters) {
     return searchArchiveLocally(loadWorkspace().emissions, filters);
   },
+  async saveProgram(program) {
+    const workspace = loadWorkspace();
+    const exists = workspace.programs.some((item) => item.id === program.id);
+    saveWorkspace({ ...workspace, programs: exists ? workspace.programs.map((item) => item.id === program.id ? program : item) : [...workspace.programs, program] });
+    return program;
+  },
+  async saveScheduleSlot(slot) {
+    const workspace = loadWorkspace();
+    const sourceId = slot.id.startsWith("version-") ? slot.id.slice("version-".length) : "";
+    const saved = slot.id.startsWith("new-") || sourceId ? { ...slot, id: crypto.randomUUID() } : slot;
+    const retired = sourceId ? workspace.scheduleSlots.map((item) => item.id === sourceId
+      ? { ...item, active: false, effectiveTo: new Date(new Date(`${slot.effectiveFrom}T12:00:00`).getTime() - 86_400_000).toISOString().slice(0, 10) }
+      : item) : workspace.scheduleSlots;
+    const exists = retired.some((item) => item.id === saved.id);
+    saveWorkspace({ ...workspace, scheduleSlots: exists ? retired.map((item) => item.id === saved.id ? saved : item) : [...retired, saved] });
+    return saved;
+  },
+  async deleteScheduleSlot(slotId, effectiveTo) {
+    const workspace = loadWorkspace();
+    saveWorkspace({ ...workspace, scheduleSlots: workspace.scheduleSlots.map((slot) => slot.id === slotId ? { ...slot, active: false, effectiveTo: effectiveTo ?? new Date().toISOString().slice(0, 10) } : slot) });
+  },
+  async loadEditorialUsers() {
+    return [{ id: "local-admin", email: "demo@local", fullName: "Administración local", role: "superadmin", active: true, programIds: [] }];
+  },
+  async saveEditorialUser(user) {
+    return user;
+  },
   async confirmImport() {},
 };

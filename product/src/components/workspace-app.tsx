@@ -5,13 +5,15 @@ import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
 import { ArchiveSearch } from "@/components/archive-search";
+import { AnnualCalendar } from "@/components/annual-calendar";
+import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
-import { initialWorkspaceState, programs, scheduleSlots } from "@/data/seed";
+import { initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
@@ -19,6 +21,7 @@ import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, normalizePersonName } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
+import { slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
 
@@ -31,20 +34,7 @@ type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
 type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
 type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
 
-const days = [
-  { label: "Lun 24", date: "2026-08-24", dayOfWeek: 1 },
-  { label: "Mar 25", date: "2026-08-25", dayOfWeek: 2 },
-  { label: "Mié 26", date: "2026-08-26", dayOfWeek: 3 },
-  { label: "Jue 27", date: "2026-08-27", dayOfWeek: 4 },
-  { label: "Vie 28", date: "2026-08-28", dayOfWeek: 5 },
-  { label: "Sáb 29", date: "2026-08-29", dayOfWeek: 6 },
-  { label: "Dom 30", date: "2026-08-30", dayOfWeek: 0 },
-];
-
 function editorialDayForDate(date: string) {
-  const scheduledDay = days.find((day) => day.date === date);
-  if (scheduledDay) return scheduledDay;
-
   const parsedDate = new Date(`${date}T12:00:00`);
   const formattedLabel = new Intl.DateTimeFormat("es-PE", {
     weekday: "short",
@@ -224,7 +214,8 @@ type WorkspaceAppProps = {
   canEdit: boolean;
   getAccessToken?: (forceRefresh?: boolean) => Promise<string>;
   onSignOut?: () => void;
-  producerProgramId?: string;
+  producerProgramIds?: string[];
+  appRole?: "superadmin" | "general_producer" | "producer" | "viewer";
 };
 
 type WorkspaceView = "agenda" | "program" | "desk" | "reception" | "post";
@@ -237,10 +228,10 @@ const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; de
   { id: "post", code: "E", label: "Post", description: "Registrar lo emitido" },
 ];
 
-export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramId }: WorkspaceAppProps) {
+export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramIds, appRole = "superadmin" }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => initialWorkspace ?? initialWorkspaceState);
   const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
-  const [selectedDate, setSelectedDate] = useState("2026-08-28");
+  const [selectedDate, setSelectedDate] = useState(todayInLima);
   const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
   const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
   const [hydrated, setHydrated] = useState(Boolean(initialWorkspace));
@@ -257,7 +248,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
   const [showArchiveSearch, setShowArchiveSearch] = useState(false);
-  const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramId));
+  const [showAnnualCalendar, setShowAnnualCalendar] = useState(false);
+  const [showOperationsAdmin, setShowOperationsAdmin] = useState(false);
+  const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramIds?.length));
+  const [activeProducerProgramId, setActiveProducerProgramId] = useState(producerProgramIds?.[0] ?? "encendidos");
   const [producerSection, setProducerSection] = useState<"today" | "people" | "post">("today");
   const [producerPeopleQuery, setProducerPeopleQuery] = useState("");
   const [producerComposerMode, setProducerComposerMode] = useState<ProducerComposerMode | null>(null);
@@ -280,6 +274,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const latestSegmentVersionsRef = useRef<Map<string, number>>(new Map());
   const segmentSyncStatesRef = useRef<Record<string, SegmentSyncStatus>>({});
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
+  const programs = workspace.programs.length ? workspace.programs : seedPrograms;
+  const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
+  const days = useMemo(() => weekDaysFor(selectedDate), [selectedDate]);
+  const visibleWeekStart = days[0].date;
+  const visibleBulletins = useMemo(
+    () => workspace.bulletins.filter((bulletin) => bulletin.weekStart === visibleWeekStart),
+    [visibleWeekStart, workspace.bulletins],
+  );
+  const visibleImportantDates = useMemo(
+    () => workspace.importantDates.filter((item) => item.date >= days[0].date && item.date <= days[6].date).sort((a, b) => a.date.localeCompare(b.date)),
+    [days, workspace.importantDates],
+  );
+  const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
+  const isRestrictedProducer = Boolean(producerProgramIds?.length);
 
   useEffect(() => () => {
     segmentSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -374,9 +382,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     [demoDataEnabled, workspace.people],
   );
   const producerNoticesSignature = useMemo(() => JSON.stringify({
-    bulletins: workspace.bulletins.map(({ id, title, body }) => ({ id, title, body })),
-    importantDates: workspace.importantDates.map(({ id, date, title, details }) => ({ id, date, title, details })),
-  }), [workspace.bulletins, workspace.importantDates]);
+    bulletins: visibleBulletins.map(({ id, title, body }) => ({ id, title, body })),
+    importantDates: visibleImportantDates.map(({ id, date, title, details }) => ({ id, date, title, details })),
+  }), [visibleBulletins, visibleImportantDates]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -390,9 +398,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const daySlots = useMemo(
     () => scheduleSlots
       .filter((slot) => slot.dayOfWeek === selectedDay.dayOfWeek)
-      .filter((slot) => !producerExperience || slot.programId === (producerProgramId ?? "encendidos"))
+      .filter((slot) => slotAppliesOnDate(slot, selectedDate))
+      .filter((slot) => !producerExperience || slot.programId === activeProducerProgramId)
       .filter((slot) => programFilter === "all" || programs.find((program) => program.id === slot.programId)?.managed),
-    [producerExperience, producerProgramId, programFilter, selectedDay.dayOfWeek],
+    [activeProducerProgramId, producerExperience, programFilter, programs, scheduleSlots, selectedDate, selectedDay.dayOfWeek],
   );
 
   const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId)
@@ -411,6 +420,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
   const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+
+  useEffect(() => {
+    if (!producerExperience || daySlots.length) return;
+    const frame = window.requestAnimationFrame(() => {
+      const programId = activeProducerProgramId;
+      for (let offset = 1; offset <= 14; offset += 1) {
+        const candidate = shiftIsoDate(selectedDate, -offset);
+        const slot = scheduleSlots.find((item) => item.programId === programId && item.dayOfWeek === editorialDayForDate(candidate).dayOfWeek && slotAppliesOnDate(item, candidate));
+        if (!slot) continue;
+        setSelectedDate(candidate);
+        setSelectedSlotId(slot.id);
+        break;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeProducerProgramId, daySlots.length, producerExperience, scheduleSlots, selectedDate]);
 
   function notify(message: string) {
     setToast(message);
@@ -452,8 +477,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSaving(true);
     try {
       const cleanNext = stripDemoData(next);
-      const scopedEmission = producerProgramId
-        ? cleanNext.emissions.find((emission) => emission.programId === producerProgramId && emission.date === selectedDate)
+      const scopedEmission = isRestrictedProducer
+        ? cleanNext.emissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === selectedDate)
         : undefined;
       const saved = scopedEmission && repository.saveProgramEmission
         ? await repository.saveProgramEmission(scopedEmission)
@@ -1071,6 +1096,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const scheduledProgramsForDraft = dateDraft
     ? scheduleSlots
       .filter((slot) => slot.dayOfWeek === new Date(`${dateDraft.date}T12:00:00`).getDay())
+      .filter((slot) => slotAppliesOnDate(slot, dateDraft.date))
       .map((slot) => ({ slot, program: programs.find((program) => program.id === slot.programId) }))
       .filter((item) => item.program)
     : [];
@@ -1085,7 +1111,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function openArchiveResult(record: ArchiveSearchRecord) {
-    const slot = scheduleSlots.find((item) => item.programId === record.programId && item.dayOfWeek === editorialDayForDate(record.date).dayOfWeek);
+    const slot = scheduleSlots.find((item) => item.programId === record.programId && item.dayOfWeek === editorialDayForDate(record.date).dayOfWeek && slotAppliesOnDate(item, record.date));
     if (!slot) {
       notify("Encontramos el registro, pero ese programa ya no tiene un horario activo para abrirlo.");
       return;
@@ -1107,21 +1133,29 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function openProducerExperience() {
-    const preferredDate = scheduleSlots.some((slot) => slot.programId === "encendidos" && slot.dayOfWeek === editorialDayForDate(selectedDate).dayOfWeek)
-      ? selectedDate
-      : "2026-08-28";
-    const slot = scheduleSlots.find((item) => item.programId === "encendidos" && item.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek);
+    let preferredDate = selectedDate;
+    if (!scheduleSlots.some((slot) => slot.programId === "encendidos" && slot.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(slot, preferredDate))) {
+      for (let offset = 1; offset <= 14; offset += 1) {
+        const candidate = shiftIsoDate(selectedDate, -offset);
+        if (scheduleSlots.some((slot) => slot.programId === "encendidos" && slot.dayOfWeek === editorialDayForDate(candidate).dayOfWeek && slotAppliesOnDate(slot, candidate))) {
+          preferredDate = candidate;
+          break;
+        }
+      }
+    }
+    const slot = scheduleSlots.find((item) => item.programId === "encendidos" && item.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(item, preferredDate));
     if (!slot) return;
     chooseCaptureDate(preferredDate);
     setSelectedSlotId(slot.id);
+    setActiveProducerProgramId("encendidos");
     setProducerSection("today");
     setProducerExperience(true);
   }
 
   function producerSlotForDate(date: string) {
     if (!date) return undefined;
-    const programId = producerProgramId ?? "encendidos";
-    return scheduleSlots.find((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(date).dayOfWeek);
+    const programId = activeProducerProgramId;
+    return scheduleSlots.find((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(date).dayOfWeek && slotAppliesOnDate(slot, date));
   }
 
   function nearestProducerDate(fromDate: string, direction: -1 | 1) {
@@ -1155,7 +1189,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function beginProducerPauta() {
     if (!chooseProducerDate(producerNewPautaDate)) return;
-    const existing = effectiveEmissions.find((emission) => emission.programId === (producerProgramId ?? "encendidos") && emission.date === producerNewPautaDate);
+    const existing = effectiveEmissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === producerNewPautaDate);
     setProducerComposerMode(producerNewPautaMode);
     setShowProducerNewPauta(false);
     notify(existing && (existing.rawText.trim() || existing.segments.length)
@@ -1592,8 +1626,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function renderProducerPortal() {
-    const producerProgram = programs.find((program) => program.id === (producerProgramId ?? "encendidos"));
-    const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek));
+    const producerProgram = programs.find((program) => program.id === activeProducerProgramId);
+    const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek && slotAppliesOnDate(slot, day.date)));
     const guestSegments = selectedEmission?.segments.filter((segment) => segment.guest.trim()) ?? [];
     const producerPautaIsBlank = !selectedEmission?.segments.length && !selectedEmission?.rawText.trim();
     const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
@@ -1612,8 +1646,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       <main className="producer-portal">
         <header className="producer-topbar">
           <div className="producer-leading">
-            {!producerProgramId && <button className="producer-dashboard-back" onClick={() => setProducerExperience(false)}><span aria-hidden="true">←</span> Dashboard general</button>}
+            {!isRestrictedProducer && <button className="producer-dashboard-back" onClick={() => setProducerExperience(false)}><span aria-hidden="true">←</span> Dashboard general</button>}
             <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><strong>{producerProgram?.shortName ?? "Mi programa"}</strong><small>Espacio de producción</small></span></div>
+            {isRestrictedProducer && (producerProgramIds?.length ?? 0) > 1 && <label className="producer-program-switch"><span>Programa</span><select aria-label="Programa de producción" value={activeProducerProgramId} onChange={(event) => setActiveProducerProgramId(event.target.value)}>{programs.filter((program) => producerProgramIds?.includes(program.id)).map((program) => <option key={program.id} value={program.id}>{program.shortName}</option>)}</select></label>}
           </div>
           <nav aria-label="Secciones de producción">
             <button className={producerSection === "today" ? "active" : ""} onClick={() => setProducerSection("today")}>Pauta de hoy</button>
@@ -1621,7 +1656,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
             <button className={producerSection === "post" ? "active" : ""} onClick={() => setProducerSection("post")}>Post-pauta</button>
           </nav>
           <div className="producer-account">
-            {producerProgramId && onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
+            {isRestrictedProducer && onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
             <b>{accountLabel}</b>
           </div>
         </header>
@@ -1634,11 +1669,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <div className="producer-alert-grid">
             <div className="producer-bulletins">
               <div className="producer-alert-title"><span>Indicaciones de la semana</span>{producerNoticesUpdated && <b>Nuevo</b>}</div>
-              <div>{workspace.bulletins.map((bulletin) => <article key={bulletin.id}><strong>{bulletin.title}</strong><p>{bulletin.body}</p></article>)}</div>
+              <div>{visibleBulletins.map((bulletin) => <article key={bulletin.id}><strong>{bulletin.title}</strong><p>{bulletin.body}</p></article>)}</div>
             </div>
             <div className="producer-dates">
-              <div className="producer-alert-title"><span>Fechas importantes</span><b>{workspace.importantDates.length}</b></div>
-              <div>{workspace.importantDates.slice(0, 3).map((item) => <button key={item.id} onClick={() => { markProducerNoticesSeen(); notify(`${item.title}: ${item.details}`); }}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong><small>{item.details}</small></button>)}</div>
+              <div className="producer-alert-title"><span>Fechas importantes</span><b>{visibleImportantDates.length}</b></div>
+              <div>{visibleImportantDates.slice(0, 3).map((item) => <button key={item.id} onClick={() => { markProducerNoticesSeen(); notify(`${item.title}: ${item.details}`); }}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong><small>{item.details}</small></button>)}</div>
             </div>
           </div>
         </section>
@@ -1763,7 +1798,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
         {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
-        {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
+        {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
         <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
@@ -1788,7 +1823,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <div><span>{selectedDay.label} · Kanban editorial</span><h1>Mesa editorial</h1><p>Cada programa avanza por estado: falta pauta, preparación, listo para salir y post-pauta.</p></div>
           <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
         </header>
-        {workspace.bulletins[0] && <article className="desk-bulletin"><span>Indicación del día</span><strong>{workspace.bulletins[0].title}</strong><p>{workspace.bulletins[0].body}</p></article>}
+        {visibleBulletins[0] && <article className="desk-bulletin"><span>Indicación de la semana</span><strong>{visibleBulletins[0].title}</strong><p>{visibleBulletins[0].body}</p></article>}
         <nav className="desk-status-tabs" aria-label="Filtrar Mesa por estado">
           {columns.map((column) => (
             <button key={column.status} className={mobileDeskStatus === column.status ? "active" : ""} onClick={() => setMobileDeskStatus(column.status)} aria-pressed={mobileDeskStatus === column.status}>
@@ -1876,12 +1911,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <label className="sidebar-filter"><span>Programa</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Todos los programas</option><option value="managed">Solo administrados</option></select></label>
         <nav className="main-nav" aria-label="Navegación principal">
           <button className="active">Agenda semanal <b>35</b></button>
-          <button onClick={() => notify("La vista de indicaciones se habilitará después del piloto.")}>Indicaciones <b>{workspace.bulletins.length}</b></button>
+          <button onClick={() => { setActiveView("agenda"); document.querySelector(".notices")?.scrollIntoView({ behavior: "smooth" }); }}>Indicaciones <b>{visibleBulletins.length}</b></button>
           <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{effectivePeople.length}</b></button>
           <button onClick={() => setShowArchiveSearch(true)}>Archivo</button>
-          <button onClick={() => notify("El calendario anual se habilitará después del piloto.")}>Calendario anual</button>
+          <button onClick={() => setShowAnnualCalendar(true)}>Calendario anual</button>
+          {isEditorialAdmin && <button onClick={() => setShowOperationsAdmin(true)}>Administración</button>}
         </nav>
-        <div className="side-summary"><span>Semana 35</span><strong>22 programas</strong><small>Administrados dentro de la señal completa</small></div>
+        <div className="side-summary"><span>Desde {visibleWeekStart}</span><strong>{programs.filter((program) => program.managed && program.active).length} programas</strong><small>Administrados dentro de la señal completa</small></div>
         <div className="sidebar-footer">
           <button className="version-button" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
             <span>Versión actual</span><strong>v{CURRENT_VERSION}</strong><small>Ver novedades</small>
@@ -1892,42 +1928,44 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       <section className="workspace">
         <header className="topbar">
-          <div><span>Programación informativa</span><h1>Semana del 24 al 30 de agosto</h1></div>
-          <div className="topbar-actions"><button className="producer-shortcut" onClick={openProducerExperience}>Vista productor</button><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
+          <div><span>Programación informativa</span><h1>{weekTitle(selectedDate)}</h1></div>
+          <div className="topbar-actions">{isEditorialAdmin && <button className="admin-shortcut" onClick={() => setShowOperationsAdmin(true)}>Administrar</button>}<button className="producer-shortcut" onClick={openProducerExperience}>Vista productor</button><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
         </header>
 
         <div className="workspace-body">
           <section className="notices" aria-label="Indicaciones y fechas importantes">
             <article className="bulletin-panel">
-              <header><strong>Indicaciones de la semana</strong><button disabled={!canEdit} onClick={() => setBulletinDraft({ id: newId(), title: "", body: "", scope: "Todos los programas" })}>Añadir indicación</button></header>
+              <header><strong>Indicaciones de la semana</strong><button disabled={!isEditorialAdmin} onClick={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas" })}>Añadir indicación</button></header>
               <div className="bulletin-list">
-                {workspace.bulletins.map((item) => (
-                  <button className="bulletin-item" key={item.id} disabled={!canEdit} onClick={() => setBulletinDraft(item)}>
+                {visibleBulletins.map((item) => (
+                  <button className="bulletin-item" key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
                     <span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
                   </button>
                 ))}
+                {!visibleBulletins.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
               </div>
             </article>
             <article className="dates-panel">
               <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {} })}>Añadir fecha</button></header>
               <div className="date-list">
-                {workspace.importantDates.map((item) => (
+                {visibleImportantDates.map((item) => (
                   <button className="date-item" key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
                     <time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "").toUpperCase()}</time>
                     <span><strong>{item.title}</strong><small>{item.details}</small></span><b>Abrir</b>
                   </button>
                 ))}
+                {!visibleImportantDates.length && <div className="empty-state compact"><strong>Sin fechas esta semana</strong><p>El calendario anual conserva las fechas futuras.</p></div>}
               </div>
             </article>
           </section>
 
           <section className="agenda-panel">
             <header className="agenda-toolbar">
-              <div className="week-nav"><button onClick={() => notify("La navegación entre semanas se habilitará después del piloto.")}>Anterior</button><button className="today-button" onClick={() => setSelectedDate("2026-08-28")}>Esta semana</button><button onClick={() => notify("La navegación entre semanas se habilitará después del piloto.")}>Siguiente</button></div>
+              <div className="week-nav"><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -7))}>Anterior</button><button className="today-button" onClick={() => setSelectedDate(todayInLima())}>Esta semana</button><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 7))}>Siguiente</button></div>
               <div className="day-tabs" aria-label="Días de la semana">
                 {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}
               </div>
-              <button className="primary" onClick={() => notify("La edición de horarios se habilitará después del piloto.")}>Añadir bloque</button>
+              <button className="primary" disabled={!isEditorialAdmin} onClick={() => setShowOperationsAdmin(true)}>Editar parrilla</button>
             </header>
 
             <div className="agenda-layout">
@@ -2045,7 +2083,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       </datalist>
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
-      {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
+      {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
+      {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
+      {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
 
       {segmentHistory && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSegmentHistory(null)}>

@@ -12,6 +12,7 @@ import type { WorkspaceState } from "@/domain/schemas";
 type Profile = {
   full_name: string;
   app_role: "superadmin" | "general_producer" | "producer" | "viewer";
+  active: boolean;
 };
 
 const editableRoles = new Set(["superadmin", "general_producer", "producer"]);
@@ -76,7 +77,7 @@ export function AuthShell() {
     if (!supabase || !sessionUserId || !remoteRepository) return;
     let active = true;
     void Promise.all([
-      supabase.from("profiles").select("full_name,app_role").eq("id", sessionUserId).single(),
+      supabase.from("profiles").select("full_name,app_role,active").eq("id", sessionUserId).single(),
       supabase.from("program_memberships").select("program_id").eq("user_id", sessionUserId),
       remoteRepository.load(),
     ]).then(([profileResult, membershipResult, loadedWorkspace]) => {
@@ -97,13 +98,15 @@ export function AuthShell() {
   }, [remoteRepository, sessionUserId, supabase]);
 
   if (!remoteMode) {
-    return <WorkspaceApp repository={localWorkspaceRepository} accountLabel="AG" canEdit />;
+    return <WorkspaceApp repository={localWorkspaceRepository} accountLabel="AG" canEdit appRole="superadmin" />;
   }
 
   if (loading) return <WorkspaceLoadingShell />;
   if (!supabase) return <AccessError message="Falta la configuración de Supabase." />;
   if (!session) return <SignIn supabase={supabase} initialError={authError} />;
   if (!profile || !remoteRepository || !initialWorkspace) return authError ? <AccessError message={authError} /> : <WorkspaceLoadingShell />;
+  if (!profile.active) return <AccessError message="Tu acceso editorial está suspendido. Solicita a producción general que lo reactive." />;
+  if (profile.app_role === "producer" && !programIds.length) return <AccessError message="Tu cuenta todavía no tiene un programa asignado." />;
 
   const email = session.user.email ?? "Usuario RPP";
   const accountLabel = (profile.full_name || email).slice(0, 2).toUpperCase();
@@ -117,7 +120,8 @@ export function AuthShell() {
       canEdit={editableRoles.has(profile.app_role)}
       getAccessToken={getAccessToken}
       onSignOut={() => { void supabase.auth.signOut(); }}
-      producerProgramId={profile.app_role === "producer" ? programIds[0] : undefined}
+      producerProgramIds={profile.app_role === "producer" ? programIds : undefined}
+      appRole={profile.app_role}
     />
   );
 }

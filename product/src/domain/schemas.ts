@@ -15,6 +15,9 @@ export const scheduleSlotSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
   startTime: z.string(),
   endTime: z.string(),
+  effectiveFrom: z.string().default("2026-01-01"),
+  effectiveTo: z.string().nullable().optional(),
+  active: z.boolean().default(true),
 });
 
 export const segmentTypeSchema = z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]);
@@ -85,6 +88,7 @@ export const emissionSchema = z.object({
 
 export const bulletinSchema = z.object({
   id: z.string(),
+  weekStart: z.string().default("2026-08-24"),
   title: z.string(),
   body: z.string(),
   scope: z.string(),
@@ -130,6 +134,8 @@ export const personSchema = z.object({
 });
 
 export const workspaceStateSchema = z.object({
+  programs: z.array(programSchema).default([]),
+  scheduleSlots: z.array(scheduleSlotSchema).default([]),
   bulletins: z.array(bulletinSchema),
   importantDates: z.array(importantDateSchema),
   emissions: z.array(emissionSchema),
