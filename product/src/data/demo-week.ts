@@ -119,6 +119,28 @@ export function demoDateForDayOfWeek(weekStart: string, dayOfWeek: number): stri
   return shiftIsoDate(weekStart, offset);
 }
 
+export function findDemoEmptyTarget(
+  weekStart: string,
+  realEmissions: Emission[],
+  availablePrograms: Program[] = programs,
+  availableScheduleSlots: ScheduleSlot[] = scheduleSlots,
+  preferredProgramId?: string,
+): { date: string; programId: string; slotId: string } | null {
+  const realKeys = new Set(realEmissions.filter((emission) => !isDemoId(emission.id)).map((emission) => `${emission.programId}:${emission.date}`));
+  for (let weekOffset = 0; weekOffset < 12; weekOffset += 1) {
+    const candidateWeekStart = shiftIsoDate(weekStart, weekOffset * 7);
+    const date = demoDateForDayOfWeek(candidateWeekStart, DEMO_EMPTY_DAY_OF_WEEK);
+    const candidates = availableScheduleSlots
+      .filter((slot) => slot.dayOfWeek === DEMO_EMPTY_DAY_OF_WEEK && slotAppliesOnDate(slot, date))
+      .filter((slot) => availablePrograms.find((program) => program.id === slot.programId)?.managed)
+      .filter((slot) => !preferredProgramId || slot.programId === preferredProgramId)
+      .sort((left, right) => Number(right.programId === "encendidos") - Number(left.programId === "encendidos") || left.startTime.localeCompare(right.startTime));
+    const slot = candidates.find((candidate) => !realKeys.has(`${candidate.programId}:${date}`));
+    if (slot) return { date, programId: slot.programId, slotId: slot.id };
+  }
+  return null;
+}
+
 function statusForDay(dayOfWeek: number, programId: string): Emission["status"] {
   if (dayOfWeek === 1 || dayOfWeek === 2) return "post";
   if (dayOfWeek === 3 || dayOfWeek === 4) return programId.length % 2 === 0 ? "ready" : "draft";

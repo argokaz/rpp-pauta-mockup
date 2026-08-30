@@ -7,6 +7,7 @@ import {
   demoWeekEmissions,
   demoWeekPeople,
   demoDateForDayOfWeek,
+  findDemoEmptyTarget,
   isDemoId,
   mergeDemoEmissions,
   mergeDemoPeople,
@@ -35,6 +36,21 @@ describe("semana de datos de prueba", () => {
     expect(emissions.every((emission) => emission.date >= "2026-09-07" && emission.date <= "2026-09-13")).toBe(true);
     expect(emissions.filter((emission) => emission.date === "2026-09-11").every((emission) => emission.status === "empty" && !emission.rawText)).toBe(true);
     expect(emissions.filter((emission) => emission.date !== "2026-09-11").every((emission) => emission.rawText.includes("DATOS DE PRUEBA"))).toBe(true);
+  });
+
+  it("salta al siguiente viernes cuando el actual ya tiene una pauta real", () => {
+    const occupied: Emission = {
+      id: "real-friday",
+      programId: "encendidos",
+      date: "2026-08-28",
+      status: "ready",
+      rawText: "Pauta real",
+      producerName: "Producción",
+      segments: [],
+      updatedAt: "2026-08-28T12:00:00.000Z",
+    };
+
+    expect(findDemoEmptyTarget("2026-08-24", [occupied], programs, scheduleSlots, "encendidos")?.date).toBe("2026-09-04");
   });
 
   it("mantiene las pautas reales por encima de las ficticias", () => {
