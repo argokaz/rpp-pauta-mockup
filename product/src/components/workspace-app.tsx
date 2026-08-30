@@ -2119,23 +2119,25 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     const syncState = segmentSyncStates[segment.id] ?? "saved";
                     const conflict = segmentConflicts[segment.id];
                     return (
-                      <article className={`post-segment ${isRunning ? "running" : ""}`} data-disposition={disposition ?? "pending"} key={segment.id}>
-                        <header>
+                      <details className={`post-segment ${isRunning ? "running" : ""}`} data-disposition={disposition ?? "pending"} key={segment.id}>
+                        <summary className="post-segment-summary">
                           <span className="post-segment-number">{String(index + 1).padStart(2, "0")}</span>
                           <div><span>{segment.startTime}–{segment.endTime} · {segmentTypeLabel[segment.type]}</span><h3>{segment.title}</h3>{segment.guest && <p>{segment.guest}{segment.guestRole ? ` · ${segment.guestRole}` : ""}</p>}</div>
                           <b>{stateLabel}</b>
-                        </header>
-                        <div className="post-sync-line" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Pendiente de guardar" : syncState === "saving" ? "Guardando" : syncState === "error" ? "Error de guardado" : syncState === "conflict" ? "Conflicto de edición" : "Guardado"}</strong><span>Este bloque se guarda por separado.</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
-                        {conflict && <div className="segment-conflict post-conflict" role="alert"><strong>{conflict.editorName} actualizó este bloque.</strong><p>El registro que tienes abierto no fue reemplazado.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
-                        <div className="post-live-actions" aria-label={`Acciones rápidas para ${segment.title}`}>
-                          <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Entró ahora</button>
-                          <button disabled={!canEdit || !segment.actualStart} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>
-                          <button disabled={!canEdit} onClick={() => markSegmentEnd(segment, "partial")}>Salió parcial</button>
-                          <button disabled={!canEdit} onClick={() => markSegmentSkipped(segment)}>No salió</button>
-                          <button disabled={!canEdit} onClick={() => markSegmentAsPlanned(segment)}>Emitido según pauta</button>
-                        </div>
-                        <details className="post-segment-details" open={Boolean(segment.postSummary || segment.keyQuote)}>
-                          <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
+                          <span className="post-segment-toggle" aria-hidden="true" />
+                        </summary>
+                        <div className="post-segment-body">
+                          <div className="post-sync-line" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Pendiente de guardar" : syncState === "saving" ? "Guardando" : syncState === "error" ? "Error de guardado" : syncState === "conflict" ? "Conflicto de edición" : "Guardado"}</strong><span>Este bloque se guarda por separado.</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
+                          {conflict && <div className="segment-conflict post-conflict" role="alert"><strong>{conflict.editorName} actualizó este bloque.</strong><p>El registro que tienes abierto no fue reemplazado.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
+                          <div className="post-live-actions" aria-label={`Acciones rápidas para ${segment.title}`}>
+                            <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Entró ahora</button>
+                            <button disabled={!canEdit || !segment.actualStart} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>
+                            <button disabled={!canEdit} onClick={() => markSegmentEnd(segment, "partial")}>Salió parcial</button>
+                            <button disabled={!canEdit} onClick={() => markSegmentSkipped(segment)}>No salió</button>
+                            <button disabled={!canEdit} onClick={() => markSegmentAsPlanned(segment)}>Emitido según pauta</button>
+                          </div>
+                          <div className="post-segment-details">
+                            <header className="post-segment-edit-heading"><strong>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}</strong><span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></header>
                           <div>
                             <section className="post-editorial-fields" aria-label="Datos editables del bloque">
                               <label><span>Título editorial</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updatePostSegment(segment.id, { title: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} /></label>
@@ -2187,9 +2189,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                             <label className="post-wide-field"><span>Qué se dijo / qué ocurrió</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} placeholder={disposition === "skipped" ? "Motivo por el que no salió, si corresponde" : "Resumen breve, factual y útil para encontrar este bloque después"} /></label>
                             <label className="post-wide-field"><span>Cita o idea destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} onBlur={() => void persistPostSegment(segment.id)} placeholder="No uses comillas hasta comprobar el texto con el audio" /></label>
                             <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => void persistPostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es una cita textual y la verifiqué con el audio</span></label>
+                            </div>
                           </div>
-                        </details>
-                      </article>
+                        </div>
+                      </details>
                     );
                   })}
                   {!selectedEmission.segments.length && <div className="empty-state compact"><strong>No hay bloques que registrar</strong><p>Primero crea u ordena la pauta del programa. También puedes añadir un bloque imprevisto.</p></div>}

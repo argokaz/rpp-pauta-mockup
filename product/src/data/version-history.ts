@@ -5,9 +5,20 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.33.0";
+export const CURRENT_VERSION = "0.33.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.33.1",
+    date: "2026-08-30",
+    title: "Post-pauta plegable y más legible",
+    changes: [
+      "Cada bloque de Post-pauta aparece plegado por defecto con hora, tipo, título, invitado y estado visibles.",
+      "Al pulsar el encabezado se despliegan en un solo nivel las acciones en vivo, personas, tiempos y campos editoriales.",
+      "Los textos, etiquetas, botones y resultados usan una escala mayor para mejorar la lectura en escritorio y teléfono.",
+      "La vista de Producción y el dashboard general comparten el mismo comportamiento plegable.",
+    ],
+  },
   {
     version: "0.33.0",
     date: "2026-08-30",
