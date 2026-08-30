@@ -1,6 +1,6 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { z } from "zod";
-import { normalizeProgramAccessUsername, programAccessEmail, programAccessUsername } from "@/domain/program-access";
+import { nextProgramAccessCandidate, programAccessCandidate, programAccessEmail, programAccessUsername } from "@/domain/program-access";
 
 const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create_program_access"), programId: z.string().trim().min(1).max(120) }),
@@ -25,58 +25,64 @@ async function createProgramAccess(admin: AdminClient, programId: string) {
     .single();
   if (programError || !program?.active || !program.managed) return jsonError("El programa no está disponible para crear un acceso.", 404);
 
-  const { data: memberships, error: membershipsError } = await admin
-    .from("program_memberships")
-    .select("user_id")
-    .eq("program_id", program.id);
-  if (membershipsError) return jsonError("No se pudo comprobar la asignación del programa.", 500);
-  const memberIds = [...new Set((memberships ?? []).map((membership) => membership.user_id))];
-  if (memberIds.length) {
-    const { data: producers, error: producersError } = await admin
-      .from("profiles")
-      .select("id")
-      .in("id", memberIds)
-      .eq("app_role", "producer")
-      .limit(1);
-    if (producersError) return jsonError("No se pudo comprobar la asignación del programa.", 500);
-    if (producers?.length) return jsonError("Este programa ya tiene un acceso de producción. Puedes editarlo en la lista de cuentas.", 409);
-  }
+  const baseUsername = programAccessCandidate(program.id, 1);
+  const { data: existingProfiles, error: existingProfilesError } = await admin
+    .from("profiles")
+    .select("email")
+    .like("email", `${baseUsername}%@rpp-pauta.local`);
+  if (existingProfilesError) return jsonError("No se pudieron comprobar los accesos existentes.", 500);
+  const usedUsernames = new Set((existingProfiles ?? [])
+    .map((profile) => programAccessUsername(profile.email))
+    .filter((username): username is string => Boolean(username)));
 
-  const username = normalizeProgramAccessUsername(program.id);
-  const email = programAccessEmail(username);
   const password = generatedPassword();
-  const fullName = `Producción ${program.short_name}`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, program_access: true },
-  });
-  if (createError || !created.user) {
-    const duplicate = /already|registered|exists/i.test(createError?.message ?? "");
-    return jsonError(duplicate ? "Ese usuario ya existe. Revisa las cuentas suspendidas o asignadas." : "No se pudo crear el acceso del programa.", duplicate ? 409 : 400);
+  let createdUser: User | null = null;
+  let username = "";
+  let fullName = "";
+
+  for (let attempt = 1; attempt <= 100; attempt += 1) {
+    const candidate = nextProgramAccessCandidate(program.id, usedUsernames);
+    if (!candidate) break;
+    username = candidate.username;
+    const accessNumber = candidate.accessNumber;
+    fullName = `Producción ${program.short_name}${accessNumber > 1 ? ` ${accessNumber}` : ""}`;
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email: programAccessEmail(username),
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, program_access: true },
+    });
+    if (created.user) {
+      createdUser = created.user;
+      break;
+    }
+    if (!/already|registered|exists/i.test(createError?.message ?? "")) {
+      return jsonError("No se pudo crear el acceso del programa.", 400);
+    }
+    usedUsernames.add(username);
   }
+  if (!createdUser) return jsonError("Este programa alcanzó el límite de accesos directos.", 409);
 
   const { error: profileError } = await admin
     .from("profiles")
     .update({ full_name: fullName, app_role: "producer", active: true })
-    .eq("id", created.user.id);
+    .eq("id", createdUser.id);
   if (profileError) {
-    await admin.auth.admin.deleteUser(created.user.id);
+    await admin.auth.admin.deleteUser(createdUser.id);
     return jsonError("No se pudo completar el perfil editorial del programa.", 500);
   }
 
   const { error: membershipError } = await admin.from("program_memberships").insert({
-    user_id: created.user.id,
+    user_id: createdUser.id,
     program_id: program.id,
     membership_role: "producer",
   });
   if (membershipError) {
-    await admin.auth.admin.deleteUser(created.user.id);
+    await admin.auth.admin.deleteUser(createdUser.id);
     return jsonError("No se pudo asignar el acceso al programa.", 500);
   }
 
-  return Response.json({ id: created.user.id, username, password, programName: program.short_name }, {
+  return Response.json({ id: createdUser.id, username, password, programName: program.short_name }, {
     status: 201,
     headers: { "Cache-Control": "no-store" },
   });

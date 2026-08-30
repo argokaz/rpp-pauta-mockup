@@ -62,9 +62,9 @@ export function OperationsAdmin({ canManageUsers, getAccessToken, initialDate, o
   const daySlots = useMemo(() => workspace.scheduleSlots
     .filter((slot) => slot.dayOfWeek === dayOfWeek(scheduleDate))
     .sort((a, b) => a.startTime.localeCompare(b.startTime)), [scheduleDate, workspace.scheduleSlots]);
-  const programsWithoutAccess = programs
-    .filter((program) => program.managed)
-    .filter((program) => !users.some((user) => user.role === "producer" && user.programIds.includes(program.id)));
+  const managedPrograms = programs.filter((program) => program.managed);
+  const producerAccessCount = (programId: string) => users.filter((user) => user.role === "producer" && user.programIds.includes(programId)).length;
+  const totalProgramAccesses = managedPrograms.reduce((total, program) => total + producerAccessCount(program.id), 0);
 
   useEffect(() => {
     if (tab !== "team" || users.length || !repository.loadEditorialUsers) return;
@@ -132,7 +132,7 @@ export function OperationsAdmin({ canManageUsers, getAccessToken, initialDate, o
       setGeneratedAccess(body as GeneratedAccess);
       setUserDraft(null);
       setUsers(await repository.loadEditorialUsers?.() ?? users);
-      setMessage(payload.action === "create_program_access" ? "Acceso creado. Copia las credenciales antes de cerrar." : "Contraseña renovada. Copia las nuevas credenciales.");
+      setMessage(payload.action === "create_program_access" ? `Acceso ${body.username} creado. Copia las credenciales antes de cerrar.` : "Contraseña renovada. Copia las nuevas credenciales.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo generar el acceso."); }
     finally { setSaving(false); }
   }
@@ -175,13 +175,16 @@ export function OperationsAdmin({ canManageUsers, getAccessToken, initialDate, o
 
         {tab === "team" && <div className="admin-section team-admin">
           <section className="program-access-card">
-            <header><div><strong>Programas sin acceso</strong><span>Crea un usuario directo, sin correo ni invitación.</span></div><b>{loadingUsers ? "..." : programsWithoutAccess.length}</b></header>
+            <header><div><strong>Accesos por programa</strong><span>Crea una o varias cuentas independientes para cada equipo.</span></div><b>{loadingUsers ? "..." : totalProgramAccesses}</b></header>
             <div className="program-access-list">
-              {loadingUsers && <div className="admin-access-loading"><strong>Revisando asignaciones</strong><span>Buscando qué programas todavía necesitan acceso.</span></div>}
-              {!loadingUsers && programsWithoutAccess.map((program) => <article key={program.id}><div><strong>{program.shortName}</strong><span>{program.hosts || "Equipo de producción por definir"}</span></div><button disabled={saving || !getAccessToken} onClick={() => void requestProgramAccess({ action: "create_program_access", programId: program.id })}>Crear acceso</button></article>)}
-              {!loadingUsers && !programsWithoutAccess.length && <div className="admin-access-empty"><strong>Todos los programas tienen acceso</strong><span>Las cuentas existentes se administran en la columna derecha.</span></div>}
+              {loadingUsers && <div className="admin-access-loading"><strong>Revisando accesos</strong><span>Contando las cuentas asignadas a cada programa.</span></div>}
+              {!loadingUsers && managedPrograms.map((program) => {
+                const accessCount = producerAccessCount(program.id);
+                return <article key={program.id}><div><strong>{program.shortName}</strong><span>{accessCount ? `${accessCount} ${accessCount === 1 ? "acceso" : "accesos"} de producción` : "Sin acceso de producción"}</span></div><button disabled={saving || !getAccessToken} onClick={() => void requestProgramAccess({ action: "create_program_access", programId: program.id })}>{accessCount ? "Crear otro" : "Crear acceso"}</button></article>;
+              })}
+              {!loadingUsers && !managedPrograms.length && <div className="admin-access-empty"><strong>No hay programas administrados</strong><span>Activa un programa desde la sección Programas para crear sus accesos.</span></div>}
             </div>
-            <footer>Para el piloto, estas credenciales pueden compartirse dentro del equipo del programa. Los cambios quedarán registrados con el nombre del programa.</footer>
+            <footer>Cada cuenta recibe una contraseña independiente. Los usuarios adicionales se numeran automáticamente, por ejemplo: encendidos-2 y encendidos-3.</footer>
           </section>
           <section className="team-list"><header><strong>Accesos existentes</strong><span>{loadingUsers ? "Cargando..." : `${users.length} cuentas`}</span></header><div>{users.map((user) => {
             const directUsername = programAccessUsername(user.email);

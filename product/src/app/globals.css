@@ -1535,6 +1535,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .team-admin { padding: 7px; }
   .program-access-list { max-height: none; }
   .program-access-list article { min-height: 68px; }
+  .program-access-list article button { min-height: 44px; font-size: 9px; }
   .program-checks { grid-template-columns: 1fr; }
   .team-list > div > button { grid-template-columns: minmax(0, 1fr) auto; }
   .team-list button em { grid-column: 2; }

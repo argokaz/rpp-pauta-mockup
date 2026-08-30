@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.21.0";
+export const CURRENT_VERSION = "0.22.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.22.0",
+    date: "2026-08-29",
+    title: "Varios accesos para un mismo programa",
+    changes: [
+      "El superadmin puede crear varias cuentas de producción independientes para cada programa administrado.",
+      "Cada programa muestra cuántos accesos tiene y mantiene siempre disponible la acción Crear otro.",
+      "Los usuarios adicionales se numeran automáticamente, como encendidos-2, encendidos-3 y encendidos-4.",
+      "Cada acceso recibe su propia contraseña y continúa limitado únicamente al programa asignado.",
+      "Las cuentas adicionales se suspenden, reasignan o renuevan de manera individual desde Accesos existentes.",
+      "La creación prueba el siguiente usuario disponible para evitar duplicados y conserva la limpieza automática si falla una asignación.",
+    ],
+  },
   {
     version: "0.21.0",
     date: "2026-08-29",

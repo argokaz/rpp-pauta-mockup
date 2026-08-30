@@ -22,8 +22,8 @@ La Fase 8 añade bloques fijos por programa. Una regla recurrente prellena cada
 pauta aplicable, pero su copia diaria sigue siendo un bloque normal que se puede
 mover, editar, reemplazar o quitar sin modificar las fechas siguientes.
 
-La Fase 9 permite al superadmin detectar programas sin productor y crearles un
-usuario directo con una contraseña generada, sin depender de correo ni de una
+La Fase 9 permite al superadmin crear uno o varios usuarios directos para cada
+programa, con contraseñas independientes y sin depender de correo ni de una
 invitación. Las credenciales se muestran una sola vez y se pueden renovar.
 
 Producción: https://rpp-pauta.vercel.app
