@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.30.1";
+export const CURRENT_VERSION = "0.30.2";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.30.2",
+    date: "2026-08-30",
+    title: "Toda la celda del calendario responde",
+    changes: [
+      "Un clic en cualquier zona vacía de la celda selecciona el día, no solo el número de la fecha.",
+      "Al seleccionar un día sin eventos aparece Añadir evento dentro de la misma celda.",
+      "Los eventos existentes y las acciones del calendario conservan su comportamiento independiente.",
+    ],
+  },
   {
     version: "0.30.1",
     date: "2026-08-30",

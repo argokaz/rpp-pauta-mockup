@@ -798,7 +798,7 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .annual-weekdays { padding: 7px 12px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; border-bottom: 1px solid var(--line); background: var(--surface-soft); }
 .annual-weekdays span { color: var(--muted); font-size: 9px; font-weight: 850; text-align: center; text-transform: uppercase; }
 .annual-grid { height: min(66dvh, 610px); padding: 8px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(72px, 1fr)); gap: 5px; overflow: auto; background: #ecece8; }
-.annual-grid > article { min-width: 0; padding: 4px; display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.annual-grid > article { min-width: 0; padding: 4px; display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer; }
 .annual-grid > article:hover { border-color: var(--ink); }
 .annual-grid > article.outside { opacity: .42; }
 .annual-grid > article.selected { border-color: var(--ink); outline: 2px solid var(--yellow); outline-offset: -3px; animation: ui-day-select var(--motion-fast) var(--motion-smooth-out) both; }
