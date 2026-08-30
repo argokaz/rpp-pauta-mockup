@@ -41,6 +41,9 @@ const auditedFieldLabels: Record<AuditedField, string> = {
   tags: "Tags",
   relationshipType: "Tipo de vínculo",
   notes: "Notas",
+  editorialRoles: "Roles editoriales",
+  contacts: "Contactos y procedencia",
+  programRoles: "Programas y funciones",
 };
 
 function readableDateTime(value: string): string {
@@ -54,7 +57,7 @@ function readableDateTime(value: string): string {
 }
 
 function readableAuditValue(field: AuditedField, value: PersonSnapshot[AuditedField] | undefined): string {
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "Vacío";
+  if (Array.isArray(value)) return value.length ? value.map((item) => typeof item === "string" ? item : "value" in item ? String(item.value) : "programId" in item ? `${item.programId}: ${item.role}` : JSON.stringify(item)).join(", ") : "Vacío";
   if (field === "relationshipType") return value === "collaborator" ? "Colaborador habitual" : "Invitado";
   return typeof value === "string" && value.trim() ? value : "Vacío";
 }
@@ -71,10 +74,11 @@ type PeopleDirectoryProps = {
   onSave?: (person: Person) => Promise<boolean>;
   onLoadRevisions?: (personId: string) => Promise<PersonRevision[]>;
   onRestoreField?: (person: Person, revisionId: string, field: AuditedField) => Promise<Person | null>;
+  onMerge?: (primaryId: string, duplicateId: string) => Promise<Person | null>;
   onClose: () => void;
 };
 
-export function PeopleDirectory({ people, canEdit = false, initialSelectedId, onSave, onLoadRevisions, onRestoreField, onClose }: PeopleDirectoryProps) {
+export function PeopleDirectory({ people, canEdit = false, initialSelectedId, onSave, onLoadRevisions, onRestoreField, onMerge, onClose }: PeopleDirectoryProps) {
   const orderedPeople = useMemo(() => sortPeopleEditorially(people), [people]);
   const initialPerson = orderedPeople.find((person) => person.id === initialSelectedId) ?? orderedPeople[0] ?? null;
   const [query, setQuery] = useState("");
@@ -87,6 +91,8 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
   const [auditError, setAuditError] = useState("");
   const [revisions, setRevisions] = useState<PersonRevision[]>([]);
   const [restoring, setRestoring] = useState("");
+  const [mergeCandidateId, setMergeCandidateId] = useState("");
+  const [merging, setMerging] = useState(false);
   const normalizedQuery = normalizePersonName(query);
   const filtered = useMemo(() => orderedPeople.filter((person) => {
     if (!normalizedQuery) return true;
@@ -119,6 +125,15 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
     if (!draft || !onSave || !draft.displayName.trim()) return;
     setSaving(true);
     const tags = draft.tags.map((tag) => tag.trim()).filter(Boolean);
+    const contactPhone = draft.phone.trim();
+    const draftContacts = draft.contacts ?? [];
+    const phoneContact = draftContacts.find((contact) => contact.primary && (contact.type === "phone" || contact.type === "whatsapp"))
+      ?? draftContacts.find((contact) => contact.type === "phone" || contact.type === "whatsapp");
+    const contacts = contactPhone
+      ? phoneContact
+        ? draftContacts.map((contact) => contact.id === phoneContact.id ? { ...contact, value: contactPhone, primary: true } : { ...contact, primary: false })
+        : [...draftContacts, { id: crypto.randomUUID(), type: "whatsapp" as const, value: contactPhone, label: "Coordinación", source: "Ficha editorial", validFrom: new Date().toISOString().slice(0, 10), validTo: null, primary: true }]
+      : draftContacts;
     const saved = await onSave({
       ...draft,
       displayName: draft.displayName.trim(),
@@ -126,10 +141,23 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
       primaryRole: draft.primaryRole.trim(),
       organization: draft.organization.trim(),
       phone: draft.phone.trim(),
+      aliases: draft.aliases.map((alias) => alias.trim()).filter(Boolean),
+      notes: draft.notes.trim(),
+      contacts,
       tags: tags.length ? tags : inferPersonTags(draft),
     });
     setSaving(false);
     if (saved) setEditing(false);
+  }
+
+  async function mergeSelected() {
+    if (!selected || !mergeCandidateId || !onMerge) return;
+    const duplicate = people.find((person) => person.id === mergeCandidateId);
+    if (!duplicate || !window.confirm(`¿Fusionar “${duplicate.displayName}” dentro de “${selected.displayName}”? La ficha principal conservará el historial y los datos no vacíos.`)) return;
+    setMerging(true);
+    const merged = await onMerge(selected.id, duplicate.id);
+    if (merged) { setDraft(merged); setMergeCandidateId(""); }
+    setMerging(false);
   }
 
   async function loadAudit(personId: string) {
@@ -219,14 +247,21 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
 
                 {editing && draft && (
                   <div className="person-editor">
+                    <label><span>Nombre completo</span><input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} /></label>
+                    <label><span>Alias o variantes, separados por comas</span><input value={draft.aliases.join(", ")} onChange={(event) => setDraft({ ...draft, aliases: event.target.value.split(",") })} placeholder="Nombre artístico, variante ortográfica" /></label>
                     <label><span>Especialidad o profesión</span><input value={draft.primaryRole} onChange={(event) => setDraft({ ...draft, primaryRole: event.target.value })} placeholder="Ej. Psicóloga clínica" /></label>
                     <label><span>Organización</span><input value={draft.organization} onChange={(event) => setDraft({ ...draft, organization: event.target.value })} placeholder="Institución o empresa" /></label>
                     <label><span>Teléfono de coordinación</span><input inputMode="tel" value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="Ej. +51 999 999 999" /></label>
                     <label><span>Tipo de vínculo</span><select value={draft.relationshipType} onChange={(event) => setDraft({ ...draft, relationshipType: event.target.value as Person["relationshipType"] })}><option value="collaborator">Colaborador habitual</option><option value="guest">Invitado</option></select></label>
                     <label className="person-tags-field"><span>Tags separados por comas</span><input value={draft.tags.join(", ")} onChange={(event) => setDraft({ ...draft, tags: event.target.value.split(",") })} placeholder="psicología clínica, infancia, conducta" /></label>
+                    <label className="person-tags-field"><span>Procedencia del contacto principal</span><input value={(draft.contacts ?? []).find((contact) => contact.primary)?.source ?? ""} onChange={(event) => { const contacts = draft.contacts ?? []; const current = contacts.find((contact) => contact.primary); const created = { id: crypto.randomUUID(), type: "whatsapp" as const, value: draft.phone, label: "Coordinación", source: event.target.value, validFrom: new Date().toISOString().slice(0, 10), validTo: null, primary: true }; setDraft({ ...draft, contacts: current ? contacts.map((contact) => contact.id === current.id ? { ...contact, source: event.target.value } : contact) : [...contacts, created] }); }} placeholder="Ej. compartido por Producción General" /></label>
+                    <label><span>Válido desde</span><input type="date" value={(draft.contacts ?? []).find((contact) => contact.primary)?.validFrom ?? ""} onChange={(event) => { const contacts = draft.contacts ?? []; const current = contacts.find((contact) => contact.primary); const created = { id: crypto.randomUUID(), type: "whatsapp" as const, value: draft.phone, label: "Coordinación", source: "Ficha editorial", validFrom: event.target.value, validTo: null, primary: true }; setDraft({ ...draft, contacts: current ? contacts.map((contact) => contact.id === current.id ? { ...contact, validFrom: event.target.value } : contact) : [...contacts, created] }); }} /></label>
+                    <label className="person-tags-field"><span>Notas internas</span><textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Disponibilidad, trato preferido o contexto útil" /></label>
                     <div className="person-editor-actions"><span>Si dejas los tags vacíos, se generan desde la especialidad.</span><button className="primary" disabled={saving || !draft.primaryRole.trim()} onClick={() => void saveDraft()}>{saving ? "Guardando..." : "Guardar ficha"}</button></div>
                   </div>
                 )}
+
+                {canEdit && onMerge && !isDemoId(selected.id) && <section className="person-merge-tool"><div><strong>¿Es un contacto duplicado?</strong><span>Fusiona apariciones, alias, roles y contactos sin perder el historial.</span></div><select value={mergeCandidateId} onChange={(event) => setMergeCandidateId(event.target.value)}><option value="">Elegir ficha duplicada…</option>{orderedPeople.filter((person) => person.id !== selected.id && !isDemoId(person.id)).map((person) => <option key={person.id} value={person.id}>{person.displayName} · {person.primaryRole || "sin especialidad"}</option>)}</select><button disabled={!mergeCandidateId || merging} onClick={() => void mergeSelected()}>{merging ? "Fusionando…" : "Revisar y fusionar"}</button></section>}
 
                 <div className="person-contact-strip">
                   <div><span>Teléfono</span>{selected.phone ? <a href={`tel:${selected.phone.replace(/[^+\d]/g, "")}`}>{selected.phone}</a> : <strong>Por completar</strong>}</div>

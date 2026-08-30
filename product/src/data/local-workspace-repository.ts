@@ -61,6 +61,27 @@ export const localWorkspaceRepository: WorkspaceRepository = {
   async loadPersonRevisions() {
     return [];
   },
+  async mergePeople(primaryId, duplicateId) {
+    const workspace = loadWorkspace();
+    const primary = workspace.people.find((person) => person.id === primaryId);
+    const duplicate = workspace.people.find((person) => person.id === duplicateId);
+    if (!primary || !duplicate) throw new Error("No se encontraron ambas fichas para fusionar.");
+    const merged = {
+      ...primary,
+      aliases: [...new Set([...primary.aliases, duplicate.displayName, ...duplicate.aliases])],
+      primaryRole: primary.primaryRole || duplicate.primaryRole,
+      organization: primary.organization || duplicate.organization,
+      phone: primary.phone || duplicate.phone,
+      tags: [...new Set([...primary.tags, ...duplicate.tags])],
+      editorialRoles: [...new Set([...(primary.editorialRoles ?? []), ...(duplicate.editorialRoles ?? [])])],
+      contacts: [...(primary.contacts ?? []), ...(duplicate.contacts ?? []).filter((contact) => !(primary.contacts ?? []).some((item) => item.type === contact.type && item.value === contact.value))],
+      programRoles: [...(primary.programRoles ?? []), ...(duplicate.programRoles ?? []).filter((role) => !(primary.programRoles ?? []).some((item) => item.programId === role.programId && item.role === role.role))],
+      notes: [primary.notes, duplicate.notes].filter(Boolean).join("\n"),
+      appearances: [...primary.appearances, ...duplicate.appearances].sort((a, b) => b.date.localeCompare(a.date)),
+    };
+    saveWorkspace({ ...workspace, people: workspace.people.filter((person) => person.id !== duplicateId).map((person) => person.id === primaryId ? merged : person) });
+    return merged;
+  },
   async saveSegment(emission, segment, sortOrder) {
     const workspace = loadWorkspace();
     const existing = workspace.emissions.find((item) => item.programId === emission.programId && item.date === emission.date);

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { segmentSchema, workspaceStateSchema, type Emission, type Segment, type WorkspaceState } from "@/domain/schemas";
 import type { PersonRevision, PersonSnapshot, SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import type { ArchiveSearchPage, ArchiveSearchRecord } from "@/domain/archive-search";
+import { legacyParticipant } from "@/domain/editorial-participants";
 
 const scopeToDatabase: Record<string, "all" | "informative"> = {
   "Todos los programas": "all",
@@ -25,7 +26,7 @@ function assertNoError(error: { message: string } | null, context: string): void
 function databaseSegmentToDomain(value: unknown): Segment {
   if (!value || typeof value !== "object") throw new Error("Supabase devolvió un bloque inválido.");
   const segment = value as Record<string, unknown>;
-  return segmentSchema.parse({
+  const parsed = segmentSchema.parse({
     id: segment.id,
     startTime: shortTime(segment.planned_start),
     endTime: shortTime(segment.planned_end),
@@ -37,6 +38,8 @@ function databaseSegmentToDomain(value: unknown): Segment {
     topic: typeof segment.topic === "string" ? segment.topic : "",
     focus: typeof segment.focus === "string" ? segment.focus : "",
     guestRole: typeof segment.guest_role === "string" ? segment.guest_role : "",
+    participants: Array.isArray(segment.participant_items) ? segment.participant_items : [],
+    entities: Array.isArray(segment.entity_items) ? segment.entity_items : [],
     audienceQuestion: typeof segment.audience_question === "string" ? segment.audience_question : "",
     productionCues: Array.isArray(segment.production_cues) ? segment.production_cues.filter((cue): cue is string => typeof cue === "string") : [],
     stories: Array.isArray(segment.story_items) ? segment.story_items : [],
@@ -52,6 +55,7 @@ function databaseSegmentToDomain(value: unknown): Segment {
     version: typeof segment.row_version === "number" ? segment.row_version : 0,
     lastEditedAt: typeof segment.last_edited_at === "string" ? segment.last_edited_at : undefined,
   });
+  return parsed.participants?.length ? parsed : { ...parsed, participants: legacyParticipant(parsed) };
 }
 
 const personSnapshotFields: Array<keyof PersonSnapshot> = [
@@ -63,6 +67,9 @@ const personSnapshotFields: Array<keyof PersonSnapshot> = [
   "phone",
   "tags",
   "relationshipType",
+  "editorialRoles",
+  "contacts",
+  "programRoles",
   "notes",
 ];
 
@@ -79,6 +86,9 @@ function databasePersonSnapshot(value: unknown): PersonSnapshot | null {
     phone: typeof snapshot.phone === "string" ? snapshot.phone : "",
     tags: Array.isArray(snapshot.tags) ? snapshot.tags.filter((item): item is string => typeof item === "string") : [],
     relationshipType: snapshot.relationshipType === "collaborator" ? "collaborator" : "guest",
+    editorialRoles: Array.isArray(snapshot.editorialRoles) ? snapshot.editorialRoles.filter((item): item is NonNullable<PersonSnapshot["editorialRoles"]>[number] => ["host", "guest", "producer", "reporter", "specialist", "other"].includes(String(item))) : [],
+    contacts: Array.isArray(snapshot.contacts) ? snapshot.contacts as PersonSnapshot["contacts"] : [],
+    programRoles: Array.isArray(snapshot.programRoles) ? snapshot.programRoles as PersonSnapshot["programRoles"] : [],
     notes: typeof snapshot.notes === "string" ? snapshot.notes : "",
   };
 }
@@ -89,13 +99,13 @@ export function createSupabaseWorkspaceRepository(
 ): WorkspaceRepository {
   async function load(): Promise<WorkspaceState> {
     const [programsResult, scheduleResult, fixedBlocksResult, bulletinsResult, datesResult, emissionsResult, peopleResult, appearancesResult] = await Promise.all([
-      supabase.from("programs").select("id,name,short_name,hosts,managed,active").order("name"),
+      supabase.from("programs").select("id,name,short_name,hosts,managed,active,accent_color").order("name"),
       supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
       supabase.from("recurring_blocks").select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").order("start_time"),
       supabase.from("bulletins").select("id,week_start,title,body,scope,pin_rank,updated_at").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,date_category,source_url,important_date_plans(program_id,notes)").order("event_date"),
-      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
-      supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,contact_phone,tags,relationship_type,notes").order("display_name"),
+      supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,participant_items,entity_items,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
+      supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,contact_phone,tags,relationship_type,editorial_roles,contact_items,program_roles,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
 
@@ -125,6 +135,7 @@ export function createSupabaseWorkspaceRepository(
         hosts: row.hosts,
         managed: row.managed,
         active: row.active,
+        accentColor: row.accent_color,
       })),
       scheduleSlots: (scheduleResult.data ?? []).map((row) => ({
         id: row.id,
@@ -203,6 +214,9 @@ export function createSupabaseWorkspaceRepository(
         phone: row.contact_phone ?? "",
         tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : [],
         relationshipType: row.relationship_type === "collaborator" ? "collaborator" : "guest",
+        editorialRoles: Array.isArray(row.editorial_roles) ? row.editorial_roles : [],
+        contacts: Array.isArray(row.contact_items) ? row.contact_items : [],
+        programRoles: Array.isArray(row.program_roles) ? row.program_roles : [],
         notes: row.notes,
         appearances: (appearancesResult.data ?? [])
           .filter((appearance) => appearance.person_id === row.id)
@@ -298,6 +312,9 @@ export function createSupabaseWorkspaceRepository(
         contact_phone: person.phone || null,
         tags: person.tags,
         relationship_type: person.relationshipType,
+        editorial_roles: person.editorialRoles ?? [],
+        contact_items: person.contacts ?? [],
+        program_roles: person.programRoles ?? [],
         notes: person.notes,
       });
       assertNoError(error, "No se pudo guardar una persona");
@@ -375,6 +392,8 @@ export function createSupabaseWorkspaceRepository(
               focus: segment.focus || null,
               guest_text: segment.guest || null,
               guest_role: segment.guestRole || null,
+              participant_items: segment.participants ?? [],
+              entity_items: segment.entities ?? [],
               audience_question: segment.audienceQuestion || null,
               production_cues: segment.productionCues ?? [],
               story_items: segment.stories ?? [],
@@ -436,6 +455,9 @@ export function createSupabaseWorkspaceRepository(
       contact_phone: person.phone || null,
       tags: person.tags,
       relationship_type: person.relationshipType,
+      editorial_roles: person.editorialRoles ?? [],
+      contact_items: person.contacts ?? [],
+      program_roles: person.programRoles ?? [],
       notes: person.notes,
     });
     assertNoError(error, "No se pudo guardar la ficha");
@@ -489,8 +511,22 @@ export function createSupabaseWorkspaceRepository(
       phone: row.contact_phone ?? "",
       tags: Array.isArray(row.tags) ? row.tags.filter((item: unknown): item is string => typeof item === "string") : [],
       relationshipType: row.relationship_type === "collaborator" ? "collaborator" as const : "guest" as const,
+      editorialRoles: Array.isArray(row.editorial_roles) ? row.editorial_roles : person.editorialRoles,
+      contacts: Array.isArray(row.contact_items) ? row.contact_items : person.contacts,
+      programRoles: Array.isArray(row.program_roles) ? row.program_roles : person.programRoles,
       notes: row.notes ?? "",
     };
+  }
+
+  async function mergePeople(primaryId: string, duplicateId: string) {
+    const { data, error } = await supabase.rpc("merge_people", { p_primary_id: primaryId, p_duplicate_id: duplicateId });
+    assertNoError(error, "No se pudieron fusionar las fichas");
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error("Supabase no devolvió la ficha fusionada.");
+    const current = await load();
+    const merged = current.people.find((person) => person.id === primaryId);
+    if (!merged) throw new Error("La ficha fusionada no pudo recargarse.");
+    return merged;
   }
 
   async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
@@ -636,10 +672,11 @@ export function createSupabaseWorkspaceRepository(
       hosts: program.hosts,
       managed: program.managed,
       active: program.active,
-    }).select("id,name,short_name,hosts,managed,active").single();
+      accent_color: program.accentColor,
+    }).select("id,name,short_name,hosts,managed,active,accent_color").single();
     assertNoError(error, "No se pudo guardar el programa");
     if (!data) throw new Error("Supabase no devolvió el programa guardado.");
-    return { id: data.id, name: data.name, shortName: data.short_name, hosts: data.hosts, managed: data.managed, active: data.active };
+    return { id: data.id, name: data.name, shortName: data.short_name, hosts: data.hosts, managed: data.managed, active: data.active, accentColor: data.accent_color };
   }
 
   async function saveScheduleSlot(slot: Parameters<NonNullable<WorkspaceRepository["saveScheduleSlot"]>>[0]) {
@@ -780,5 +817,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, loadPersonRevisions, restorePersonField, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, loadPersonRevisions, restorePersonField, mergePeople, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

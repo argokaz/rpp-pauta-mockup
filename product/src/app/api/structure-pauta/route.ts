@@ -42,7 +42,10 @@ Reglas obligatorias:
 19. Si existe cualquier duda sobre la condición de invitado, deja guestName y guestRole vacíos; conserva el nombre dentro de title, topic, focus o notes según corresponda.
 20. Cuando llenes guestName, sourceExcerpt debe contener literalmente la etiqueta de invitación y el nombre que lo justifican.
 21. hosts solo puede contener personas de una línea CONDUCCIÓN:. producers solo puede contener personas de una línea PRODUCCIÓN:.
-22. Antes de terminar, comprueba cada invitado, hora, conductor y productor contra una frase literal del original.`;
+22. Antes de terminar, comprueba cada invitado, hora, conductor y productor contra una frase literal del original.
+23. Cuando un mismo bloque tenga varias líneas INVITADO/INVITADA, llena participants con una entrada por persona. role será guest y cada sourceExcerpt debe contener su etiqueta literal.
+24. guestName y guestRole conservan al primer invitado explícito del bloque para compatibilidad; nunca combines varios nombres en ese campo.
+25. entities solo contiene organizaciones, lugares, eventos o sucesos nombrados explícitamente; no inventes categorías ni relaciones.`;
 
 type Extraction = {
   model: string;

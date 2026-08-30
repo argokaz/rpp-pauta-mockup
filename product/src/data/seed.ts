@@ -1,7 +1,7 @@
 import type { FixedBlock, Program, ScheduleSlot, WorkspaceState } from "@/domain/schemas";
 import { peruNationalHolidays2026 } from "./peru-holidays";
 
-export const programs: Program[] = [
+const programCatalog: Array<Omit<Program, "accentColor">> = [
   { id: "rotativa-campo", name: "La Rotativa del Campo", shortName: "Rotativa del Campo", hosts: "Jesús Miguel Calderón", managed: false, active: true },
   { id: "rotativa-am", name: "La Rotativa del Aire | Edición Mañana", shortName: "Rotativa AM", hosts: "Carlos Villarreal y Joanna Castro", managed: true, active: true },
   { id: "ampliacion-lima", name: "Ampliación de noticias Lima", shortName: "Ampliación Lima", hosts: "Mávila Huertas y Fernando Carvallo", managed: true, active: true },
@@ -40,6 +40,36 @@ export const programs: Program[] = [
   { id: "rotativa-sun-pm", name: "La Rotativa del Aire | Domingo Noche", shortName: "Rotativa PM Domingo", hosts: "Fin de semana", managed: true, active: true },
   { id: "ampliacion-sun-repeat", name: "Ampliación de Noticias | Domingo | Repetición", shortName: "Ampliación Domingo | Repetición", hosts: "Repetición", managed: false, active: true },
 ];
+
+const programAccentColors: Record<string, string> = {
+  "rotativa-am": "#e21d2f",
+  "ampliacion-lima": "#0067b1",
+  "ampliacion-regional": "#00a0a8",
+  encendidos: "#f36f21",
+  "rotativa-tarde": "#c32033",
+  chistosos: "#8b3dbb",
+  conexion: "#008e83",
+  "rotativa-noche": "#293a8f",
+  "las-cosas": "#3c4858",
+  "prueba-fuego": "#d84b20",
+  "asi-somos": "#7c4dff",
+  "rotativa-sat-am": "#e21d2f",
+  "ampliacion-sat": "#1877b7",
+  "dialogo-fe": "#9a6a24",
+  "sencillo-bolsillo": "#16834b",
+  "en-escena": "#c22f87",
+  "rotativa-sat-pm": "#293a8f",
+  "rotativa-sun-am": "#e21d2f",
+  "ampliacion-sun": "#1877b7",
+  "domingo-fiesta": "#9b6b2f",
+  "siempre-casa": "#df6b24",
+  "rotativa-sun-pm": "#293a8f",
+};
+
+export const programs: Program[] = programCatalog.map((program) => ({
+  ...program,
+  accentColor: programAccentColors[program.id] ?? "#596273",
+}));
 
 const weekdaySlots: Array<[string, string, string]> = [
   ["03:30", "05:00", "rotativa-campo"],

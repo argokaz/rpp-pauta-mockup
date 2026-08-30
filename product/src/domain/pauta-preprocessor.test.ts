@@ -75,6 +75,15 @@ describe("preprocesamiento rápido de pautas", () => {
     expect(result.proposal?.segments[3]).toMatchObject({ sequence: "Tecnoverso" });
   });
 
+  it("separa varios invitados explícitos dentro del mismo bloque", () => {
+    const result = preprocessPauta(request(`10:00 - 10:30\nTEMA: DEBATE ECONÓMICO\nINVITADO: ANA PÉREZ - ECONOMISTA\nINVITADO: LUIS ROJAS - ABOGADO\n\n10:30 - 10:45\nVIVOS`));
+    expect(result.proposal?.segments[0].participants).toMatchObject([
+      { name: "Ana Pérez", roleDescription: "Economista" },
+      { name: "Luis Rojas", roleDescription: "Abogado" },
+    ]);
+    expect(result.proposal?.segments[0].guestName).toBe("Ana Pérez");
+  });
+
   it("separa noticias numeradas y las mantiene dentro de una bandeja sin horarios", () => {
     const result = preprocessPauta(request(newsPauta));
     const pool = result.proposal?.segments.at(-1);

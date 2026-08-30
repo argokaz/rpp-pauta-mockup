@@ -1,4 +1,5 @@
 import type { Person, WorkspaceState } from "./schemas";
+import { segmentParticipants } from "./editorial-participants";
 
 export type PersonNameMatch = {
   person: Person;
@@ -121,44 +122,39 @@ export function syncLocalPeople(state: WorkspaceState): WorkspaceState {
 
   for (const emission of state.emissions) {
     for (const segment of emission.segments) {
-      const displayName = segment.guest.trim();
-      if (!displayName) continue;
-      const normalizedName = normalizePersonName(displayName);
-      const previous = existing.get(normalizedName);
-      const person = next.get(normalizedName) ?? {
-        id: localId("person", displayName),
-        displayName,
-        normalizedName,
-        aliases: [],
-        primaryRole: segment.guestRole ?? "",
-        organization: "",
-        phone: "",
-        tags: [],
-        relationshipType: "guest" as const,
-        notes: "",
-        appearances: [],
-      };
-      const collaborator = segment.type === "sports"
-        && !(segment.guestRole ?? "").trim()
-        && segment.title.toLocaleLowerCase("es").includes(`con ${displayName.toLocaleLowerCase("es")}`);
-      person.displayName = displayName;
-      person.primaryRole = segment.guestRole || previous?.primaryRole || person.primaryRole;
-      if (collaborator) person.relationshipType = "collaborator";
-      person.appearances.push({
-        id: `appearance-${emission.id}-${segment.id}`,
-        personId: person.id,
-        programId: emission.programId,
-        date: emission.date,
-        role: collaborator ? "other" : "guest",
-        roleDescription: segment.guestRole ?? "",
-        summary: segment.focus || segment.topic || segment.notes,
-        segmentTitle: segment.title,
-        topic: segment.topic ?? "",
-        focus: segment.focus ?? "",
-        sourceExcerpt: segment.sourceExcerpt ?? "",
-      });
-      next.set(normalizedName, person);
+      for (const participant of segmentParticipants(segment)) {
+        const displayName = participant.name.trim();
+        if (!displayName) continue;
+        const collaborator = participant.role === "guest" && segment.type === "sports"
+          && !participant.roleDescription.trim()
+          && segment.title.toLocaleLowerCase("es").includes(`con ${displayName.toLocaleLowerCase("es")}`);
+        const appearanceRole = collaborator ? "other" as const : participant.role;
+        const normalizedName = normalizePersonName(displayName);
+        const previous = existing.get(normalizedName);
+        const person = next.get(normalizedName) ?? {
+          id: localId("person", displayName), displayName, normalizedName, aliases: [],
+          primaryRole: participant.roleDescription, organization: participant.organization, phone: "", tags: [],
+          relationshipType: appearanceRole === "guest" ? "guest" as const : "collaborator" as const,
+          editorialRoles: [appearanceRole], contacts: [], programRoles: [], notes: "", appearances: [],
+        };
+        person.displayName = displayName;
+        person.primaryRole = participant.roleDescription || previous?.primaryRole || person.primaryRole;
+        person.organization = participant.organization || previous?.organization || person.organization;
+        person.editorialRoles = [...new Set([...(person.editorialRoles ?? []), appearanceRole])];
+        if (appearanceRole !== "guest") person.relationshipType = "collaborator";
+        person.appearances.push({
+          id: `appearance-${emission.id}-${segment.id}-${participant.id}`,
+          personId: person.id, programId: emission.programId, date: emission.date, role: appearanceRole,
+          roleDescription: participant.roleDescription,
+          summary: segment.focus || segment.topic || segment.notes, segmentTitle: segment.title,
+          topic: segment.topic ?? "", focus: segment.focus ?? "",
+          sourceExcerpt: participant.sourceExcerpt || segment.sourceExcerpt || "",
+        });
+        next.set(normalizedName, person);
+      }
     }
+
+    if (emission.producerName.trim()) ensureProgramPerson(emission.producerName, emission.programId, "producer", state, next);
   }
 
   return {
@@ -170,4 +166,27 @@ export function syncLocalPeople(state: WorkspaceState): WorkspaceState {
         appearances: person.appearances.sort((a, b) => b.date.localeCompare(a.date)),
       }))),
   };
+}
+
+function ensureProgramPerson(
+  displayName: string,
+  programId: string,
+  role: "host" | "producer",
+  state: WorkspaceState,
+  people: Map<string, Person>,
+): void {
+  const normalizedName = normalizePersonName(displayName);
+  const existing = people.get(normalizedName) ?? state.people.find((person) => person.normalizedName === normalizedName);
+  const person: Person = existing ? { ...existing, appearances: [...existing.appearances] } : {
+    id: localId("person", displayName), displayName, normalizedName, aliases: [], primaryRole: role === "host" ? "Conductor/a" : "Productor/a",
+    organization: "RPP", phone: "", tags: [role === "host" ? "Conducción" : "Producción"], relationshipType: "collaborator",
+    editorialRoles: [role], contacts: [], programRoles: [], notes: "", appearances: [],
+  };
+  person.editorialRoles = [...new Set([...(person.editorialRoles ?? []), role])];
+  person.programRoles = person.programRoles ?? [];
+  if (!person.programRoles.some((item) => item.programId === programId && item.role === role)) {
+    person.programRoles.push({ id: `${person.id}-${programId}-${role}`, programId, role, roleDescription: role === "host" ? "Conducción" : "Producción" });
+  }
+  person.relationshipType = "collaborator";
+  people.set(normalizedName, person);
 }

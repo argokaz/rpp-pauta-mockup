@@ -7,6 +7,7 @@ export const programSchema = z.object({
   hosts: z.string(),
   managed: z.boolean(),
   active: z.boolean(),
+  accentColor: z.string().regex(/^#[0-9a-f]{6}$/i).default("#f4d800"),
 });
 
 export const scheduleSlotSchema = z.object({
@@ -21,6 +22,24 @@ export const scheduleSlotSchema = z.object({
 });
 
 export const segmentTypeSchema = z.enum(["opening", "interview", "live", "audience", "sequence", "sports", "cue", "other"]);
+export const appearanceRoleSchema = z.enum(["host", "guest", "producer", "reporter", "specialist", "other"]);
+export const editorialEntityTypeSchema = z.enum(["organization", "place", "event", "incident"]);
+
+export const segmentParticipantSchema = z.object({
+  id: z.string(),
+  personId: z.string().optional(),
+  name: z.string(),
+  role: appearanceRoleSchema.default("guest"),
+  roleDescription: z.string().default(""),
+  organization: z.string().default(""),
+  sourceExcerpt: z.string().default(""),
+});
+
+export const editorialEntitySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: editorialEntityTypeSchema,
+});
 
 export const fixedBlockSchema = z.object({
   id: z.string(),
@@ -67,6 +86,8 @@ export const segmentSchema = z.object({
   topic: z.string().optional(),
   focus: z.string().optional(),
   guestRole: z.string().optional(),
+  participants: z.array(segmentParticipantSchema).optional(),
+  entities: z.array(editorialEntitySchema).optional(),
   audienceQuestion: z.string().optional(),
   productionCues: z.array(z.string()).optional(),
   stories: z.array(storyItemSchema).optional(),
@@ -125,8 +146,6 @@ export const importantDateSchema = z.object({
   sourceUrl: z.string().default(""),
 });
 
-export const appearanceRoleSchema = z.enum(["host", "guest", "producer", "reporter", "specialist", "other"]);
-
 export const appearanceSchema = z.object({
   id: z.string(),
   personId: z.string(),
@@ -155,6 +174,25 @@ export const personSchema = z.object({
   phone: z.string().default(""),
   tags: z.array(z.string()).default([]),
   relationshipType: z.enum(["collaborator", "guest"]).default("guest"),
+  editorialRoles: z.array(appearanceRoleSchema).optional(),
+  contacts: z.array(z.object({
+    id: z.string(),
+    type: z.enum(["phone", "whatsapp", "email"]),
+    value: z.string(),
+    label: z.string().default(""),
+    source: z.string().default(""),
+    validFrom: z.string().optional(),
+    validTo: z.string().nullable().optional(),
+    primary: z.boolean().default(false),
+  })).optional(),
+  programRoles: z.array(z.object({
+    id: z.string(),
+    programId: z.string(),
+    role: appearanceRoleSchema,
+    roleDescription: z.string().default(""),
+    effectiveFrom: z.string().optional(),
+    effectiveTo: z.string().nullable().optional(),
+  })).optional(),
   notes: z.string(),
   appearances: z.array(appearanceSchema),
 });
@@ -173,6 +211,8 @@ export type Program = z.infer<typeof programSchema>;
 export type ScheduleSlot = z.infer<typeof scheduleSlotSchema>;
 export type FixedBlock = z.infer<typeof fixedBlockSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
+export type SegmentParticipant = z.infer<typeof segmentParticipantSchema>;
+export type EditorialEntity = z.infer<typeof editorialEntitySchema>;
 export type StoryItem = z.infer<typeof storyItemSchema>;
 export type PostPauta = z.infer<typeof postPautaSchema>;
 export type Emission = z.infer<typeof emissionSchema>;

@@ -110,12 +110,16 @@ function extractField(lines: string[], label: RegExp): string {
   return readable(values.join(" "));
 }
 
-function parseGuest(lines: string[]): { name: string; role: string } {
-  const guestLine = lines.find((line) => /^(?:INVITAD[OA]S?|ENTREVISTAD[OA]S?|ENTREVISTA\s+A)\s*:/iu.test(clean(line)));
-  if (!guestLine) return { name: "", role: "" };
-  const value = clean(guestLine).replace(/^(?:INVITAD[OA]S?|ENTREVISTAD[OA]S?|ENTREVISTA\s+A)\s*:\s*/iu, "");
-  const [name = "", ...roleParts] = value.split(/\s+(?:-|–|—)\s+/u);
-  return { name: personCase(name), role: readable(roleParts.join(" - ")) };
+function parseGuests(lines: string[]): Array<{ name: string; role: string; sourceExcerpt: string }> {
+  return lines.flatMap((line) => {
+    const cleaned = clean(line);
+    if (!/^(?:INVITAD[OA]S?|ENTREVISTAD[OA]S?|ENTREVISTA\s+A)\s*:/iu.test(cleaned)) return [];
+    const value = cleaned.replace(/^(?:INVITAD[OA]S?|ENTREVISTAD[OA]S?|ENTREVISTA\s+A)\s*:\s*/iu, "");
+    return value.split(/\s*(?:\/\/|;)\s*/u).flatMap((entry) => {
+      const [name = "", ...roleParts] = entry.split(/\s+(?:-|–|—)\s+/u);
+      return name.trim() ? [{ name: personCase(name), role: readable(roleParts.join(" - ")), sourceExcerpt: cleaned }] : [];
+    });
+  });
 }
 
 function sequenceName(lines: string[]): string {
@@ -164,7 +168,8 @@ function parseTimedSegments(rawText: string): StructuredPautaSegment[] {
     const topic = extractField(blockLines, /^\s*TEMA\s*:\s*/iu);
     const focus = extractField(blockLines, /^\s*ENFOQUE\s*:\s*/iu);
     const audienceQuestion = extractField(blockLines, /^\s*PREGUNTA(?:\s+PARA\s+EL\s+P[ÚU]BLICO)?\s*:\s*/iu);
-    const guest = parseGuest(blockLines);
+    const guests = parseGuests(blockLines);
+    const guest = guests[0] ?? { name: "", role: "", sourceExcerpt: "" };
     const sequence = sequenceName(blockLines);
     const cues = productionCues(blockLines);
     const firstContent = blockLines.map(clean).find((line) => line && !FIELD_LABEL.test(line) && !/^\({2,}/u.test(line));
@@ -179,6 +184,7 @@ function parseTimedSegments(rawText: string): StructuredPautaSegment[] {
       focus,
       guestName: guest.name,
       guestRole: guest.role,
+      participants: guests.map((item) => ({ name: item.name, role: "guest" as const, roleDescription: item.role, organization: "", sourceExcerpt: item.sourceExcerpt })),
       audienceQuestion,
       productionCues: cues,
       notes: topic || focus || firstContent ? "" : "Completar el contenido de este bloque.",

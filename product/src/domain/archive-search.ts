@@ -1,6 +1,7 @@
 import { programs } from "../data/seed";
 import { normalizePersonName } from "./people-history";
 import type { Emission, Segment } from "./schemas";
+import { segmentParticipants } from "./editorial-participants";
 
 export type ArchiveDisposition = "planned" | "aired" | "partial" | "skipped";
 
@@ -87,8 +88,8 @@ function recordFor(emission: Emission, segment: Segment): ArchiveSearchRecord {
     startTime: segment.startTime,
     endTime: segment.endTime,
     title: segment.title,
-    guest: segment.guest,
-    guestRole: segment.guestRole ?? "",
+    guest: segmentParticipants(segment).map((participant) => participant.name).join(", ") || segment.guest,
+    guestRole: segmentParticipants(segment).map((participant) => participant.roleDescription).filter(Boolean).join(", ") || segment.guestRole || "",
     topic: segment.topic ?? "",
     focus: segment.focus ?? "",
     summary: segment.postSummary || segment.focus || segment.topic || segment.notes,
@@ -117,6 +118,8 @@ export function searchArchiveLocally(emissions: Emission[], filters: ArchiveSear
         segment.title,
         segment.guest,
         segment.guestRole,
+        ...segmentParticipants(segment).flatMap((participant) => [participant.name, participant.roleDescription, participant.organization]),
+        ...(segment.entities ?? []).flatMap((entity) => [entity.name, entity.type]),
         segment.topic,
         segment.focus,
         segment.notes,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FocusEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
@@ -25,8 +25,9 @@ import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } fro
 import { bulletinUpdateState, bulletinVersion, splitBulletins } from "@/domain/bulletins";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
+import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLabels, segmentParticipants, withParticipantCompatibility } from "@/domain/editorial-participants";
 import { emissionSchema } from "@/domain/schemas";
-import type { Bulletin, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, SegmentParticipant, StoryItem, WorkspaceState } from "@/domain/schemas";
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
@@ -911,6 +912,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       title: "Bloque añadido durante la emisión",
       guest: "",
       notes: "",
+      participants: [],
+      entities: [],
       disposition: "added_live",
       postSummary: "",
       keyQuote: "",
@@ -1091,6 +1094,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
   }
 
+  async function mergePersonRecords(primaryId: string, duplicateId: string): Promise<Person | null> {
+    if (!canEdit || !repository.mergePeople) return null;
+    setSaving(true);
+    try {
+      const merged = await repository.mergePeople(primaryId, duplicateId);
+      setWorkspace((current) => ({ ...current, people: current.people.filter((person) => person.id !== duplicateId).map((person) => person.id === primaryId ? merged : person) }));
+      notify("Fichas fusionadas. Apariciones, alias y contactos quedaron en un solo perfil.");
+      return merged;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudieron fusionar las fichas.");
+      return null;
+    } finally { setSaving(false); }
+  }
+
   async function restorePersonRecord(
     person: Person,
     revisionId: string,
@@ -1119,7 +1136,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const last = selectedEmission.segments.at(-1);
     const startTime = last?.endTime || selectedSlot.startTime;
     const id = newId();
-    const nextSegment: Segment = { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "", stories: [], version: 0 };
+    const nextSegment: Segment = { id, startTime, endTime: startTime, type: "other", title: "Nuevo segmento", guest: "", notes: "", participants: [], entities: [], stories: [], version: 0 };
     const nextEmission = { ...selectedEmission, status: "draft" as const, segments: [...selectedEmission.segments, nextSegment], updatedAt: new Date().toISOString() };
     if (selectedEmissionIsDemo) updateEmission({ status: "draft", segments: nextEmission.segments });
     else {
@@ -1199,9 +1216,36 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
   }
 
-  function updateSegmentGuest(segment: Segment, value: string) {
-    const knownPerson = effectivePeople.find((person) => person.normalizedName === normalizePersonName(value));
-    updateSegmentDraft(segment.id, { guest: value, guestRole: knownPerson?.primaryRole ?? "" });
+  function updateSegmentParticipant(segment: Segment, participantId: string, patch: Partial<SegmentParticipant>) {
+    const participants = segmentParticipants(segment).map((participant) => participant.id === participantId ? { ...participant, ...patch } : participant);
+    if (typeof patch.name === "string") {
+      const knownPerson = effectivePeople.find((person) => person.normalizedName === normalizePersonName(patch.name ?? ""));
+      if (knownPerson) {
+        const index = participants.findIndex((participant) => participant.id === participantId);
+        participants[index] = { ...participants[index], personId: knownPerson.id, roleDescription: participants[index].roleDescription || knownPerson.primaryRole, organization: participants[index].organization || knownPerson.organization };
+      }
+    }
+    updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants }));
+  }
+
+  function addSegmentParticipant(segment: Segment) {
+    updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants: [...segmentParticipants(segment), newParticipant()] }), 0);
+  }
+
+  function removeSegmentParticipant(segment: Segment, participantId: string) {
+    updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants: segmentParticipants(segment).filter((participant) => participant.id !== participantId) }), 0);
+  }
+
+  function addSegmentEntity(segment: Segment) {
+    updateSegmentDraft(segment.id, { entities: [...(segment.entities ?? []), newEditorialEntity()] }, 0);
+  }
+
+  function updateSegmentEntity(segment: Segment, entityId: string, patch: Partial<EditorialEntity>) {
+    updateSegmentDraft(segment.id, { entities: (segment.entities ?? []).map((entity) => entity.id === entityId ? { ...entity, ...patch } : entity) });
+  }
+
+  function removeSegmentEntity(segment: Segment, entityId: string) {
+    updateSegmentDraft(segment.id, { entities: (segment.entities ?? []).filter((entity) => entity.id !== entityId) }, 0);
   }
 
   async function orderWithAi() {
@@ -1332,22 +1376,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setProducerComposerMode(null);
   }
 
-  function openProducerExperience() {
+  function openProducerExperience(programId = selectedProgram?.id ?? "encendidos") {
     let preferredDate = selectedDate;
-    if (!scheduleSlots.some((slot) => slot.programId === "encendidos" && slot.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(slot, preferredDate))) {
+    if (!scheduleSlots.some((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(slot, preferredDate))) {
       for (let offset = 1; offset <= 14; offset += 1) {
         const candidate = shiftIsoDate(selectedDate, -offset);
-        if (scheduleSlots.some((slot) => slot.programId === "encendidos" && slot.dayOfWeek === editorialDayForDate(candidate).dayOfWeek && slotAppliesOnDate(slot, candidate))) {
+        if (scheduleSlots.some((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(candidate).dayOfWeek && slotAppliesOnDate(slot, candidate))) {
           preferredDate = candidate;
           break;
         }
       }
     }
-    const slot = scheduleSlots.find((item) => item.programId === "encendidos" && item.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(item, preferredDate));
+    const slot = scheduleSlots.find((item) => item.programId === programId && item.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(item, preferredDate));
     if (!slot) return;
     chooseCaptureDate(preferredDate);
     setSelectedSlotId(slot.id);
-    setActiveProducerProgramId("encendidos");
+    setActiveProducerProgramId(programId);
     setProducerSection("today");
     setProducerExperience(true);
   }
@@ -1531,6 +1575,28 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     notify("Bloque reordenado. Los horarios se conservaron.");
   }
 
+  function renderSegmentParticipantsEditor(segment: Segment, compact = false) {
+    const participants = segmentParticipants(segment);
+    return <section className={`segment-participants-editor ${compact ? "compact" : "wide"}`}>
+      <header><div><strong>Personas en este bloque</strong><span>Invitados, conductores, producción o reporteros; puedes añadir más de uno.</span></div><button disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir persona</button></header>
+      <div>{participants.map((participant, participantIndex) => {
+        const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
+        const matches = exact ? [] : findSimilarPeople(participant.name, effectivePeople, 2);
+        return <article key={participant.id}>
+          <b>{participantIndex + 1}</b>
+          <label><span>Nombre completo</span><input list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" /></label>
+          <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => updateSegmentParticipant(segment, participant.id, { role: event.target.value as SegmentParticipant["role"] })}>{Object.entries(participantRoleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label><span>Cargo o especialidad</span><input disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updateSegmentParticipant(segment, participant.id, { roleDescription: event.target.value })} /></label>
+          <label><span>Organización</span><input disabled={!canEdit} value={participant.organization} onChange={(event) => updateSegmentParticipant(segment, participant.id, { organization: event.target.value })} /></label>
+          <button className="participant-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)}>Quitar</button>
+          {participant.name.trim().length >= 4 && <div className="participant-match">{exact ? <small className="guest-match exact">Ficha vinculada: {exact.displayName}</small> : matches.length ? <div className="guest-match suggestions"><span>¿Quisiste decir?</span>{matches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentParticipant(segment, participant.id, { name: person.displayName, personId: person.id, roleDescription: participant.roleDescription || person.primaryRole, organization: participant.organization || person.organization })}>{person.displayName}</button>)}</div> : <small className="guest-match new-person">Se creará una ficha nueva al guardar.</small>}</div>}
+        </article>;
+      })}</div>
+      {!participants.length && <button className="participant-empty" disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir el primer invitado o participante</button>}
+      {!compact && <div className="segment-entities-editor"><header><div><strong>Entidades editoriales</strong><span>Organizaciones, lugares, eventos o sucesos que luego podrán buscarse.</span></div><button disabled={!canEdit} onClick={() => addSegmentEntity(segment)}>+ Añadir entidad</button></header>{(segment.entities ?? []).map((entity) => <div key={entity.id}><select disabled={!canEdit} value={entity.type} onChange={(event) => updateSegmentEntity(segment, entity.id, { type: event.target.value as EditorialEntity["type"] })}>{Object.entries(entityTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input disabled={!canEdit} value={entity.name} onChange={(event) => updateSegmentEntity(segment, entity.id, { name: event.target.value })} placeholder="Nombre verificable" /><button disabled={!canEdit} onClick={() => removeSegmentEntity(segment, entity.id)}>Quitar</button></div>)}</div>}
+    </section>;
+  }
+
   function renderSavedRundown() {
     if (!selectedEmission) return <div className="empty-state compact"><strong>Elige un programa</strong><p>Selecciona el bloque que quieres revisar.</p></div>;
     if (!selectedEmission.segments.length) return <div className="empty-state compact producer-rundown-empty"><strong>La escaleta todavía está vacía</strong><p>Puedes pegar o escribir una prepauta, o comenzar directamente con un bloque editable.</p><button disabled={!canEdit} onClick={addSegment}>Añadir primer bloque</button></div>;
@@ -1546,8 +1612,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <DragDropProvider onDragEnd={handleSavedRundownDrop}>
           <div className="saved-rundown-list">
             {selectedEmission.segments.map((segment, index) => {
-              const exactGuest = effectivePeople.find((person) => person.normalizedName === normalizePersonName(segment.guest));
-              const guestMatches = exactGuest ? [] : findSimilarPeople(segment.guest, effectivePeople, 2);
               const syncState = segmentSyncStates[segment.id] ?? "saved";
               const conflict = segmentConflicts[segment.id];
               return (
@@ -1574,17 +1638,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                   <div className="duration-tools wide"><span>Duración rápida</span><div>{[15, 30, 45, 60].map((value) => <button disabled={!canEdit} key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setSavedDuration(segment.id, value)}>{value} min</button>)}<small>O escribe cualquier hora al minuto.</small></div></div>
                   <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
-                  <div className="guest-name-field">
-                    <label><span>Invitado o invitada</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} placeholder="Nombre y apellido" /></label>
-                    {segment.guest.trim().length >= 4 && (
-                      exactGuest
-                        ? <small className="guest-match exact">Coincide con {exactGuest.displayName} en la base.</small>
-                        : guestMatches.length
-                          ? <div className="guest-match suggestions"><span>¿Quisiste decir?</span>{guestMatches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentGuest(segment, person.displayName)}>{person.displayName}</button>)}</div>
-                          : <small className="guest-match new-person">No encontramos este nombre. Revisa la escritura; si es correcto se añadirá como persona nueva.</small>
-                    )}
-                  </div>
-                  <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { guestRole: event.target.value })} /></label>
+                  {renderSegmentParticipantsEditor(segment)}
                   <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
                   <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
                   {(segment.stories?.length ?? 0) > 0 && (
@@ -1853,7 +1907,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   function renderProducerPortal() {
     const producerProgram = programs.find((program) => program.id === activeProducerProgramId);
     const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek && slotAppliesOnDate(slot, day.date)));
-    const guestSegments = selectedEmission?.segments.filter((segment) => segment.guest.trim()) ?? [];
+    const guestParticipants = selectedEmission?.segments.flatMap((segment) => segmentParticipants(segment)
+      .filter((participant) => participant.role === "guest" || participant.role === "specialist")
+      .map((participant) => ({ segment, participant }))) ?? [];
     const producerPautaIsBlank = !selectedEmission?.segments.some((segment) => !segment.fixedBlockId) && !selectedEmission?.rawText.trim();
     const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
     const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
@@ -1870,11 +1926,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }));
 
     return (
-      <main className="producer-portal">
+      <main className="producer-portal" style={{ "--program-accent": producerProgram?.accentColor ?? "#f4d800" } as CSSProperties}>
         <header className="producer-topbar">
           <div className="producer-leading">
             {!isRestrictedProducer && <button className="producer-dashboard-back" onClick={() => setProducerExperience(false)}><span aria-hidden="true">←</span> Dashboard general</button>}
-            <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><strong>{producerProgram?.shortName ?? "Mi programa"}</strong><small>Espacio de producción</small></span></div>
+            <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><small>Espacio de producción</small><strong>{producerProgram?.name ?? "Mi programa"}</strong></span></div>
             {isRestrictedProducer && (producerProgramIds?.length ?? 0) > 1 && <label className="producer-program-switch"><span>Programa</span><select aria-label="Programa de producción" value={activeProducerProgramId} onChange={(event) => setActiveProducerProgramId(event.target.value)}>{programs.filter((program) => producerProgramIds?.includes(program.id)).map((program) => <option key={program.id} value={program.id}>{program.shortName}</option>)}</select></label>}
           </div>
           <nav aria-label="Secciones de producción">
@@ -1953,7 +2009,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <section className="producer-today-bar">
                 <div><span>Estado de la pauta</span><strong>{statusLabel[selectedEmission?.status ?? "empty"]}</strong></div>
                 <div><span>Bloques</span><strong>{selectedEmission?.segments.length ?? 0}</strong></div>
-                <div><span>Invitados</span><strong>{guestSegments.length}</strong></div>
+                <div><span>Invitados</span><strong>{guestParticipants.length}</strong></div>
                 <div className="producer-today-actions"><button onClick={() => setShowPeopleDirectory(true)}>Buscar invitado</button><button className="primary" disabled={!dirty || saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando…" : dirty ? "Guardar cambios" : "Todo guardado"}</button></div>
               </section>
 
@@ -1991,9 +2047,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   </section>
 
                   <section className="producer-guests-card">
-                    <header><div><span>Invitados en pauta</span><strong>{guestSegments.length} confirmados</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
-                    <div>{guestSegments.map((segment) => <button key={segment.id} onClick={() => setShowPeopleDirectory(true)}><span>{segment.guest.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{segment.guest}</strong><small>{segment.guestRole || segment.topic || "Cargo por completar"}</small></div></button>)}</div>
-                    {!guestSegments.length && <p>Añade un invitado desde cualquier bloque de la escaleta.</p>}
+                    <header><div><span>Invitados en pauta</span><strong>{guestParticipants.length} confirmados</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
+                    <div>{guestParticipants.map(({ segment, participant }) => <button key={`${segment.id}-${participant.id}`} onClick={() => { setPeopleDirectorySelectedId(participant.personId ?? ""); setShowPeopleDirectory(true); }}><span>{participant.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{participant.name}</strong><small>{participant.roleDescription || segment.topic || "Cargo por completar"}</small></div></button>)}</div>
+                    {!guestParticipants.length && <p>Añade uno o varios invitados desde cualquier bloque de la escaleta.</p>}
                   </section>
 
                   <section className="producer-next-card"><span>Siguiente paso</span><strong>{selectedEmission?.status === "ready" ? "La pauta está lista para salir" : "Revisa horarios e invitados"}</strong><p>Cuando termine el programa, la misma escaleta estará disponible en Post-pauta.</p><button disabled={!canEdit || !selectedEmission?.segments.length} onClick={() => updateEmission({ status: "ready" })}>Marcar pauta como lista</button></section>
@@ -2066,7 +2122,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
-        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
+        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
         {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
@@ -2199,7 +2255,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       <section className="workspace">
         <header className="topbar">
           <div><span>Programación informativa</span><h1>{weekTitle(selectedDate)}</h1></div>
-          <div className="topbar-actions">{isEditorialAdmin && <button className="admin-shortcut" onClick={() => setShowOperationsAdmin(true)}>Administrar</button>}<button className="producer-shortcut" onClick={openProducerExperience}>Vista productor</button><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
+          <div className="topbar-actions">{isEditorialAdmin && <button className="admin-shortcut" onClick={() => setShowOperationsAdmin(true)}>Administrar</button>}<button className="producer-shortcut" onClick={() => openProducerExperience()}>Vista productor</button><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
         </header>
 
         <div className="workspace-body">
@@ -2274,7 +2330,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <aside className="editor">
                 {selectedProgram && selectedEmission && selectedSlot ? selectedProgram.managed ? (
                   <>
-                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><div className="editor-header-actions">{selectedProgram.id === "encendidos" && <button onClick={openProducerExperience}>Ver como producción</button>}<select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></div></header>
+                    <header className="editor-header"><div><span>{selectedDay.label} | {selectedSlot.startTime} - {selectedSlot.endTime}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span><h2>{selectedProgram.shortName}</h2></div><div className="editor-header-actions"><button onClick={() => openProducerExperience(selectedProgram.id)}>Ver como producción</button><select disabled={!canEdit} value={selectedEmission.status} onChange={(event) => updateEmission({ status: event.target.value as Emission["status"] })}><option value="empty">Sin pauta</option><option value="draft">En edición</option><option value="ready">Lista</option><option value="post">Post-pauta</option></select></div></header>
                     <div className="editor-scroll">
                       <label className="field"><span>Pauta original</span><textarea disabled={!canEdit} rows={8} value={selectedEmission.rawText} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega aquí la pauta recibida por WhatsApp o correo" /></label>
                       <div className="phase-two">
@@ -2291,12 +2347,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                             <div className="segment-times"><input disabled={!canEdit} aria-label="Hora de inicio" value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><span>a</span><input disabled={!canEdit} aria-label="Hora de fin" value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div>
                             <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                             <label className="segment-title"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
-                            <label className="segment-guest"><span>Invitado</span><input list="known-guests" disabled={!canEdit} value={segment.guest} onChange={(event) => updateSegmentGuest(segment, event.target.value)} placeholder="Empieza a escribir un nombre" /></label>
+                            {renderSegmentParticipantsEditor(segment, true)}
                             <label className="segment-notes"><span>Notas</span><textarea disabled={!canEdit} rows={2} value={segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { notes: event.target.value })} /></label>
                             <details className="segment-details">
                               <summary>Detalles extraídos</summary>
                               <div>
-                                <label><span>Cargo</span><input disabled={!canEdit} value={segment.guestRole ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { guestRole: event.target.value })} /></label>
                                 <label><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
                                 <label><span>Enfoque</span><textarea disabled={!canEdit} rows={3} value={segment.focus ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
                                 <label><span>Pregunta al público</span><textarea disabled={!canEdit} rows={2} value={segment.audienceQuestion ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { audienceQuestion: event.target.value })} /></label>
@@ -2360,7 +2415,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         {producerSuggestions.map((producer) => <option key={producer} value={producer} />)}
       </datalist>
 
-      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
+      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}

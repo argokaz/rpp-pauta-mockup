@@ -147,6 +147,14 @@ export function applyPautaGuardrails(
       }
     }
 
+    const participants = (segment.participants ?? []).filter((participant) => {
+      const supported = includesPerson(expectedGuests, participant.name) && excerptSupportsGuest(participant.sourceExcerpt, participant.name);
+      if (supported) extractedGuests.push(participant.name);
+      else issues.push(`Bloque ${index + 1}: se retiró a “${participant.name}” de participantes porque no tiene una etiqueta explícita verificable.`);
+      return supported;
+    });
+    if (segment.participants) next = { ...next, participants };
+
     return next;
   });
 

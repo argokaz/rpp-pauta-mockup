@@ -5,9 +5,25 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.26.0";
+export const CURRENT_VERSION = "0.27.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.27.0",
+    date: "2026-08-30",
+    title: "Fase 12: identidades y perfiles editoriales",
+    changes: [
+      "Todos los programas administrados abren su propia interfaz de producción desde el dashboard general.",
+      "Cada programa tiene un color de acento personalizable que identifica navegación, fecha activa y escaleta sin alterar el amarillo compartido de las indicaciones.",
+      "El nombre completo del programa ocupa la jerarquía principal en la cabecera de producción, también en teléfonos.",
+      "Un bloque admite varios invitados, conductores, productores, reporteros, especialistas o colaboradores con cargo y organización independientes.",
+      "Organizaciones, lugares, eventos y sucesos quedan como entidades editoriales separadas y buscables dentro del histórico.",
+      "Los conductores conocidos reciben perfiles reutilizables vinculados a sus programas y los productores se incorporan desde las pautas guardadas.",
+      "Las fichas permiten editar nombre, alias, especialidad, organización, teléfono, tags, procedencia, vigencia del contacto y notas internas.",
+      "Dos contactos duplicados pueden fusionarse conservando alias, apariciones, roles, teléfonos y trazabilidad de los cambios.",
+      "El importador reconoce varias etiquetas de invitado dentro de un mismo bloque y exige evidencia literal para cada persona.",
+    ],
+  },
   {
     version: "0.26.0",
     date: "2026-08-29",

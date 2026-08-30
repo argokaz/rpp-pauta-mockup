@@ -13,7 +13,7 @@ export type SegmentDeleteResult =
 
 export type SegmentRevision = { id: string; createdAt: string; action: string; actorName: string; segment: Segment };
 
-export type PersonSnapshot = Pick<Person, "displayName" | "normalizedName" | "aliases" | "primaryRole" | "organization" | "phone" | "tags" | "relationshipType" | "notes">;
+export type PersonSnapshot = Pick<Person, "displayName" | "normalizedName" | "aliases" | "primaryRole" | "organization" | "phone" | "tags" | "relationshipType" | "editorialRoles" | "contacts" | "programRoles" | "notes">;
 
 export type PersonRevision = {
   id: string;
@@ -55,6 +55,7 @@ export interface WorkspaceRepository {
   savePerson?(person: Person): Promise<Person>;
   loadPersonRevisions?(personId: string): Promise<PersonRevision[]>;
   restorePersonField?(person: Person, revisionId: string, field: Exclude<keyof PersonSnapshot, "normalizedName">): Promise<Person>;
+  mergePeople?(primaryId: string, duplicateId: string): Promise<Person>;
   loadEditorialUsers?(): Promise<EditorialUser[]>;
   saveEditorialUser?(user: EditorialUser): Promise<EditorialUser>;
   subscribe?(onChange: () => void): () => void;
