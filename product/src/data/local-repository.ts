@@ -1,4 +1,5 @@
 import { initialWorkspaceState } from "@/data/seed";
+import { peruNationalHolidays2026 } from "./peru-holidays";
 import { workspaceStateSchema, type WorkspaceState } from "@/domain/schemas";
 
 const STORAGE_KEY = "rpp-pauta-workspace-v1";
@@ -11,11 +12,16 @@ export function loadWorkspace(): WorkspaceState {
 
   try {
     const parsed = workspaceStateSchema.parse(JSON.parse(stored));
+    const existingDateKeys = new Set(parsed.importantDates.map((item) => `${item.date}:${item.title.toLocaleLowerCase("es")}`));
     return {
       ...parsed,
       programs: parsed.programs.length ? parsed.programs : initialWorkspaceState.programs,
       scheduleSlots: parsed.scheduleSlots.length ? parsed.scheduleSlots : initialWorkspaceState.scheduleSlots,
       fixedBlocks: parsed.fixedBlocks.length ? parsed.fixedBlocks : initialWorkspaceState.fixedBlocks,
+      importantDates: [
+        ...parsed.importantDates,
+        ...peruNationalHolidays2026.filter((item) => !existingDateKeys.has(`${item.date}:${item.title.toLocaleLowerCase("es")}`)),
+      ],
     };
   } catch {
     return initialWorkspaceState;

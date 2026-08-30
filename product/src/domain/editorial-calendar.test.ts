@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mondayForDate, slotAppliesOnDate, weekDaysFor } from "./editorial-calendar";
+import { importantDateVisibleToProgram, mondayForDate, slotAppliesOnDate, weekDaysFor } from "./editorial-calendar";
 import type { ScheduleSlot } from "./schemas";
 
 const slot: ScheduleSlot = {
@@ -25,5 +25,12 @@ describe("calendario editorial", () => {
     expect(slotAppliesOnDate(slot, "2026-08-28")).toBe(true);
     expect(slotAppliesOnDate(slot, "2026-09-16")).toBe(false);
     expect(slotAppliesOnDate({ ...slot, active: true, effectiveTo: null }, "2027-01-01")).toBe(true);
+  });
+
+  it("muestra fechas globales a todos y encargos solo al programa asignado", () => {
+    const base = { id: "date", date: "2026-08-28", title: "Cobertura", details: "", plans: {}, category: "editorial" as const, sourceUrl: "" };
+    expect(importantDateVisibleToProgram(base, "encendidos")).toBe(true);
+    expect(importantDateVisibleToProgram({ ...base, plans: { encendidos: "Preparar entrevista" } }, "encendidos")).toBe(true);
+    expect(importantDateVisibleToProgram({ ...base, plans: { encendidos: "Preparar entrevista" } }, "conexion")).toBe(false);
   });
 });

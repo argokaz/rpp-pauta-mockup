@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.22.0";
+export const CURRENT_VERSION = "0.23.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.23.0",
+    date: "2026-08-29",
+    title: "Calendario nacional y directorio editorial",
+    changes: [
+      "Fechas importantes incluye los 16 feriados nacionales de 2026 publicados en el calendario oficial peruano.",
+      "Laura puede escribir un encargo por programa y la producción correspondiente lo recibe con prioridad entre sus próximas fechas.",
+      "El directorio permite guardar teléfono, especialidad, organización, tipo de vínculo y tags de búsqueda.",
+      "La especialidad tiene mayor jerarquía y un color consistente en la ficha y en la vista de producción.",
+      "Personas ordena primero a los colaboradores, luego a los invitados más frecuentes y finalmente a los más recientes.",
+      "El texto original de Recepción se puede abrir y ocultar desde una pestaña amarilla claramente identificable.",
+      "En Mesa, toda la tarjeta se puede arrastrar para cambiar el estado del programa; los controles internos siguen funcionando por separado.",
+    ],
+  },
   {
     version: "0.22.0",
     date: "2026-08-29",

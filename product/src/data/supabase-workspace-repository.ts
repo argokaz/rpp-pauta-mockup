@@ -64,9 +64,9 @@ export function createSupabaseWorkspaceRepository(
       supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
       supabase.from("recurring_blocks").select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").order("start_time"),
       supabase.from("bulletins").select("id,week_start,title,body,scope").eq("active", true).order("created_at"),
-      supabase.from("important_dates").select("id,event_date,title,details,important_date_plans(program_id,notes)").order("event_date"),
+      supabase.from("important_dates").select("id,event_date,title,details,date_category,source_url,important_date_plans(program_id,notes)").order("event_date"),
       supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
-      supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,notes").order("display_name"),
+      supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,contact_phone,tags,relationship_type,notes").order("display_name"),
       supabase.from("appearances").select("id,emission_id,segment_id,person_id,appearance_role,role_description,summary,segment_title,topic,focus,source_excerpt,quotes,created_at"),
     ]);
 
@@ -136,6 +136,8 @@ export function createSupabaseWorkspaceRepository(
         title: row.title,
         details: row.details,
         plans: Object.fromEntries((row.important_date_plans ?? []).map((plan) => [plan.program_id, plan.notes])),
+        category: row.date_category ?? "editorial",
+        sourceUrl: row.source_url ?? "",
       })),
       emissions: (emissionsResult.data ?? []).map((row) => ({
         id: row.id,
@@ -167,6 +169,9 @@ export function createSupabaseWorkspaceRepository(
           : [],
         primaryRole: row.primary_role ?? "",
         organization: row.organization ?? "",
+        phone: row.contact_phone ?? "",
+        tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : [],
+        relationshipType: row.relationship_type === "collaborator" ? "collaborator" : "guest",
         notes: row.notes,
         appearances: (appearancesResult.data ?? [])
           .filter((appearance) => appearance.person_id === row.id)
@@ -224,6 +229,8 @@ export function createSupabaseWorkspaceRepository(
         event_date: importantDate.date,
         title: importantDate.title,
         details: importantDate.details,
+        date_category: importantDate.category,
+        source_url: importantDate.sourceUrl || null,
         created_by: userId,
       });
       assertNoError(dateError, "No se pudo guardar una fecha importante");
@@ -246,6 +253,22 @@ export function createSupabaseWorkspaceRepository(
         const { error: plansError } = await supabase.from("important_date_plans").insert(plans);
         assertNoError(plansError, "No se pudieron guardar los planes del día");
       }
+    }
+
+    for (const person of state.people) {
+      const { error } = await supabase.from("people").upsert({
+        id: person.id,
+        display_name: person.displayName,
+        normalized_name: person.normalizedName,
+        aliases: person.aliases,
+        primary_role: person.primaryRole || null,
+        organization: person.organization || null,
+        contact_phone: person.phone || null,
+        tags: person.tags,
+        relationship_type: person.relationshipType,
+        notes: person.notes,
+      });
+      assertNoError(error, "No se pudo guardar una persona");
     }
 
     for (const emission of state.emissions) {
@@ -368,6 +391,23 @@ export function createSupabaseWorkspaceRepository(
         producer_id: userId,
       }, { onConflict: "program_id,emission_date" });
     assertNoError(error, "No se pudo actualizar el estado de la pauta");
+  }
+
+  async function savePerson(person: WorkspaceState["people"][number]) {
+    const { error } = await supabase.from("people").upsert({
+      id: person.id,
+      display_name: person.displayName,
+      normalized_name: person.normalizedName,
+      aliases: person.aliases,
+      primary_role: person.primaryRole || null,
+      organization: person.organization || null,
+      contact_phone: person.phone || null,
+      tags: person.tags,
+      relationship_type: person.relationshipType,
+      notes: person.notes,
+    });
+    assertNoError(error, "No se pudo guardar la ficha");
+    return person;
   }
 
   async function saveProgramEmission(emission: Emission): Promise<WorkspaceState> {
@@ -655,5 +695,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

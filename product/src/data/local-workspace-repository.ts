@@ -47,6 +47,17 @@ export const localWorkspaceRepository: WorkspaceRepository = {
         : [...workspace.emissions, emission],
     });
   },
+  async savePerson(person) {
+    const workspace = loadWorkspace();
+    const exists = workspace.people.some((item) => item.id === person.id);
+    saveWorkspace({
+      ...workspace,
+      people: exists
+        ? workspace.people.map((item) => item.id === person.id ? person : item)
+        : [...workspace.people, person],
+    });
+    return person;
+  },
   async saveSegment(emission, segment, sortOrder) {
     const workspace = loadWorkspace();
     const existing = workspace.emissions.find((item) => item.programId === emission.programId && item.date === emission.date);

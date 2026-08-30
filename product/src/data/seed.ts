@@ -1,4 +1,5 @@
 import type { FixedBlock, Program, ScheduleSlot, WorkspaceState } from "@/domain/schemas";
+import { peruNationalHolidays2026 } from "./peru-holidays";
 
 export const programs: Program[] = [
   { id: "rotativa-campo", name: "La Rotativa del Campo", shortName: "Rotativa del Campo", hosts: "Jesús Miguel Calderón", managed: false, active: true },
@@ -147,6 +148,7 @@ export const initialWorkspaceState: WorkspaceState = {
     },
   ],
   importantDates: [
+    ...peruNationalHolidays2026.filter((item) => item.date !== "2026-08-30"),
     {
       id: "date-polls",
       date: "2026-08-28",
@@ -156,8 +158,11 @@ export const initialWorkspaceState: WorkspaceState = {
         encendidos: "Explicar el cierre y preparar preguntas para especialistas.",
         "rotativa-noche": "Resumen de la jornada y reacciones.",
       },
+      category: "editorial",
+      sourceUrl: "",
     },
     {
+      ...peruNationalHolidays2026.find((item) => item.date === "2026-08-30")!,
       id: "date-santa-rosa",
       date: "2026-08-30",
       title: "Santa Rosa de Lima",
@@ -188,6 +193,9 @@ export const initialWorkspaceState: WorkspaceState = {
       aliases: [],
       primaryRole: "Psicóloga clínica",
       organization: "",
+      phone: "",
+      tags: ["Psicología clínica", "Modificación de conducta", "Infancia"],
+      relationshipType: "guest",
       notes: "",
       appearances: [
         {

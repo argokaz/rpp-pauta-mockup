@@ -245,12 +245,13 @@ function createDemoPeople(emissions: Emission[]): Person[] {
       if (!segment.guest.trim()) continue;
       const normalizedName = normalizePersonName(segment.guest);
       const personId = `${DEMO_PREFIX}person-${normalizedName.replaceAll(" ", "-")}`;
+      const collaborator = segment.type === "sports";
       const appearance = {
         id: `${DEMO_PREFIX}appearance-${emission.programId}-${emission.date}-${segment.id}`,
         personId,
         programId: emission.programId,
         date: emission.date,
-        role: "guest" as const,
+        role: collaborator ? "other" as const : "guest" as const,
         roleDescription: segment.guestRole ?? "Invitado/a",
         summary: segment.postSummary || segment.notes,
         segmentTitle: segment.title,
@@ -264,6 +265,7 @@ function createDemoPeople(emissions: Emission[]): Person[] {
       const existing = people.get(normalizedName);
       if (existing) {
         existing.appearances.push(appearance);
+        if (collaborator) existing.relationshipType = "collaborator";
       } else {
         people.set(normalizedName, {
           id: personId,
@@ -272,6 +274,9 @@ function createDemoPeople(emissions: Emission[]): Person[] {
           aliases: [],
           primaryRole: segment.guestRole ?? "Invitado/a",
           organization: "",
+          phone: "",
+          tags: (segment.guestRole ?? "Invitado/a").split(/[,;/|]+/).map((tag) => tag.trim()).filter(Boolean).slice(0, 4),
+          relationshipType: collaborator ? "collaborator" : "guest",
           notes: DEMO_NOTICE,
           appearances: [appearance],
         });

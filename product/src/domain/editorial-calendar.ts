@@ -1,4 +1,4 @@
-import type { ScheduleSlot } from "./schemas";
+import type { ImportantDate, ScheduleSlot } from "./schemas";
 
 export function isoDate(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(date);
@@ -39,4 +39,10 @@ export function slotAppliesOnDate(slot: ScheduleSlot, date: string): boolean {
   if (date < slot.effectiveFrom) return false;
   if (slot.effectiveTo && date > slot.effectiveTo) return false;
   return slot.active || Boolean(slot.effectiveTo);
+}
+
+export function importantDateVisibleToProgram(item: ImportantDate, programId?: string): boolean {
+  if (!programId) return true;
+  const assignedPrograms = Object.entries(item.plans).filter(([, notes]) => notes.trim()).map(([id]) => id);
+  return assignedPrograms.length === 0 || assignedPrograms.includes(programId);
 }

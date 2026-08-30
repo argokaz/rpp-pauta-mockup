@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialWorkspaceState } from "../data/seed";
-import { findSimilarPeople, normalizePersonName, syncLocalPeople } from "./people-history";
+import { findSimilarPeople, inferPersonTags, normalizePersonName, sortPeopleEditorially, syncLocalPeople } from "./people-history";
 
 describe("histórico local de personas", () => {
   it("normaliza acentos, espacios y mayúsculas para evitar duplicados", () => {
@@ -50,5 +50,19 @@ describe("histórico local de personas", () => {
   it("no propone coincidencias débiles para nombres distintos", () => {
     const state = syncLocalPeople(initialWorkspaceState);
     expect(findSimilarPeople("Pedro Castillo", state.people)).toEqual([]);
+  });
+
+  it("genera tags breves desde la especialidad y la organización", () => {
+    const person = syncLocalPeople(initialWorkspaceState).people[0];
+    expect(inferPersonTags({ ...person, primaryRole: "Psicóloga clínica, modificación de conducta", organization: "Clínica RPP", tags: [] }))
+      .toEqual(["Psicóloga clínica", "modificación de conducta", "Clínica RPP"]);
+  });
+
+  it("prioriza colaboradores, luego invitados frecuentes y recientes", () => {
+    const base = syncLocalPeople(initialWorkspaceState).people[0];
+    const frequent = { ...base, id: "frequent", displayName: "Invitado frecuente", normalizedName: "invitado frecuente", appearances: [...base.appearances, { ...base.appearances[0], id: "second" }] };
+    const collaborator = { ...base, id: "collaborator", displayName: "Colaborador", normalizedName: "colaborador", relationshipType: "collaborator" as const, appearances: [] };
+    expect(sortPeopleEditorially([frequent, base, collaborator]).map((person) => person.id))
+      .toEqual(["collaborator", "frequent", base.id]);
   });
 });

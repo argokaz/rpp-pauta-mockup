@@ -55,13 +55,13 @@ export function AnnualCalendar({ emissions, importantDates, initialDate, onClose
         </div>
         <div className="annual-weekdays">{["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}</div>
         <div className="annual-grid">
-          {dates.map((date) => <button key={date.value} className={`${date.outside ? "outside" : ""} ${date.value === initialDate ? "selected" : ""}`} onClick={() => onSelectDate(date.value)}>
+          {dates.map((date) => <button key={date.value} className={`${date.outside ? "outside" : ""} ${date.value === initialDate ? "selected" : ""} ${date.important.some((item) => item.category === "holiday") ? "has-holiday" : ""}`} onClick={() => onSelectDate(date.value)}>
             <time>{date.day}</time>
-            {date.important.slice(0, 2).map((item) => <strong key={item.id}>{item.title}</strong>)}
+            {date.important.slice(0, 2).map((item) => <strong className={item.category === "holiday" ? "holiday" : ""} key={item.id}>{item.title}</strong>)}
             {date.emissions > 0 && <small>{date.emissions} pauta{date.emissions === 1 ? "" : "s"}</small>}
           </button>)}
         </div>
-        <footer><span>Selecciona cualquier día para abrir su programación.</span><button onClick={() => { const today = isoDate(new Date()); const next = new Date(`${today}T12:00:00`); setMonth(next.getMonth()); setYear(next.getFullYear()); }}>Ir a hoy</button></footer>
+        <footer><span>Incluye los 16 feriados nacionales de 2026 y las fechas editoriales del equipo.</span><button onClick={() => { const today = isoDate(new Date()); const next = new Date(`${today}T12:00:00`); setMonth(next.getMonth()); setYear(next.getFullYear()); }}>Ir a hoy</button></footer>
       </section>
     </div>
   );

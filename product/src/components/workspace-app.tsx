@@ -19,13 +19,13 @@ import { CURRENT_VERSION } from "@/data/version-history";
 import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
 import type { ArchiveSearchRecord } from "@/domain/archive-search";
-import { findSimilarPeople, normalizePersonName } from "@/domain/people-history";
+import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
-import { slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
+import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { emissionSchema } from "@/domain/schemas";
-import type { Bulletin, Emission, ImportantDate, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "@/domain/schemas";
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
@@ -149,7 +149,7 @@ type KanbanCardProps = {
 };
 
 function KanbanCard({ slot, program, emission, status, canEdit, saving, isDemo, onMove, onOpen }: KanbanCardProps) {
-  const { ref, handleRef, isDragging } = useDraggable({
+  const { ref, isDragging } = useDraggable({
     id: slot.id,
     type: "program-card",
     data: { status },
@@ -157,12 +157,10 @@ function KanbanCard({ slot, program, emission, status, canEdit, saving, isDemo, 
   });
 
   return (
-    <article ref={ref} className={`kanban-card ${isDragging ? "dragging" : ""} ${isDemo ? "demo-card" : ""}`}>
+    <article ref={ref} className={`kanban-card ${canEdit && !saving ? "draggable" : ""} ${isDragging ? "dragging" : ""} ${isDemo ? "demo-card" : ""}`} tabIndex={canEdit && !saving ? 0 : -1} aria-label={`${program.shortName}. Arrastra la tarjeta para cambiar su estado.`}>
       <header>
         <time>{slot.startTime}</time>
-        <button ref={handleRef} className="kanban-drag-handle" disabled={!canEdit || saving} aria-label={`Arrastrar ${program.shortName}`}>
-          {saving ? "Guardando" : "Arrastrar"}
-        </button>
+        <span className="kanban-drag-note">{saving ? "Guardando" : canEdit ? "Toda la tarjeta se arrastra" : "Solo lectura"}</span>
       </header>
       <h2>{program.shortName}</h2>
       <div className="kanban-card-meta">
@@ -288,8 +286,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     [visibleWeekStart, workspace.bulletins],
   );
   const visibleImportantDates = useMemo(
-    () => workspace.importantDates.filter((item) => item.date >= days[0].date && item.date <= days[6].date).sort((a, b) => a.date.localeCompare(b.date)),
-    [days, workspace.importantDates],
+    () => workspace.importantDates
+      .filter((item) => item.date >= days[0].date && item.date <= days[6].date)
+      .filter((item) => importantDateVisibleToProgram(item, producerExperience ? activeProducerProgramId : undefined))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    [activeProducerProgramId, days, producerExperience, workspace.importantDates],
+  );
+  const producerImportantDates = useMemo(
+    () => workspace.importantDates
+      .filter((item) => item.date >= days[0].date)
+      .filter((item) => importantDateVisibleToProgram(item, activeProducerProgramId))
+      .sort((left, right) => {
+        const leftAssigned = Number(Boolean(left.plans[activeProducerProgramId]?.trim()));
+        const rightAssigned = Number(Boolean(right.plans[activeProducerProgramId]?.trim()));
+        return rightAssigned - leftAssigned || left.date.localeCompare(right.date);
+      }),
+    [activeProducerProgramId, days, workspace.importantDates],
   );
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
@@ -388,8 +400,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   );
   const producerNoticesSignature = useMemo(() => JSON.stringify({
     bulletins: visibleBulletins.map(({ id, title, body }) => ({ id, title, body })),
-    importantDates: visibleImportantDates.map(({ id, date, title, details }) => ({ id, date, title, details })),
-  }), [visibleBulletins, visibleImportantDates]);
+    importantDates: producerImportantDates.slice(0, 6).map(({ id, date, title, details, category, plans }) => ({ id, date, title, details, category, plan: plans[activeProducerProgramId] ?? "" })),
+  }), [activeProducerProgramId, producerImportantDates, visibleBulletins]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -971,6 +983,42 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (await commit(next, exists ? "Fecha actualizada." : "Fecha añadida.")) setDateDraft(null);
   }
 
+  async function savePersonRecord(person: Person): Promise<boolean> {
+    if (!canEdit) {
+      notify("Tu perfil tiene acceso de lectura.");
+      return false;
+    }
+    if (isDemoId(person.id)) {
+      notify("Oculta los datos de prueba para editar una ficha real.");
+      return false;
+    }
+    if (!repository.savePerson) {
+      const exists = workspace.people.some((item) => item.id === person.id);
+      return commit({
+        ...workspace,
+        people: exists ? workspace.people.map((item) => item.id === person.id ? person : item) : [...workspace.people, person],
+      }, "Ficha actualizada.");
+    }
+
+    setSaving(true);
+    try {
+      const saved = await repository.savePerson(person);
+      setWorkspace((current) => ({
+        ...current,
+        people: current.people.some((item) => item.id === saved.id)
+          ? current.people.map((item) => item.id === saved.id ? saved : item)
+          : [...current.people, saved],
+      }));
+      notify("Ficha actualizada.");
+      return true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudo guardar la ficha.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function addSegment() {
     if (!selectedEmission || !selectedSlot) return;
     const last = selectedEmission.segments.at(-1);
@@ -1522,17 +1570,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           <section className={`capture-pane ${captureCollapsed ? "collapsed" : ""}`}>
             {captureCollapsed ? (
-              <div className="capture-collapsed-card">
-                <span>Texto original conservado</span>
+              <button className="capture-collapsed-card" aria-expanded="false" onClick={() => setCaptureCollapsed(false)}>
+                <span>Original guardado</span>
                 <strong>{selectedProgram?.shortName ?? "Pauta recibida"}</strong>
                 <p>{selectedEmission?.producerName || "Productor por confirmar"}</p>
-                <button className="quiet-button" onClick={() => setCaptureCollapsed(false)}>Ver original</button>
-              </div>
+                <b>Ver original <span aria-hidden="true">›</span></b>
+              </button>
             ) : (
               <>
                 <header>
                   <div><span>{reception ? "1. Destino" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
-                  {selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}
+                  <div className="capture-pane-actions">{selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}<button aria-expanded="true" onClick={() => setCaptureCollapsed(true)}>Ocultar original</button></div>
                 </header>
 
               <div className="capture-meta">
@@ -1710,15 +1758,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const producerPautaIsBlank = !selectedEmission?.segments.some((segment) => !segment.fixedBlockId) && !selectedEmission?.rawText.trim();
     const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
     const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
-    const matchingPeople = effectivePeople.filter((person) => {
+    const matchingPeople = sortPeopleEditorially(effectivePeople.filter((person) => {
       if (!normalizedPeopleQuery) return true;
       return normalizePersonName([
         person.displayName,
         person.primaryRole,
         person.organization,
+        person.phone,
+        ...person.tags,
         ...person.appearances.flatMap((appearance) => [appearance.topic, appearance.focus, appearance.summary]),
       ].join(" ")).includes(normalizedPeopleQuery);
-    });
+    }));
 
     return (
       <main className="producer-portal">
@@ -1750,8 +1800,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <div>{visibleBulletins.map((bulletin) => <article key={bulletin.id}><strong>{bulletin.title}</strong><p>{bulletin.body}</p></article>)}</div>
             </div>
             <div className="producer-dates">
-              <div className="producer-alert-title"><span>Fechas importantes</span><b>{visibleImportantDates.length}</b></div>
-              <div>{visibleImportantDates.slice(0, 3).map((item) => <button key={item.id} onClick={() => { markProducerNoticesSeen(); notify(`${item.title}: ${item.details}`); }}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong><small>{item.details}</small></button>)}</div>
+              <div className="producer-alert-title"><span>Próximas fechas</span><b>{producerImportantDates.length}</b></div>
+              <div>{producerImportantDates.slice(0, 3).map((item) => {
+                const assignedPlan = item.plans[activeProducerProgramId]?.trim();
+                const detail = assignedPlan || item.details;
+                return <button className={item.category === "holiday" ? "holiday" : ""} key={item.id} onClick={() => { markProducerNoticesSeen(); notify(`${item.title}: ${detail}`); }}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong><small>{detail}</small>{assignedPlan && <b>Asignado a tu programa</b>}</button>;
+              })}</div>
             </div>
           </div>
         </section>
@@ -1831,7 +1885,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <header><label><span>Buscar por persona, especialidad o tema tratado</span><input autoFocus type="search" value={producerPeopleQuery} onChange={(event) => setProducerPeopleQuery(event.target.value)} placeholder="Ej. psicología infantil, tecnología, economía" /></label><button onClick={() => setShowArchiveSearch(true)}>Buscar entrevistas y temas</button></header>
               <div>{matchingPeople.map((person) => {
                 const latest = person.appearances[0];
-                return <article key={person.id}><span className="person-initials">{person.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.displayName}</strong><small>{person.primaryRole || "Especialidad por completar"}{person.organization ? ` · ${person.organization}` : ""}</small><p>{latest?.summary || latest?.topic || "Aún no tiene temas registrados."}</p></div><footer><span>{person.appearances.length} apariciones · contacto por completar</span><button onClick={() => setShowPeopleDirectory(true)}>Ver historial</button></footer></article>;
+                return <article key={person.id}><span className="person-initials">{person.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.displayName}</strong><b className="producer-person-specialty">{person.primaryRole || "Especialidad por completar"}</b><small>{isEditorialCollaborator(person) ? "Colaborador habitual" : "Invitado"}{person.organization ? ` | ${person.organization}` : ""}</small><div className="producer-person-tags">{person.tags.slice(0, 3).map((tag) => <em key={tag}>{tag}</em>)}</div><p>{latest?.summary || latest?.topic || "Aún no tiene temas registrados."}</p></div><footer><span>{person.appearances.length} apariciones | {person.phone || "teléfono por completar"}</span><button onClick={() => setShowPeopleDirectory(true)}>Ver historial</button></footer></article>;
               })}</div>
               {!matchingPeople.length && <div className="empty-state compact"><strong>No encontramos especialistas</strong><p>Prueba con otro tema o registra una persona nueva desde la escaleta.</p></div>}
             </section>
@@ -1889,7 +1943,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <datalist id="known-guests">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
-        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
+        {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} onSave={savePersonRecord} onClose={() => setShowPeopleDirectory(false)} />}
         {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
@@ -2038,10 +2092,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               </div>
             </article>
             <article className="dates-panel">
-              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {} })}>Añadir fecha</button></header>
+              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir fecha</button></header>
               <div className="date-list">
                 {visibleImportantDates.map((item) => (
-                  <button className="date-item" key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
+                  <button className={`date-item ${item.category === "holiday" ? "holiday" : ""}`} key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
                     <time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "").toUpperCase()}</time>
                     <span><strong>{item.title}</strong><small>{item.details}</small></span><b>Abrir</b>
                   </button>
@@ -2159,8 +2213,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <section className="modal wide" role="dialog" aria-modal="true" aria-labelledby="date-title">
             <header><div><span>Planificación anticipada</span><h2 id="date-title">Programación del día</h2></div><button onClick={() => setDateDraft(null)}>Cerrar</button></header>
             <div className="date-modal-grid">
-              <div className="modal-fields date-fields"><label className="field"><span>Fecha</span><input type="date" value={dateDraft.date} onChange={(event) => setDateDraft({ ...dateDraft, date: event.target.value })} /></label><label className="field"><span>Nombre</span><input value={dateDraft.title} onChange={(event) => setDateDraft({ ...dateDraft, title: event.target.value })} /></label><label className="field"><span>Contexto</span><textarea rows={5} value={dateDraft.details} onChange={(event) => setDateDraft({ ...dateDraft, details: event.target.value })} /></label></div>
-              <div className="program-plans"><header><div><strong>Qué preparará cada programa</strong><span>{scheduledProgramsForDraft.length} bloques del día</span></div></header><div>{scheduledProgramsForDraft.map(({ slot, program }) => program && <label className="plan-row" key={slot.id}><time>{slot.startTime}</time><span><strong>{program.shortName}</strong><small>{program.managed ? "En herramienta" : "Solo horario"}</small></span><input value={dateDraft.plans[program.id] ?? ""} onChange={(event) => setDateDraft({ ...dateDraft, plans: { ...dateDraft.plans, [program.id]: event.target.value } })} placeholder="Tema, invitado o cobertura" /></label>)}</div></div>
+              <div className="modal-fields date-fields"><label className="field"><span>Fecha</span><input type="date" value={dateDraft.date} onChange={(event) => setDateDraft({ ...dateDraft, date: event.target.value })} /></label><label className="field"><span>Nombre</span><input value={dateDraft.title} onChange={(event) => setDateDraft({ ...dateDraft, title: event.target.value })} /></label><label className="field"><span>Tipo</span><select value={dateDraft.category} onChange={(event) => setDateDraft({ ...dateDraft, category: event.target.value as ImportantDate["category"] })}><option value="editorial">Fecha editorial</option><option value="holiday">Feriado nacional</option></select></label><label className="field"><span>Contexto</span><textarea rows={5} value={dateDraft.details} onChange={(event) => setDateDraft({ ...dateDraft, details: event.target.value })} /></label>{dateDraft.sourceUrl && <a className="date-source-link" href={dateDraft.sourceUrl} target="_blank" rel="noreferrer">Ver fuente oficial</a>}</div>
+              <div className="program-plans"><header><div><strong>Qué preparará cada programa</strong><span>Escribe un encargo para asignar esta fecha. Si todos quedan vacíos, será visible para todos.</span></div><b>{Object.values(dateDraft.plans).filter((plan) => plan.trim()).length} asignados</b></header><div>{scheduledProgramsForDraft.map(({ slot, program }) => program && <label className={`plan-row ${dateDraft.plans[program.id]?.trim() ? "assigned" : ""}`} key={slot.id}><time>{slot.startTime}</time><span><strong>{program.shortName}</strong><small>{dateDraft.plans[program.id]?.trim() ? "Asignado" : program.managed ? "En herramienta" : "Solo horario"}</small></span><input value={dateDraft.plans[program.id] ?? ""} onChange={(event) => setDateDraft({ ...dateDraft, plans: { ...dateDraft.plans, [program.id]: event.target.value } })} placeholder="Tema, invitado o cobertura" /></label>)}</div></div>
             </div>
             <footer><button onClick={() => setDateDraft(null)}>Cancelar</button><button className="primary" onClick={saveImportantDate}>Guardar fecha</button></footer>
           </section>
@@ -2174,7 +2228,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         {producerSuggestions.map((producer) => <option key={producer} value={producer} />)}
       </datalist>
 
-      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} onClose={() => setShowPeopleDirectory(false)} />}
+      {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} onSave={savePersonRecord} onClose={() => setShowPeopleDirectory(false)} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} initialDate={selectedDate} onClose={() => setShowAnnualCalendar(false)} onSelectDate={(date) => { setSelectedDate(date); setShowAnnualCalendar(false); setActiveView("agenda"); }} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}

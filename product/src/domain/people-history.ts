@@ -5,6 +5,47 @@ export type PersonNameMatch = {
   score: number;
 };
 
+function cleanTag(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function inferPersonTags(person: Pick<Person, "tags" | "primaryRole" | "organization">): string[] {
+  const candidates = [
+    ...person.tags,
+    ...person.primaryRole.split(/[,;/|]+/),
+    person.organization,
+  ]
+    .map(cleanTag)
+    .filter((value) => value.length >= 3 && value.length <= 48);
+
+  const unique = new Map<string, string>();
+  for (const tag of candidates) {
+    const normalized = normalizePersonName(tag);
+    if (!unique.has(normalized)) unique.set(normalized, tag);
+  }
+  return [...unique.values()].slice(0, 6);
+}
+
+export function isEditorialCollaborator(person: Person): boolean {
+  return person.relationshipType === "collaborator"
+    || person.appearances.some((appearance) => appearance.role === "other" || appearance.role === "specialist");
+}
+
+export function sortPeopleEditorially(people: Person[]): Person[] {
+  return [...people].sort((left, right) => {
+    const relationshipOrder = Number(isEditorialCollaborator(right)) - Number(isEditorialCollaborator(left));
+    if (relationshipOrder) return relationshipOrder;
+
+    const leftInvitations = left.appearances.filter((appearance) => appearance.role === "guest").length;
+    const rightInvitations = right.appearances.filter((appearance) => appearance.role === "guest").length;
+    if (leftInvitations !== rightInvitations) return rightInvitations - leftInvitations;
+
+    const leftRecent = left.appearances[0]?.date ?? "";
+    const rightRecent = right.appearances[0]?.date ?? "";
+    return rightRecent.localeCompare(leftRecent) || left.displayName.localeCompare(right.displayName, "es");
+  });
+}
+
 export function normalizePersonName(value: string): string {
   return value
     .normalize("NFD")
@@ -91,6 +132,9 @@ export function syncLocalPeople(state: WorkspaceState): WorkspaceState {
         aliases: [],
         primaryRole: segment.guestRole ?? "",
         organization: "",
+        phone: "",
+        tags: [],
+        relationshipType: "guest" as const,
         notes: "",
         appearances: [],
       };
@@ -99,6 +143,7 @@ export function syncLocalPeople(state: WorkspaceState): WorkspaceState {
         && segment.title.toLocaleLowerCase("es").includes(`con ${displayName.toLocaleLowerCase("es")}`);
       person.displayName = displayName;
       person.primaryRole = segment.guestRole || previous?.primaryRole || person.primaryRole;
+      if (collaborator) person.relationshipType = "collaborator";
       person.appearances.push({
         id: `appearance-${emission.id}-${segment.id}`,
         personId: person.id,
@@ -118,11 +163,11 @@ export function syncLocalPeople(state: WorkspaceState): WorkspaceState {
 
   return {
     ...state,
-    people: [...next.values()]
+    people: sortPeopleEditorially([...next.values()]
       .map((person) => ({
         ...person,
+        tags: inferPersonTags(person),
         appearances: person.appearances.sort((a, b) => b.date.localeCompare(a.date)),
-      }))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, "es")),
+      }))),
   };
 }

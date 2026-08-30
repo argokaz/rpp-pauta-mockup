@@ -119,6 +119,8 @@ export const importantDateSchema = z.object({
   title: z.string(),
   details: z.string(),
   plans: z.record(z.string(), z.string()),
+  category: z.enum(["holiday", "editorial"]).default("editorial"),
+  sourceUrl: z.string().default(""),
 });
 
 export const appearanceRoleSchema = z.enum(["host", "guest", "producer", "reporter", "specialist", "other"]);
@@ -148,6 +150,9 @@ export const personSchema = z.object({
   aliases: z.array(z.string()),
   primaryRole: z.string(),
   organization: z.string(),
+  phone: z.string().default(""),
+  tags: z.array(z.string()).default([]),
+  relationshipType: z.enum(["collaborator", "guest"]).default("guest"),
   notes: z.string(),
   appearances: z.array(appearanceSchema),
 });
