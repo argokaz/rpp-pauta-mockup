@@ -544,7 +544,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       )
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
-  const captureHasPreparedPauta = Boolean(selectedEmission?.segments.length);
+  const captureHasPreparedPauta = Boolean(selectedEmission?.segments.some((segment) => !segment.fixedBlockId));
   const captureSelectionKey = `${selectedProgram?.id ?? "none"}:${selectedDate}`;
   const captureCollapsed = captureCollapseOverride?.selectionKey === captureSelectionKey
     ? captureCollapseOverride.collapsed
