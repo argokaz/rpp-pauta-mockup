@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.23.0";
+export const CURRENT_VERSION = "0.24.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.24.0",
+    date: "2026-08-29",
+    title: "Indicaciones visibles y coordinadas",
+    changes: [
+      "Indicaciones de la semana usa exactamente el mismo amarillo RPP en el dashboard general y en la vista de producción.",
+      "Cada productor distingue una indicación nueva de una actualizada hasta que marca las novedades como vistas.",
+      "El aviso se guarda por programa y por semana para no ocultar novedades de otro equipo o período.",
+      "Una animación breve y accesible dirige la atención a los cambios sin repetirse ni bloquear el trabajo.",
+      "El superadmin puede fijar una o dos indicaciones y elegir cuál aparece primero.",
+      "Cuando hay más contenido, las indicaciones no prioritarias quedan ordenadas dentro de Ver más en desktop y teléfonos.",
+      "Los cambios del tablero semanal se sincronizan en tiempo real con las sesiones de producción abiertas.",
+    ],
+  },
   {
     version: "0.23.0",
     date: "2026-08-29",

@@ -138,6 +138,8 @@ export const initialWorkspaceState: WorkspaceState = {
       title: "Elecciones 2026: confirmar voceros antes de las 15:00",
       body: "Registrar nombre, cargo y teléfono de coordinación de cada invitado.",
       scope: "Todos los programas",
+      pinnedRank: 1,
+      updatedAt: "2026-08-29T08:00:00-05:00",
     },
     {
       id: "bulletin-audio",
@@ -145,6 +147,8 @@ export const initialWorkspaceState: WorkspaceState = {
       title: "Nombrar los audios antes de subirlos",
       body: "Usar fecha, programa e invitado para facilitar el archivo y la búsqueda.",
       scope: "Programas informativos",
+      pinnedRank: 2,
+      updatedAt: "2026-08-29T08:00:00-05:00",
     },
   ],
   importantDates: [

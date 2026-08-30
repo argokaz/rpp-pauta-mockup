@@ -22,6 +22,7 @@ import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
+import { bulletinUpdateState, bulletinVersion, splitBulletins } from "@/domain/bulletins";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { emissionSchema } from "@/domain/schemas";
@@ -29,7 +30,7 @@ import type { Bulletin, Emission, ImportantDate, Person, PostPauta, Program, Sch
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
-const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen";
+const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
 
 type ProducerComposerMode = "paste" | "write";
 type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
@@ -261,6 +262,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [producerNewPautaDate, setProducerNewPautaDate] = useState("2026-08-31");
   const [producerNewPautaMode, setProducerNewPautaMode] = useState<ProducerComposerMode>("paste");
   const [producerNoticesUpdated, setProducerNoticesUpdated] = useState(false);
+  const [producerSeenBulletinVersions, setProducerSeenBulletinVersions] = useState<Record<string, string>>({});
+  const [producerSeenNoticesContext, setProducerSeenNoticesContext] = useState("");
   const [kanbanSavingId, setKanbanSavingId] = useState("");
   const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
   const [captureCollapsed, setCaptureCollapsed] = useState(false);
@@ -285,6 +288,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     () => workspace.bulletins.filter((bulletin) => bulletin.weekStart === visibleWeekStart),
     [visibleWeekStart, workspace.bulletins],
   );
+  const bulletinPresentation = useMemo(() => splitBulletins(visibleBulletins), [visibleBulletins]);
   const visibleImportantDates = useMemo(
     () => workspace.importantDates
       .filter((item) => item.date >= days[0].date && item.date <= days[6].date)
@@ -399,16 +403,30 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     [demoDataEnabled, workspace.people],
   );
   const producerNoticesSignature = useMemo(() => JSON.stringify({
-    bulletins: visibleBulletins.map(({ id, title, body }) => ({ id, title, body })),
+    bulletins: visibleBulletins.map((bulletin) => ({ id: bulletin.id, version: bulletinVersion(bulletin) })),
     importantDates: producerImportantDates.slice(0, 6).map(({ id, date, title, details, category, plans }) => ({ id, date, title, details, category, plan: plans[activeProducerProgramId] ?? "" })),
   }), [activeProducerProgramId, producerImportantDates, visibleBulletins]);
+  const producerNoticesStorageKey = `${PRODUCER_NOTICES_STORAGE_KEY}:${activeProducerProgramId}:${visibleWeekStart}`;
+  const producerBulletinUpdates = useMemo(() => {
+    const seenVersions = producerSeenNoticesContext === producerNoticesStorageKey ? producerSeenBulletinVersions : {};
+    return new Map(visibleBulletins.map((bulletin) => [bulletin.id, bulletinUpdateState(bulletin, seenVersions)]));
+  }, [producerNoticesStorageKey, producerSeenBulletinVersions, producerSeenNoticesContext, visibleBulletins]);
+  const producerBulletinUpdateCount = [...producerBulletinUpdates.values()].filter(Boolean).length;
+  const producerRemainingBulletinUpdateCount = bulletinPresentation.remaining.filter((bulletin) => producerBulletinUpdates.get(bulletin.id)).length;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      setProducerNoticesUpdated(window.localStorage.getItem(PRODUCER_NOTICES_STORAGE_KEY) !== producerNoticesSignature);
+      const seenSignature = window.localStorage.getItem(`${producerNoticesStorageKey}:signature`) ?? "";
+      const bulletinVersions = Object.fromEntries(visibleBulletins.flatMap((bulletin) => {
+        const version = window.localStorage.getItem(`${producerNoticesStorageKey}:bulletin:${bulletin.id}`);
+        return version === null ? [] : [[bulletin.id, version]];
+      }));
+      setProducerSeenBulletinVersions(bulletinVersions);
+      setProducerSeenNoticesContext(producerNoticesStorageKey);
+      setProducerNoticesUpdated(seenSignature !== producerNoticesSignature);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [producerNoticesSignature]);
+  }, [producerNoticesSignature, producerNoticesStorageKey, visibleBulletins]);
 
   const selectedDay = editorialDayForDate(selectedDate);
   const selectedDateIsInVisibleWeek = days.some((day) => day.date === selectedDate);
@@ -959,13 +977,25 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       return;
     }
     const exists = workspace.bulletins.some((item) => item.id === bulletinDraft.id);
+    const savedBulletin = { ...bulletinDraft, updatedAt: new Date().toISOString() };
     const next = {
       ...workspace,
       bulletins: exists
-        ? workspace.bulletins.map((item) => item.id === bulletinDraft.id ? bulletinDraft : item)
-        : [...workspace.bulletins, bulletinDraft],
+        ? workspace.bulletins.map((item) => item.id === bulletinDraft.id ? savedBulletin : item)
+        : [...workspace.bulletins, savedBulletin],
     };
     if (await commit(next, exists ? "Indicación actualizada." : "Indicación añadida.")) setBulletinDraft(null);
+  }
+
+  function setBulletinPinnedRank(value: string) {
+    if (!bulletinDraft) return;
+    const pinnedRank = value ? Number(value) as 1 | 2 : null;
+    const occupied = pinnedRank === null ? undefined : visibleBulletins.find((item) => item.id !== bulletinDraft.id && item.pinnedRank === pinnedRank);
+    if (occupied) {
+      notify(`La posición ${pinnedRank} ya está ocupada por “${occupied.title}”. Desfíjala primero.`);
+      return;
+    }
+    setBulletinDraft({ ...bulletinDraft, pinnedRank });
   }
 
   async function saveImportantDate() {
@@ -1316,7 +1346,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function markProducerNoticesSeen() {
-    window.localStorage.setItem(PRODUCER_NOTICES_STORAGE_KEY, producerNoticesSignature);
+    const bulletinVersions = Object.fromEntries(visibleBulletins.map((bulletin) => [bulletin.id, bulletinVersion(bulletin)]));
+    window.localStorage.setItem(`${producerNoticesStorageKey}:signature`, producerNoticesSignature);
+    visibleBulletins.forEach((bulletin) => window.localStorage.setItem(`${producerNoticesStorageKey}:bulletin:${bulletin.id}`, bulletinVersion(bulletin)));
+    setProducerSeenBulletinVersions(bulletinVersions);
+    setProducerSeenNoticesContext(producerNoticesStorageKey);
     setProducerNoticesUpdated(false);
   }
 
@@ -1791,13 +1825,32 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
           <header>
-            <div><span>Coordinación compartida</span><strong>{producerNoticesUpdated ? "Hay novedades para revisar" : "Información de la semana"}</strong></div>
+            <div><span>Coordinación compartida</span><strong aria-live="polite">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación nueva o actualizada" : "indicaciones nuevas o actualizadas"}` : producerNoticesUpdated ? "Hay novedades para revisar" : "Información de la semana"}</strong></div>
             {producerNoticesUpdated && <button onClick={markProducerNoticesSeen}>Marcar como visto</button>}
           </header>
           <div className="producer-alert-grid">
             <div className="producer-bulletins">
-              <div className="producer-alert-title"><span>Indicaciones de la semana</span>{producerNoticesUpdated && <b>Nuevo</b>}</div>
-              <div>{visibleBulletins.map((bulletin) => <article key={bulletin.id}><strong>{bulletin.title}</strong><p>{bulletin.body}</p></article>)}</div>
+              <div className="producer-alert-title"><span>Indicaciones de la semana</span>{producerBulletinUpdateCount > 0 && <b>{producerBulletinUpdateCount} por revisar</b>}</div>
+              <div className={`producer-bulletin-featured count-${bulletinPresentation.featured.length}`}>
+                {bulletinPresentation.featured.map((bulletin) => {
+                  const updateState = producerBulletinUpdates.get(bulletin.id);
+                  return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
+                    <div className="bulletin-card-meta">{bulletin.pinnedRank && <span>Fijada {bulletin.pinnedRank}</span>}{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
+                    <strong>{bulletin.title}</strong><p>{bulletin.body}</p>
+                  </article>;
+                })}
+                {!bulletinPresentation.featured.length && <div className="producer-bulletin-empty">No hay indicaciones para esta semana.</div>}
+              </div>
+              {bulletinPresentation.remaining.length > 0 && <details className={`producer-bulletin-more ${producerRemainingBulletinUpdateCount ? "has-unseen" : ""}`}>
+                <summary><span>Ver {bulletinPresentation.remaining.length} {bulletinPresentation.remaining.length === 1 ? "indicación más" : "indicaciones más"}</span>{producerRemainingBulletinUpdateCount > 0 && <b>{producerRemainingBulletinUpdateCount} por revisar</b>}</summary>
+                <div>{bulletinPresentation.remaining.map((bulletin) => {
+                  const updateState = producerBulletinUpdates.get(bulletin.id);
+                  return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
+                    <div className="bulletin-card-meta">{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
+                    <strong>{bulletin.title}</strong><p>{bulletin.body}</p>
+                  </article>;
+                })}</div>
+              </details>}
             </div>
             <div className="producer-dates">
               <div className="producer-alert-title"><span>Próximas fechas</span><b>{producerImportantDates.length}</b></div>
@@ -2081,15 +2134,23 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="workspace-body">
           <section className="notices" aria-label="Indicaciones y fechas importantes">
             <article className="bulletin-panel">
-              <header><strong>Indicaciones de la semana</strong><button disabled={!isEditorialAdmin} onClick={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas" })}>Añadir indicación</button></header>
-              <div className="bulletin-list">
-                {visibleBulletins.map((item) => (
+              <header><strong>Indicaciones de la semana</strong><button disabled={!isEditorialAdmin} onClick={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })}>Añadir indicación</button></header>
+              <div className={`bulletin-featured-grid count-${bulletinPresentation.featured.length}`}>
+                {bulletinPresentation.featured.map((item) => (
+                  <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
+                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Fijada {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
+                  </button>
+                ))}
+                {!bulletinPresentation.featured.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
+              </div>
+              {bulletinPresentation.remaining.length > 0 && <details className="bulletin-more">
+                <summary>Ver {bulletinPresentation.remaining.length} {bulletinPresentation.remaining.length === 1 ? "indicación más" : "indicaciones más"}</summary>
+                <div className="bulletin-list">{bulletinPresentation.remaining.map((item) => (
                   <button className="bulletin-item" key={item.id} disabled={!isEditorialAdmin} onClick={() => setBulletinDraft(item)}>
                     <span><strong>{item.title}</strong><small>{item.body}</small></span><b>{item.scope}</b>
                   </button>
-                ))}
-                {!visibleBulletins.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
-              </div>
+                ))}</div>
+              </details>}
             </article>
             <article className="dates-panel">
               <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir fecha</button></header>
@@ -2202,7 +2263,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setBulletinDraft(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="bulletin-title">
             <header><div><span>Tablero semanal</span><h2 id="bulletin-title">Editar indicación</h2></div><button onClick={() => setBulletinDraft(null)}>Cerrar</button></header>
-            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label></div>
+            <div className="modal-fields"><label className="field"><span>Título</span><input value={bulletinDraft.title} onChange={(event) => setBulletinDraft({ ...bulletinDraft, title: event.target.value })} /></label><label className="field"><span>Detalle</span><textarea rows={4} value={bulletinDraft.body} onChange={(event) => setBulletinDraft({ ...bulletinDraft, body: event.target.value })} /></label><label className="field"><span>Aplica a</span><select value={bulletinDraft.scope} onChange={(event) => setBulletinDraft({ ...bulletinDraft, scope: event.target.value })}><option>Todos los programas</option><option>Programas informativos</option></select></label><label className="field"><span>Posición destacada</span><select value={bulletinDraft.pinnedRank ?? ""} onChange={(event) => setBulletinPinnedRank(event.target.value)}><option value="">No fijada</option><option value="1">Fijada en posición 1</option><option value="2">Fijada en posición 2</option></select><small>Puedes mantener una o dos indicaciones visibles. Las demás quedan agrupadas en Ver más.</small></label></div>
             <footer><button onClick={() => setBulletinDraft(null)}>Cancelar</button><button className="primary" onClick={saveBulletin}>Guardar indicación</button></footer>
           </section>
         </div>
