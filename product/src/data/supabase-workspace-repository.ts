@@ -12,7 +12,6 @@ const scopeToDatabase: Record<string, "all" | "informative"> = {
 const scopeFromDatabase: Record<string, string> = {
   all: "Todos los programas",
   informative: "Programas informativos",
-  program: "Todos los programas",
 };
 
 function shortTime(value: unknown): string {
@@ -102,7 +101,7 @@ export function createSupabaseWorkspaceRepository(
       supabase.from("programs").select("id,name,short_name,hosts,managed,active,accent_color").order("name"),
       supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
       supabase.from("recurring_blocks").select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").order("start_time"),
-      supabase.from("bulletins").select("id,week_start,title,body,scope,pin_rank,updated_at").eq("active", true).order("created_at"),
+      supabase.from("bulletins").select("id,week_start,title,body,scope,scope_program_id,pin_rank,updated_at").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,date_category,source_url,important_date_plans(program_id,notes)").order("event_date"),
       supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,participant_items,entity_items,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,contact_phone,tags,relationship_type,editorial_roles,contact_items,program_roles,notes").order("display_name"),
@@ -168,7 +167,7 @@ export function createSupabaseWorkspaceRepository(
         weekStart: row.week_start,
         title: row.title,
         body: row.body,
-        scope: scopeFromDatabase[row.scope] ?? "Todos los programas",
+        scope: row.scope === "program" && row.scope_program_id ? row.scope_program_id : scopeFromDatabase[row.scope] ?? "Todos los programas",
         pinnedRank: row.pin_rank ?? null,
         updatedAt: row.updated_at,
       })),
@@ -255,13 +254,14 @@ export function createSupabaseWorkspaceRepository(
     workspaceStateSchema.parse(state);
 
     for (const bulletin of state.bulletins) {
+      const databaseScope = scopeToDatabase[bulletin.scope];
       const { error } = await supabase.from("bulletins").upsert({
         id: bulletin.id,
         week_start: bulletin.weekStart,
         title: bulletin.title,
         body: bulletin.body,
-        scope: scopeToDatabase[bulletin.scope] ?? "all",
-        scope_program_id: null,
+        scope: databaseScope ?? "program",
+        scope_program_id: databaseScope ? null : bulletin.scope,
         pin_rank: bulletin.pinnedRank,
         active: true,
         created_by: userId,

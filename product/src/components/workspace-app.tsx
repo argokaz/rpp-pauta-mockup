@@ -28,6 +28,7 @@ import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, splitBulletins } from "@/domain/bulletins";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
+import { bulletinForImportantDate } from "@/domain/event-bulletins";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLabels, segmentParticipants, withParticipantCompatibility } from "@/domain/editorial-participants";
 import { emissionSchema } from "@/domain/schemas";
@@ -1086,19 +1087,33 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setBulletinDraft({ ...bulletinDraft, pinnedRank });
   }
 
-  async function saveImportantDate() {
+  async function saveImportantDate(announceToProduction = false) {
     if (!dateDraft?.date || !dateDraft.title.trim()) {
-      notify("Completa la fecha y su nombre.");
+      notify("Completa la fecha y el nombre del evento.");
       return;
     }
     const exists = workspace.importantDates.some((item) => item.id === dateDraft.id);
+    const assignedCount = Object.values(dateDraft.plans).filter((plan) => plan.trim()).length;
+    const existingEventBulletin = workspace.bulletins.find((item) => item.id === dateDraft.id);
+    const shouldAnnounce = announceToProduction || assignedCount > 0 || Boolean(existingEventBulletin);
+    const eventBulletin = shouldAnnounce
+      ? bulletinForImportantDate(dateDraft, programs, visibleWeekStart, new Date().toISOString(), existingEventBulletin)
+      : null;
     const next = {
       ...workspace,
       importantDates: exists
         ? workspace.importantDates.map((item) => item.id === dateDraft.id ? dateDraft : item)
         : [...workspace.importantDates, dateDraft],
+      bulletins: eventBulletin
+        ? existingEventBulletin
+          ? workspace.bulletins.map((item) => item.id === eventBulletin.id ? eventBulletin : item)
+          : [...workspace.bulletins, eventBulletin]
+        : workspace.bulletins,
     };
-    if (await commit(next, exists ? "Fecha actualizada." : "Fecha añadida.")) setDateDraft(null);
+    const message = eventBulletin
+      ? exists ? "Evento actualizado y producción avisada." : "Evento añadido y producción avisada."
+      : exists ? "Evento actualizado." : "Evento añadido.";
+    if (await commit(next, message)) setDateDraft(null);
   }
 
   async function savePersonRecord(person: Person): Promise<boolean> {
@@ -1493,6 +1508,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       .map((slot) => ({ slot, program: programs.find((program) => program.id === slot.programId) }))
       .filter((item) => item.program)
     : [];
+  const assignedProgramsForDraft = dateDraft
+    ? scheduledProgramsForDraft.filter(({ program }) => program && dateDraft.plans[program.id]?.trim())
+    : [];
+  const dateDraftExists = Boolean(dateDraft && workspace.importantDates.some((item) => item.id === dateDraft.id));
+  const dateDraftHasBulletin = Boolean(dateDraft && workspace.bulletins.some((item) => item.id === dateDraft.id));
 
   const managedDaySlots = daySlots.filter((slot) => programs.find((program) => program.id === slot.programId)?.managed);
 
@@ -1606,6 +1626,18 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   function openProducerNewPauta() {
     setProducerNewPautaDate(nearestProducerDate(selectedDate, 1));
+    setProducerNewPautaMode("paste");
+    setShowProducerNewPauta(true);
+  }
+
+  function preparePautaFromEvent(event: ImportantDate) {
+    if (!producerSlotForDate(event.date)) {
+      notify("Este programa no tiene emisión configurada para la fecha del evento.");
+      return;
+    }
+    markProducerNoticesSeen();
+    setProducerSection("today");
+    setProducerNewPautaDate(event.date);
     setProducerNewPautaMode("paste");
     setShowProducerNewPauta(true);
   }
@@ -2136,7 +2168,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
           <header>
-            <div><span>Coordinación compartida</span><strong aria-live="polite">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación nueva o actualizada" : "indicaciones nuevas o actualizadas"}` : producerNoticesUpdated ? "Hay novedades para revisar" : "Información de la semana"}</strong></div>
+            <div>{producerNoticesUpdated && <b className="producer-update-flag">Nuevo</b>}<span>Coordinación compartida</span><strong aria-live="assertive">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación requiere tu atención" : "indicaciones requieren tu atención"}` : producerNoticesUpdated ? "Hay novedades que debes revisar" : "Información de la semana"}</strong></div>
             {producerNoticesUpdated && <button onClick={markProducerNoticesSeen}>Marcar como visto</button>}
           </header>
           <div className="producer-alert-grid">
@@ -2145,9 +2177,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <div className={`producer-bulletin-featured count-${bulletinPresentation.featured.length}`}>
                 {bulletinPresentation.featured.map((bulletin) => {
                   const updateState = producerBulletinUpdates.get(bulletin.id);
+                  const linkedEvent = workspace.importantDates.find((event) => event.id === bulletin.id);
+                  const linkedEventHasAssignments = Boolean(linkedEvent && Object.values(linkedEvent.plans).some((plan) => plan.trim()));
+                  const linkedEventIsActionable = Boolean(linkedEvent && (!linkedEventHasAssignments || linkedEvent.plans[activeProducerProgramId]?.trim()));
                   return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
                     <div className="bulletin-card-meta">{bulletin.pinnedRank && <span>Fijada {bulletin.pinnedRank}</span>}{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
                     <strong>{bulletin.title}</strong><p>{bulletin.body}</p>
+                    {linkedEventIsActionable && linkedEvent && <footer className="producer-bulletin-event-action"><time>{new Intl.DateTimeFormat("es-PE", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${linkedEvent.date}T12:00:00`)).replaceAll(".", "")}</time><button onClick={() => preparePautaFromEvent(linkedEvent)}>Preparar pauta</button></footer>}
                   </article>;
                 })}
                 {!bulletinPresentation.featured.length && <div className="producer-bulletin-empty">No hay indicaciones para esta semana.</div>}
@@ -2447,7 +2483,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               </div>
             </article>
             <article className="dates-panel">
-              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir fecha</button></header>
+              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir evento</button></header>
               <div className="date-list">
                 {visibleImportantDates.map((item) => (
                   <button className={`date-item ${item.category === "holiday" ? "holiday" : ""}`} key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
@@ -2514,13 +2550,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {dateDraft && (
         <div className="modal-backdrop modal-backdrop-editor" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDateDraft(null)}>
-          <section className="modal wide" role="dialog" aria-modal="true" aria-labelledby="date-title">
-            <header><div><span>Planificación anticipada</span><h2 id="date-title">Programación del día</h2></div><button onClick={() => setDateDraft(null)}>Cerrar</button></header>
+          <section className="modal wide event-editor-modal" role="dialog" aria-modal="true" aria-labelledby="date-title">
+            <header><div><span>Planificación anticipada</span><h2 id="date-title">{dateDraftExists ? "Editar evento" : "Nuevo evento"}</h2><p>Define el tema, reparte los encargos y avisa a producción desde un solo lugar.</p></div><button onClick={() => setDateDraft(null)}>Cerrar</button></header>
             <div className="date-modal-grid">
-              <div className="modal-fields date-fields"><label className="field"><span>Fecha</span><input type="date" value={dateDraft.date} onChange={(event) => setDateDraft({ ...dateDraft, date: event.target.value })} /></label><label className="field"><span>Nombre</span><input value={dateDraft.title} onChange={(event) => setDateDraft({ ...dateDraft, title: event.target.value })} /></label><label className="field"><span>Tipo</span><select value={dateDraft.category} onChange={(event) => setDateDraft({ ...dateDraft, category: event.target.value as ImportantDate["category"] })}><option value="editorial">Fecha editorial</option><option value="holiday">Feriado nacional</option></select></label><label className="field"><span>Contexto</span><textarea rows={5} value={dateDraft.details} onChange={(event) => setDateDraft({ ...dateDraft, details: event.target.value })} /></label>{dateDraft.sourceUrl && <a className="date-source-link" href={dateDraft.sourceUrl} target="_blank" rel="noreferrer">Ver fuente oficial</a>}</div>
-              <div className="program-plans"><header><div><strong>Qué preparará cada programa</strong><span>Escribe un encargo para asignar esta fecha. Si todos quedan vacíos, será visible para todos.</span></div><b>{Object.values(dateDraft.plans).filter((plan) => plan.trim()).length} asignados</b></header><div>{scheduledProgramsForDraft.map(({ slot, program }) => program && <label className={`plan-row ${dateDraft.plans[program.id]?.trim() ? "assigned" : ""}`} key={slot.id}><time>{slot.startTime}</time><span><strong>{program.shortName}</strong><small>{dateDraft.plans[program.id]?.trim() ? "Asignado" : program.managed ? "En herramienta" : "Solo horario"}</small></span><input value={dateDraft.plans[program.id] ?? ""} onChange={(event) => setDateDraft({ ...dateDraft, plans: { ...dateDraft.plans, [program.id]: event.target.value } })} placeholder="Tema, invitado o cobertura" /></label>)}</div></div>
+              <div className="modal-fields date-fields"><label className="field"><span>Fecha del evento</span><input type="date" value={dateDraft.date} onChange={(event) => setDateDraft({ ...dateDraft, date: event.target.value })} /></label><label className="field event-title-field"><span>Nombre del evento</span><input autoFocus value={dateDraft.title} onChange={(event) => setDateDraft({ ...dateDraft, title: event.target.value })} placeholder="Ej. Debate presidencial" /></label><label className="field"><span>Tipo</span><select value={dateDraft.category} onChange={(event) => setDateDraft({ ...dateDraft, category: event.target.value as ImportantDate["category"] })}><option value="editorial">Evento editorial</option><option value="holiday">Feriado nacional</option></select></label><label className="field"><span>Contexto para producción</span><textarea rows={5} value={dateDraft.details} onChange={(event) => setDateDraft({ ...dateDraft, details: event.target.value })} placeholder="Qué ocurrirá, por qué importa y qué debe anticipar el equipo" /></label>{dateDraft.sourceUrl && <a className="date-source-link" href={dateDraft.sourceUrl} target="_blank" rel="noreferrer">Ver fuente oficial</a>}<div className={`event-bulletin-preview ${assignedProgramsForDraft.length || dateDraftHasBulletin ? "will-send" : ""}`}><span>Indicaciones</span><strong>{assignedProgramsForDraft.length ? "Producción será avisada al guardar" : dateDraftHasBulletin ? "La indicación vinculada será actualizada" : "También puedes avisar a todos"}</strong><p>{assignedProgramsForDraft.length ? `${assignedProgramsForDraft.length} ${assignedProgramsForDraft.length === 1 ? "programa tiene" : "programas tienen"} un encargo. La actualización aparecerá arriba de su pauta.` : "Guardar y avisar publicará este evento en el Bulletin de todos los programas."}</p></div></div>
+              <div className="program-plans"><header><div><strong>Qué preparará cada programa</strong><span>Escribe un encargo concreto. Al delegar, la indicación se enviará automáticamente.</span></div><b>{assignedProgramsForDraft.length} asignados</b></header><div>{scheduledProgramsForDraft.map(({ slot, program }) => program && <label className={`plan-row ${dateDraft.plans[program.id]?.trim() ? "assigned" : ""}`} key={slot.id}><time>{slot.startTime}</time><span><strong>{program.shortName}</strong><small>{dateDraft.plans[program.id]?.trim() ? "Asignado" : program.managed ? "En herramienta" : "Solo horario"}</small></span><input value={dateDraft.plans[program.id] ?? ""} onChange={(event) => setDateDraft({ ...dateDraft, plans: { ...dateDraft.plans, [program.id]: event.target.value } })} placeholder="Tema, invitado o cobertura" /></label>)}</div></div>
             </div>
-            <footer><button onClick={() => setDateDraft(null)}>Cancelar</button><button className="primary" onClick={saveImportantDate}>Guardar fecha</button></footer>
+            <footer><button onClick={() => setDateDraft(null)}>Cancelar</button>{!assignedProgramsForDraft.length && !dateDraftHasBulletin && <button onClick={() => void saveImportantDate(false)}>Guardar evento</button>}<button className="primary" disabled={saving} onClick={() => void saveImportantDate(true)}>{saving ? "Guardando..." : assignedProgramsForDraft.length || dateDraftHasBulletin ? "Guardar y avisar a producción" : "Guardar y avisar a todos"}</button></footer>
           </section>
         </div>
       )}

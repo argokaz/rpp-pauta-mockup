@@ -68,6 +68,14 @@ export function AnnualCalendar({ emissions, importantDates, programs, scheduleSl
     }
   }
 
+  function chooseOrCreateDate(date: string, eventCount: number) {
+    if (date === selectedDate && eventCount === 0 && canEdit) {
+      onCreateImportantDate(date);
+      return;
+    }
+    chooseDate(date);
+  }
+
   const selectedDateLabel = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${selectedDate}T12:00:00`));
 
   return (
@@ -80,18 +88,18 @@ export function AnnualCalendar({ emissions, importantDates, programs, scheduleSl
             <div className="annual-weekdays">{["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}</div>
             <div className="annual-grid">
               {dates.map((date) => <article key={date.value} className={`${date.outside ? "outside" : ""} ${date.value === selectedDate ? "selected" : ""} ${date.important.some((item) => item.category === "holiday") ? "has-holiday" : ""}`}>
-                <button className="annual-day-button" onClick={() => chooseDate(date.value)} aria-label={`Abrir ${date.value}`}><time>{date.day}</time>{date.emissions > 0 && <small>{date.emissions} pauta{date.emissions === 1 ? "" : "s"}</small>}</button>
-                <div className="annual-day-events">{date.important.slice(0, 2).map((item) => <button className={item.category === "holiday" ? "holiday" : ""} key={item.id} onClick={() => { chooseDate(date.value); onEditImportantDate(item); }}>{item.title}</button>)}{date.important.length > 2 && <button onClick={() => chooseDate(date.value)}>+{date.important.length - 2} más</button>}</div>
+                <button className="annual-day-button" onClick={() => chooseOrCreateDate(date.value, date.important.length)} aria-label={date.value === selectedDate && date.important.length === 0 && canEdit ? `Añadir evento el ${date.value}` : `Abrir ${date.value}`}><time>{date.day}</time>{date.emissions > 0 && <small>{date.emissions} pauta{date.emissions === 1 ? "" : "s"}</small>}</button>
+                <div className="annual-day-events">{date.important.slice(0, 2).map((item) => <button className={item.category === "holiday" ? "holiday" : ""} key={item.id} onClick={() => { chooseDate(date.value); onEditImportantDate(item); }}>{item.title}</button>)}{date.important.length > 2 && <button onClick={() => chooseDate(date.value)}>+{date.important.length - 2} más</button>}{date.value === selectedDate && date.important.length === 0 && canEdit && <button className="add-event" onClick={() => onCreateImportantDate(date.value)}>+ Añadir evento</button>}</div>
               </article>)}
             </div>
           </div>
-          <aside className="annual-day-panel" aria-label={`Planificación de ${selectedDateLabel}`}>
-            <header><div><span>Día seleccionado</span><h3>{selectedDateLabel}</h3></div><button className="primary" disabled={!canEdit} onClick={() => onCreateImportantDate(selectedDate)}>Añadir fecha</button></header>
-            <section className="annual-day-section"><div className="annual-day-section-heading"><strong>Fechas importantes</strong><span>{selectedImportantDates.length}</span></div><div className="annual-event-list">{selectedImportantDates.map((item) => <button key={item.id} onClick={() => onEditImportantDate(item)}><span><b>{item.category === "holiday" ? "Feriado" : "Editorial"}</b><strong>{item.title}</strong><small>{item.details || "Sin contexto añadido"}</small></span><em>Editar</em></button>)}{!selectedImportantDates.length && <p>No hay fechas importantes. Puedes añadir una sin salir del calendario.</p>}</div></section>
+          <aside className="annual-day-panel" key={selectedDate} aria-label={`Planificación de ${selectedDateLabel}`}>
+            <header><div><span>Día seleccionado</span><h3>{selectedDateLabel}</h3></div><button className="primary" disabled={!canEdit} onClick={() => onCreateImportantDate(selectedDate)}>Añadir evento</button></header>
+            <section className="annual-day-section"><div className="annual-day-section-heading"><strong>Eventos del día</strong><span>{selectedImportantDates.length}</span></div><div className="annual-event-list">{selectedImportantDates.map((item) => <button key={item.id} onClick={() => onEditImportantDate(item)}><span><b>{item.category === "holiday" ? "Feriado" : "Editorial"}</b><strong>{item.title}</strong><small>{item.details || "Sin contexto añadido"}</small></span><em>Editar evento</em></button>)}{!selectedImportantDates.length && <div className="annual-event-empty"><strong>Este día está libre</strong><p>Vuelve a tocar el día seleccionado o crea el primer evento desde aquí.</p><button disabled={!canEdit} onClick={() => onCreateImportantDate(selectedDate)}>Crear evento</button></div>}</div></section>
             <section className="annual-day-section"><div className="annual-day-section-heading"><strong>Programación del día</strong><span>{selectedSlots.length}</span></div><div className="annual-program-list">{selectedSlots.map((slot) => { const program = programs.find((item) => item.id === slot.programId); const emission = emissions.find((item) => item.programId === slot.programId && item.date === selectedDate); if (!program) return null; return <article key={slot.id}><time>{slot.startTime}</time><span><strong>{program.shortName}</strong><small>{emission?.segments.length ? `${emission.segments.length} bloques` : "Sin pauta"}</small></span>{program.managed && <button onClick={() => onOpenProgram(selectedDate, slot.id)}>Abrir programa</button>}</article>; })}</div></section>
           </aside>
         </div>
-        <footer><span>Selecciona un día para planificarlo. Los eventos se editan aquí, sin regresar al dashboard.</span><button onClick={() => chooseDate(isoDate(new Date()))}>Ir a hoy</button></footer>
+        <footer><span>Selecciona un día para revisarlo. Si está vacío, vuelve a tocarlo para crear un evento.</span><button onClick={() => chooseDate(isoDate(new Date()))}>Ir a hoy</button></footer>
       </section>
     </div>
   );

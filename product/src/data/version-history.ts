@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.29.0";
+export const CURRENT_VERSION = "0.30.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.30.0",
+    date: "2026-08-30",
+    title: "Eventos accionables y avisos que no se pierden",
+    changes: [
+      "El Calendario Editorial da mayor jerarquía al nombre de cada evento y permite crearlo al volver a pulsar un día vacío.",
+      "Añadir Fecha se llama ahora Añadir Evento y el editor explica con claridad qué recibirá producción antes de guardar.",
+      "Asignar un evento a uno o varios programas genera automáticamente una indicación compartida con fecha, contexto y responsables.",
+      "El superadmin también puede avisar a todos los programas desde el mismo guardado sin abrir otro formulario.",
+      "Producción recibe un aviso Nuevo de alto contraste y puede iniciar su pauta directamente desde el evento asignado.",
+      "Modales, selección de días, paneles y avisos incorporan transiciones breves con una alternativa sin movimiento.",
+      "Las indicaciones dirigidas a un programa conservan correctamente su alcance al guardarse y volver a cargar desde Supabase.",
+    ],
+  },
   {
     version: "0.29.0",
     date: "2026-08-30",
