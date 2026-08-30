@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.31.0";
+export const CURRENT_VERSION = "0.32.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.32.0",
+    date: "2026-08-30",
+    title: "Post Pauta automática y verificable desde video",
+    changes: [
+      "Todo bloque respaldado por captions queda marcado como emitido de inmediato; la revisión se reserva para datos ambiguos.",
+      "Los programas sin pre-pauta se reconstruyen sobre una grilla continua de 15 minutos con horas calculadas desde los timestamps del video.",
+      "Los resúmenes incluyen contexto, ideas principales y declaraciones relevantes sin convertir publicidad o relleno en contenido editorial.",
+      "Los nombres se contrastan con el directorio de RPP; las coincidencias usan la ortografía canónica y los candidatos nuevos no crean fichas hasta ser confirmados.",
+      "Cada bloque permite corregir título, secuencia, tema, horas, participantes, roles y especialidades después de aplicar el análisis.",
+      "El viernes 28 quedó preparado para los ocho programas administrados: cuatro con su stream público y cuatro con una ficha editable sin atribuirles una fuente ajena.",
+    ],
+  },
   {
     version: "0.31.0",
     date: "2026-08-30",

@@ -33,6 +33,7 @@ export const segmentParticipantSchema = z.object({
   roleDescription: z.string().default(""),
   organization: z.string().default(""),
   sourceExcerpt: z.string().default(""),
+  matchStatus: z.enum(["database_exact", "database_fuzzy", "new", "review"]).optional(),
 });
 
 export const editorialEntitySchema = z.object({

@@ -11,12 +11,28 @@ import {
 } from "@/domain/youtube-captions";
 import type { PostPauta } from "@/domain/schemas";
 
-const FRIDAY_28_SAMPLE = {
-  programId: "encendidos",
-  targetDate: "2026-08-28",
-  sourceUrl: "https://www.youtube.com/watch?v=lDsn5FMTmSk",
-  label: "Encendidos del 28/08/2026",
+const FRIDAY_28_STREAMS: Record<string, { sourceUrl: string; label: string }> = {
+  "rotativa-am": {
+    sourceUrl: "https://www.youtube.com/watch?v=CR01nHWUs_8",
+    label: "La Rotativa del Aire Mañana",
+  },
+  "ampliacion-lima": {
+    sourceUrl: "https://www.youtube.com/watch?v=gOqz6hHMC_4",
+    label: "Ampliación de Noticias Lima",
+  },
+  encendidos: {
+    sourceUrl: "https://www.youtube.com/watch?v=lDsn5FMTmSk",
+    label: "Encendidos",
+  },
+  "rotativa-tarde": {
+    sourceUrl: "https://www.youtube.com/watch?v=CszEIw-Fb_E",
+    label: "La Rotativa del Aire Tarde",
+  },
 };
+
+export function isFriday28PostPilot(programId: string, targetDate: string): boolean {
+  return targetDate === "2026-08-28";
+}
 
 const RPP_LIVE_STREAMS_URL = "https://www.youtube.com/@RPPNoticias/streams";
 
@@ -26,6 +42,7 @@ type YoutubePostSourceProps = {
   sourceUrl: string;
   transcriptStatus: PostPauta["transcriptStatus"];
   canEdit: boolean;
+  analyzing: boolean;
   getAccessToken?: (forceRefresh?: boolean) => Promise<string>;
   onPostPautaChange: (change: Partial<PostPauta>) => void;
   onUseTranscript: (text: string) => void;
@@ -37,6 +54,7 @@ export function YoutubePostSource({
   sourceUrl,
   transcriptStatus,
   canEdit,
+  analyzing,
   getAccessToken,
   onPostPautaChange,
   onUseTranscript,
@@ -58,7 +76,7 @@ export function YoutubePostSource({
   }, [query, readableBlocks]);
   const postDocument = useMemo(() => captionsAsPostDocument(activeResult?.segments ?? []), [activeResult]);
   const postDocumentFits = postDocument.length <= 118_000;
-  const isFridaySample = programId === FRIDAY_28_SAMPLE.programId && targetDate === FRIDAY_28_SAMPLE.targetDate;
+  const fridayStream = targetDate === "2026-08-28" ? FRIDAY_28_STREAMS[programId] : undefined;
   const playerUrl = videoId
     ? `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&start=${seekSeconds}${seekSeconds ? "&autoplay=1" : ""}`
     : "";
@@ -88,22 +106,32 @@ export function YoutubePostSource({
   }
 
   function useFridaySample() {
+    if (!fridayStream) return;
     onPostPautaChange({
       sourceType: "youtube",
-      sourceUrl: FRIDAY_28_SAMPLE.sourceUrl,
+      sourceUrl: fridayStream.sourceUrl,
       transcriptStatus: "none",
     });
   }
 
   return (
     <section className="youtube-post-source" aria-label="Video y captions de YouTube">
-      {isFridaySample && sourceUrl !== FRIDAY_28_SAMPLE.sourceUrl && (
+      {fridayStream && sourceUrl !== fridayStream.sourceUrl && (
         <div className="youtube-demo-callout">
           <div>
-            <strong>Prueba preparada para el viernes 28</strong>
-            <span>Usa la emisión real de {FRIDAY_28_SAMPLE.label}, publicada en <a href={RPP_LIVE_STREAMS_URL} target="_blank" rel="noreferrer">En vivo de RPP Noticias</a>.</span>
+            <strong>Emisión pública encontrada para el viernes 28</strong>
+            <span>Usa el stream de {fridayStream.label}, publicado en <a href={RPP_LIVE_STREAMS_URL} target="_blank" rel="noreferrer">En vivo de RPP Noticias</a>.</span>
           </div>
-          <button type="button" disabled={!canEdit} onClick={useFridaySample}>Cargar video de prueba</button>
+          <button type="button" disabled={!canEdit} onClick={useFridaySample}>Vincular emisión</button>
+        </div>
+      )}
+
+      {targetDate === "2026-08-28" && !fridayStream && !videoId && (
+        <div className="youtube-demo-callout youtube-no-stream-callout">
+          <div>
+            <strong>No encontramos un stream dedicado para este programa</strong>
+            <span>La ficha queda editable y sin una evidencia falsa. Puedes pegar un enlace si aparece en <a href={RPP_LIVE_STREAMS_URL} target="_blank" rel="noreferrer">En vivo de RPP Noticias</a>.</span>
+          </div>
         </div>
       )}
 
@@ -177,8 +205,8 @@ export function YoutubePostSource({
                   {filteredBlocks.length > 160 && <small>Mostrando los primeros 160 resultados. Escribe una palabra para acotar la búsqueda.</small>}
                 </div>
                 <footer>
-                  <p>{postDocumentFits ? "La transcripción puede pasar al contraste con Luna." : "Esta emisión supera el límite de una sola pasada. Debe procesarse por bloques."}</p>
-                  <button type="button" disabled={!postDocumentFits} onClick={() => onUseTranscript(postDocument)}>Usar en Post Pauta</button>
+                  <p>{postDocumentFits ? "Luna marcará como emitido todo bloque respaldado por el video y propondrá tiempos e invitados." : "Esta emisión supera el límite de una sola pasada. Debe procesarse por bloques."}</p>
+                  <button type="button" disabled={!postDocumentFits || analyzing} onClick={() => onUseTranscript(postDocument)}>{analyzing ? "Analizando emisión..." : "Analizar emisión"}</button>
                 </footer>
               </>
             )}

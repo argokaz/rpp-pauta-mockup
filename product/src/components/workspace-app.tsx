@@ -14,7 +14,7 @@ import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
-import { YoutubePostSource } from "@/components/youtube-post-source";
+import { isFriday28PostPilot, YoutubePostSource } from "@/components/youtube-post-source";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { structurePostPauta } from "@/data/ai-post-pauta-client";
 import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, findDemoEmptyTarget, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
@@ -255,6 +255,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [aiApplying, setAiApplying] = useState(false);
   const [aiResult, setAiResult] = useState<StructurePautaResponse | null>(null);
   const [postSourceText, setPostSourceText] = useState("");
+  const [postSourceType, setPostSourceType] = useState<"document" | "youtube_captions">("document");
   const [postAiProcessing, setPostAiProcessing] = useState(false);
   const [postAiApplying, setPostAiApplying] = useState(false);
   const [postAiResult, setPostAiResult] = useState<StructurePostPautaResponse | null>(null);
@@ -1396,12 +1397,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setAiApplying(false);
   }
 
-  async function comparePostWithAi() {
+  async function comparePostWithAi(sourceText = postSourceText, sourceType = postSourceType) {
     if (!selectedEmission || !selectedProgram || !getAccessToken) {
       notify("El contraste requiere una sesión activa y una pauta seleccionada.");
       return;
     }
-    if (postSourceText.trim().length < 20) {
+    if (sourceText.trim().length < 20) {
       notify("Pega un documento más completo antes de contrastarlo.");
       return;
     }
@@ -1411,15 +1412,27 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         programId: selectedProgram.id,
         programName: selectedProgram.name,
         targetDate: selectedDate,
-        rawText: postSourceText,
+        rawText: sourceText,
+        sourceType,
+        programStartTime: (selectedSlot?.startTime ?? "00:00").slice(0, 5),
+        programEndTime: (selectedSlot?.endTime ?? "23:59").slice(0, 5),
         plannedSegments: selectedEmission.segments.map((segment) => ({
           id: segment.id,
           startTime: segment.startTime,
           endTime: segment.endTime,
           title: segment.title,
+          type: segment.type,
+          sequence: segment.sequence ?? "",
           topic: segment.topic ?? "",
           guest: segmentParticipants(segment).map((participant) => participant.name).join(", ") || segment.guest,
           stories: (segment.stories ?? []).map((story) => story.title),
+          participants: segmentParticipants(segment).map((participant) => ({
+            personId: participant.personId ?? "",
+            name: participant.name,
+            role: participant.role,
+            roleDescription: participant.roleDescription,
+            organization: participant.organization,
+          })),
         })),
       }, getAccessToken);
       setPostAiResult(result);
@@ -1440,12 +1453,25 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       if (!block) return segment;
       return {
         ...segment,
+        type: block.type,
+        sequence: block.sequence || segment.sequence,
+        topic: block.topic || segment.topic,
         actualStart: block.actualStart || segment.actualStart,
         actualEnd: block.actualEnd || segment.actualEnd,
         disposition: block.disposition === "unconfirmed" ? segment.disposition : block.disposition,
         postSummary: block.postSummary || segment.postSummary,
         keyQuote: block.keyQuote || segment.keyQuote,
         quoteVerified: false,
+        participants: block.participants.length ? block.participants.map((participant, index) => ({
+          id: `${segment.id}-post-person-${index + 1}`,
+          personId: participant.personId || undefined,
+          name: participant.displayName,
+          role: participant.role,
+          roleDescription: participant.roleDescription,
+          organization: participant.organization,
+          sourceExcerpt: participant.sourceExcerpt,
+          matchStatus: participant.matchStatus,
+        })) : segment.participants,
       };
     });
     const addedSegments: Segment[] = actionable.filter((block) => !block.matchedSegmentId && block.disposition === "added_live").map((block) => ({
@@ -1454,11 +1480,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       endTime: block.actualEnd || block.actualStart || selectedSlot?.startTime || "00:00",
       actualStart: block.actualStart || undefined,
       actualEnd: block.actualEnd || undefined,
-      type: "other",
+      type: block.type,
       title: block.title,
       guest: "",
       notes: "",
-      participants: [],
+      sequence: block.sequence || undefined,
+      topic: block.topic || undefined,
+      participants: block.participants.map((participant, index) => ({
+        id: `post-new-person-${index + 1}-${newId()}`,
+        personId: participant.personId || undefined,
+        name: participant.displayName,
+        role: participant.role,
+        roleDescription: participant.roleDescription,
+        organization: participant.organization,
+        sourceExcerpt: participant.sourceExcerpt,
+        matchStatus: participant.matchStatus,
+      })),
       entities: [],
       disposition: "added_live",
       postSummary: block.postSummary,
@@ -1470,7 +1507,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       ...selectedEmission,
       status: "post",
       segments: [...updatedSegments, ...addedSegments],
-      postPauta: { ...(selectedEmission.postPauta ?? emptyPostPauta()), reviewStatus: "review", sourceType: "internal" },
+      postPauta: {
+        ...(selectedEmission.postPauta ?? emptyPostPauta()),
+        reviewStatus: "review",
+        sourceType: postSourceType === "youtube_captions" ? "youtube" : (selectedEmission.postPauta?.sourceType ?? "internal"),
+      },
       updatedAt: new Date().toISOString(),
     };
     let saved = false;
@@ -1498,6 +1539,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       try { await repository.confirmImport(postAiResult.importId); } catch { notify("La post-pauta se guardó, pero falta cerrar el registro de importación."); }
       setPostAiResult(null);
       setPostSourceText("");
+      setPostSourceType("document");
     }
     setPostAiApplying(false);
   }
@@ -2034,9 +2076,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 </section>
 
                 <section className="post-ai-import">
-                  <header><div><span>Completar desde un documento</span><strong>Contrastar con la pre-pauta</strong><p>Pega el registro recibido. Luna propondrá qué salió, qué cambió y qué quedó sin evidencia.</p></div><b>Revisión obligatoria</b></header>
-                  {!postAiResult && <><label><span>Documento posterior a la emisión</span><textarea disabled={!canEdit || postAiProcessing} rows={6} value={postSourceText} onChange={(event) => setPostSourceText(event.target.value)} placeholder="Pega aquí el documento, minuta, reporte o texto posterior a la emisión." /></label><div className="post-ai-import-actions"><p>La pre-pauta no se reemplaza. Los bloques ausentes quedan sin confirmar y las citas requieren revisión con el audio.</p><button className="ai-action" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Contrastando..." : "Contrastar con Luna"}</button></div></>}
-                  {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
+                  <header><div><span>{postSourceType === "youtube_captions" ? "Emisión detectada" : "Completar desde un documento"}</span><strong>{postSourceType === "youtube_captions" ? "Convertir el video en post-pauta" : "Contrastar con la pre-pauta"}</strong><p>{postSourceType === "youtube_captions" ? "Los timestamps prueban qué salió. Luna propone los bloques, nombres y resúmenes para que solo corrijas excepciones." : "Pega el registro recibido. Luna propondrá qué salió, qué cambió y qué quedó sin evidencia."}</p></div><b>{postSourceType === "youtube_captions" ? "Corrección opcional" : "Revisión editorial"}</b></header>
+                  {!postAiResult && <><label><span>Documento posterior a la emisión</span><textarea disabled={!canEdit || postAiProcessing} rows={6} value={postSourceText} onChange={(event) => { setPostSourceText(event.target.value); setPostSourceType("document"); }} placeholder="Pega aquí el documento, minuta, reporte o texto posterior a la emisión." /></label><div className="post-ai-import-actions"><p>La pre-pauta no se reemplaza. Los bloques ausentes quedan sin confirmar y las citas requieren revisión con el audio.</p><button className="ai-action" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Analizando..." : postSourceType === "youtube_captions" ? "Analizar emisión con Luna" : "Contrastar con Luna"}</button></div></>}
+                  {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} people={effectivePeople} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
                 </section>
 
                 <section className="post-source-card">
@@ -2046,7 +2088,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     <label className="post-source-url"><span>Enlace o identificador</span><input disabled={!canEdit || postPauta.sourceType === "none"} value={postPauta.sourceUrl} onChange={(event) => updatePostPauta({ sourceUrl: event.target.value })} placeholder={postPauta.sourceType === "youtube" ? "https://youtube.com/watch?v=..." : "URL o código del archivo"} /></label>
                   </div>
                   <p>{postPauta.sourceType === "youtube" ? "Durante el piloto obtenemos los captions públicos con un proveedor temporal. Cada resultado conserva sus timestamps y queda identificado como dato de demo." : "La fuente queda vinculada a esta emisión para la siguiente fase de transcripción y búsqueda."}</p>
-                  {(postPauta.sourceType === "youtube" || (selectedProgram?.id === "encendidos" && selectedDate === "2026-08-28")) && selectedProgram && (
+                  {(postPauta.sourceType === "youtube" || (selectedProgram && isFriday28PostPilot(selectedProgram.id, selectedDate))) && selectedProgram && (
                     <YoutubePostSource
                       key={`${selectedProgram.id}-${selectedDate}`}
                       programId={selectedProgram.id}
@@ -2055,16 +2097,20 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       transcriptStatus={postPauta.transcriptStatus}
                       canEdit={canEdit}
                       getAccessToken={getAccessToken}
+                      analyzing={postAiProcessing}
                       onPostPautaChange={updatePostPauta}
                       onUseTranscript={(text) => {
                         setPostSourceText(text);
-                        notify("Captions listos para contrastar con la pre-pauta.");
+                        setPostSourceType("youtube_captions");
+                        notify("Analizando la emisión y contrastándola con la pre-pauta.");
+                        void comparePostWithAi(text, "youtube_captions");
                       }}
                     />
                   )}
                 </section>
 
                 <section className="post-segment-list" aria-label="Registro real de bloques">
+                  <datalist id="post-segment-known-people">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
                   {selectedEmission.segments.map((segment, index) => {
                     const isRunning = Boolean(segment.actualStart && !segment.actualEnd && !segment.disposition);
                     const disposition = segment.disposition;
@@ -2090,6 +2136,38 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         <details className="post-segment-details" open={Boolean(segment.postSummary || segment.keyQuote)}>
                           <summary>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}<span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></summary>
                           <div>
+                            <section className="post-editorial-fields" aria-label="Datos editables del bloque">
+                              <label><span>Título editorial</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updatePostSegment(segment.id, { title: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                              <label><span>Secuencia</span><input disabled={!canEdit} value={segment.sequence ?? ""} onChange={(event) => updatePostSegment(segment.id, { sequence: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} placeholder="Nombre de la secuencia" /></label>
+                              <label><span>Tema buscable</span><input disabled={!canEdit} value={segment.topic ?? ""} onChange={(event) => updatePostSegment(segment.id, { topic: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                            </section>
+                            <section className="post-segment-people" aria-label="Personas del bloque">
+                              <header><div><strong>Personas detectadas</strong><span>Los nombres pendientes no ingresan al directorio hasta que elijas una coincidencia o los confirmes.</span></div><button type="button" disabled={!canEdit} onClick={() => updatePostSegment(segment.id, { participants: [...segmentParticipants(segment), { ...newParticipant("guest"), matchStatus: "new" }] })}>+ Persona</button></header>
+                              {segmentParticipants(segment).map((participant, participantIndex) => <article key={participant.id}>
+                                <label><span>Nombre</span><input disabled={!canEdit} list="post-segment-known-people" value={participant.name} onChange={(event) => {
+                                  const value = event.target.value;
+                                  const exact = effectivePeople.find((person) => [person.displayName, ...person.aliases].some((name) => normalizePersonName(name) === normalizePersonName(value)));
+                                  const participants = segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? {
+                                    ...item,
+                                    personId: exact?.id,
+                                    name: exact?.displayName ?? value,
+                                    roleDescription: item.roleDescription || exact?.primaryRole || "",
+                                    organization: item.organization || exact?.organization || "",
+                                    matchStatus: exact ? "database_exact" as const : "new" as const,
+                                  } : item);
+                                  updatePostSegment(segment.id, { participants });
+                                }} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                                <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => {
+                                  const participants = segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? { ...item, role: event.target.value as SegmentParticipant["role"] } : item);
+                                  updatePostSegment(segment.id, { participants });
+                                  void persistPostSegment(segment.id, { participants });
+                                }}>{Object.entries(participantRoleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                                <label><span>Cargo o especialidad</span><input disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updatePostSegment(segment.id, { participants: segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? { ...item, roleDescription: event.target.value } : item) })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                                <b data-match={participant.matchStatus ?? (participant.personId ? "database_exact" : "new")}>{participant.personId ? "Base RPP" : "Confirmar nombre"}</b>
+                                <button type="button" className="remove" disabled={!canEdit} onClick={() => void persistPostSegment(segment.id, { participants: segmentParticipants(segment).filter((_, itemIndex) => itemIndex !== participantIndex) })}>Quitar</button>
+                              </article>)}
+                              {!segmentParticipants(segment).length && <p>No se detectaron personas en este tramo. Puedes añadir una si hace falta.</p>}
+                            </section>
                             {(segment.stories?.length ?? 0) > 0 && (
                               <section className="post-story-run">
                                 <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Marca el resultado y corrige el orden mientras salen al aire.</span></div><b>{segment.stories?.filter((story) => story.disposition).length}/{segment.stories?.length}</b></header>
