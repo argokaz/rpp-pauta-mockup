@@ -14,6 +14,7 @@ import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
+import { YoutubePostSource } from "@/components/youtube-post-source";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { structurePostPauta } from "@/data/ai-post-pauta-client";
 import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, findDemoEmptyTarget, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
@@ -2044,7 +2045,23 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                     <label><span>Origen</span><select disabled={!canEdit} value={postPauta.sourceType} onChange={(event) => updatePostPauta({ sourceType: event.target.value as PostPauta["sourceType"], sourceUrl: event.target.value === "none" ? "" : postPauta.sourceUrl })}><option value="none">Sin fuente todavía</option><option value="youtube">YouTube de RPP</option><option value="internal">Grabación interna</option><option value="audio">Archivo de audio</option></select></label>
                     <label className="post-source-url"><span>Enlace o identificador</span><input disabled={!canEdit || postPauta.sourceType === "none"} value={postPauta.sourceUrl} onChange={(event) => updatePostPauta({ sourceUrl: event.target.value })} placeholder={postPauta.sourceType === "youtube" ? "https://youtube.com/watch?v=..." : "URL o código del archivo"} /></label>
                   </div>
-                  <p>{postPauta.sourceType === "youtube" ? "La descarga de subtítulos requerirá autorización del canal de RPP. Guardar el enlace no inicia aún una transcripción." : "La fuente queda vinculada a esta emisión para la siguiente fase de transcripción y búsqueda."}</p>
+                  <p>{postPauta.sourceType === "youtube" ? "Durante el piloto obtenemos los captions públicos con un proveedor temporal. Cada resultado conserva sus timestamps y queda identificado como dato de demo." : "La fuente queda vinculada a esta emisión para la siguiente fase de transcripción y búsqueda."}</p>
+                  {(postPauta.sourceType === "youtube" || (selectedProgram?.id === "encendidos" && selectedDate === "2026-08-28")) && selectedProgram && (
+                    <YoutubePostSource
+                      key={`${selectedProgram.id}-${selectedDate}`}
+                      programId={selectedProgram.id}
+                      targetDate={selectedDate}
+                      sourceUrl={postPauta.sourceUrl}
+                      transcriptStatus={postPauta.transcriptStatus}
+                      canEdit={canEdit}
+                      getAccessToken={getAccessToken}
+                      onPostPautaChange={updatePostPauta}
+                      onUseTranscript={(text) => {
+                        setPostSourceText(text);
+                        notify("Captions listos para contrastar con la pre-pauta.");
+                      }}
+                    />
+                  )}
                 </section>
 
                 <section className="post-segment-list" aria-label="Registro real de bloques">

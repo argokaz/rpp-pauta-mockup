@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.30.2";
+export const CURRENT_VERSION = "0.31.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.31.0",
+    date: "2026-08-30",
+    title: "Video y captions dentro de Post Pauta",
+    changes: [
+      "Encendidos del viernes 28 incluye su transmisión real, tomada de la sección En vivo de RPP Noticias.",
+      "Post Pauta reproduce el video sin salir de la herramienta y permite cambiarlo por cualquier transmisión pública de RPP.",
+      "Los captions públicos se extraen con timestamps, se pueden buscar y cada fragmento abre el segundo exacto del video.",
+      "La transcripción puede enviarse al contraste con Luna y conserva una revisión humana antes de modificar la post-pauta.",
+      "Los captions se guardan en un caché compartido por programa y fecha para evitar repetir la extracción.",
+      "El proveedor gratuito queda aislado como componente temporal del piloto para poder reemplazarlo sin rehacer la interfaz.",
+    ],
+  },
   {
     version: "0.30.2",
     date: "2026-08-30",
