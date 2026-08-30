@@ -13,7 +13,7 @@ import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { structurePauta } from "@/data/ai-pauta-client";
-import { DEMO_DATA_AVAILABLE, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
+import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, DEMO_EMPTY_DAY_OF_WEEK, demoDateForDayOfWeek, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
 import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
@@ -309,6 +309,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   );
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
+  const demoEmptyDate = demoDateForDayOfWeek(visibleWeekStart, DEMO_EMPTY_DAY_OF_WEEK);
 
   useEffect(() => () => {
     segmentSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -394,13 +395,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     });
   }, [dirty, repository, saving]);
 
+  const visibleDemoEmissions = useMemo(
+    () => createDemoWeekEmissions(visibleWeekStart, programs, scheduleSlots),
+    [programs, scheduleSlots, visibleWeekStart],
+  );
   const effectiveEmissions = useMemo(
-    () => mergeDemoEmissions(workspace.emissions, demoOverrides, demoDataEnabled),
-    [demoDataEnabled, demoOverrides, workspace.emissions],
+    () => mergeDemoEmissions(workspace.emissions, demoOverrides, demoDataEnabled, visibleDemoEmissions),
+    [demoDataEnabled, demoOverrides, visibleDemoEmissions, workspace.emissions],
   );
   const effectivePeople = useMemo(
-    () => mergeDemoPeople(workspace.people, demoDataEnabled),
-    [demoDataEnabled, workspace.people],
+    () => mergeDemoPeople(workspace.people, demoDataEnabled, effectiveEmissions.filter((emission) => isDemoId(emission.id))),
+    [demoDataEnabled, effectiveEmissions, workspace.people],
   );
   const producerNoticesSignature = useMemo(() => JSON.stringify({
     bulletins: visibleBulletins.map((bulletin) => ({ id: bulletin.id, version: bulletinVersion(bulletin) })),
@@ -450,12 +455,19 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const storedEmission = effectiveEmissions.find(
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
   );
+  const storedEmissionIsEmptyDemo = Boolean(storedEmission
+    && isDemoId(storedEmission.id)
+    && storedEmission.status === "empty"
+    && !storedEmission.rawText.trim()
+    && storedEmission.segments.length === 0);
   const selectedEmission = selectedProgram && selectedSlot
-    ? prefillEmissionWithFixedBlocks(
+    ? storedEmissionIsEmptyDemo && storedEmission
+      ? storedEmission
+      : prefillEmissionWithFixedBlocks(
       storedEmission ?? emptyEmission(selectedProgram.id, selectedDate, rememberedProducer),
       fixedBlocks,
       (block) => fixedSegmentId(block.id, selectedDate),
-    )
+      )
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
   const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
@@ -517,6 +529,35 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setDirty(false);
     window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
     notify("La semana de prueba volvió a su estado inicial.");
+  }
+
+  function openDemoEmptyDay() {
+    const emptySlot = scheduleSlots
+      .filter((slot) => slot.dayOfWeek === DEMO_EMPTY_DAY_OF_WEEK && slotAppliesOnDate(slot, demoEmptyDate))
+      .filter((slot) => programs.find((program) => program.id === slot.programId)?.managed)
+      .sort((left, right) => Number(right.programId === "encendidos") - Number(left.programId === "encendidos") || left.startTime.localeCompare(right.startTime))[0];
+    if (!emptySlot) {
+      notify("No hay un programa administrado disponible en el día vacío de esta semana.");
+      return;
+    }
+    chooseCaptureDate(demoEmptyDate);
+    setSelectedSlotId(emptySlot.id);
+    setActiveView("reception");
+    notify("Abrimos el viernes sin demo para mostrar cómo se crea una pauta desde cero.");
+  }
+
+  function openProducerDemoEmptyDay() {
+    const emptySlot = scheduleSlots.find((slot) => slot.programId === activeProducerProgramId
+      && slot.dayOfWeek === DEMO_EMPTY_DAY_OF_WEEK
+      && slotAppliesOnDate(slot, demoEmptyDate));
+    if (!emptySlot) {
+      notify("Este programa no tiene una emisión el viernes de esta semana.");
+      return;
+    }
+    chooseCaptureDate(demoEmptyDate);
+    setSelectedSlotId(emptySlot.id);
+    setProducerSection("today");
+    notify("Abrimos el viernes vacío. Todo lo que pruebes en esta demo queda en el navegador.");
   }
 
   async function commit(next: WorkspaceState, message: string) {
@@ -1823,6 +1864,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           </div>
         </header>
 
+        {DEMO_DATA_AVAILABLE && <aside className={`producer-demo-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
+          <div><b>{demoDataEnabled ? "Ejemplos activos" : "Ejemplos ocultos"}</b><span>{demoDataEnabled ? `${longSpanishDate(demoEmptyDate)} queda libre para practicar una pauta nueva.` : "Muestra ejemplos ficticios para recorrer la herramienta sin tocar una pauta real."}</span></div>
+          <div>{demoDataEnabled && scheduleSlots.some((slot) => slot.programId === activeProducerProgramId && slot.dayOfWeek === DEMO_EMPTY_DAY_OF_WEEK && slotAppliesOnDate(slot, demoEmptyDate)) && <button className="demo-empty-day" onClick={openProducerDemoEmptyDay}>Ver día vacío</button>}<button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Ocultar demo" : "Mostrar demo"}</button></div>
+        </aside>}
+
         <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
           <header>
             <div><span>Coordinación compartida</span><strong aria-live="polite">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación nueva o actualizada" : "indicaciones nuevas o actualizadas"}` : producerNoticesUpdated ? "Hay novedades para revisar" : "Información de la semana"}</strong></div>
@@ -2093,11 +2139,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       {DEMO_DATA_AVAILABLE && (
         <aside className={`demo-data-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
           <div>
-            <b>{demoDataEnabled ? "Semana demo activa" : "Semana demo oculta"}</b>
-            <span>{demoDataEnabled ? "Pautas ficticias visibles · las pautas reales tienen prioridad" : "Solo estás viendo la información real guardada por el equipo"}</span>
+            <b>{demoDataEnabled ? "Demo activa para esta semana" : "Datos de prueba ocultos"}</b>
+            <span>{demoDataEnabled ? `${longSpanishDate(demoEmptyDate)} queda libre para probar una pauta desde cero. Los datos reales siempre tienen prioridad.` : "Actívala en cualquier semana para cargar ejemplos sin modificar la información de Supabase."}</span>
           </div>
           <div className="demo-data-actions">
-            {demoDataEnabled && demoOverrides.length > 0 && <button onClick={resetDemoData}>Restablecer demo</button>}
+            {demoDataEnabled && demoOverrides.length > 0 && <button className="demo-reset" onClick={resetDemoData}>Restablecer demo</button>}
+            {demoDataEnabled && <button className="demo-empty-day" onClick={openDemoEmptyDay}>Ver día vacío</button>}
             <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Ocultar datos de prueba" : "Mostrar datos de prueba"}</button>
           </div>
         </aside>

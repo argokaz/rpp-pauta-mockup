@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { workspaceStateSchema, type Emission } from "../domain/schemas";
 import { initialWorkspaceState, programs, scheduleSlots } from "./seed";
 import {
+  createDemoWeekEmissions,
+  DEMO_EMPTY_DAY_OF_WEEK,
   demoWeekEmissions,
   demoWeekPeople,
+  demoDateForDayOfWeek,
   isDemoId,
   mergeDemoEmissions,
   mergeDemoPeople,
@@ -11,14 +14,27 @@ import {
 } from "./demo-week";
 
 describe("semana de datos de prueba", () => {
-  it("cubre cada horario administrado de la semana piloto", () => {
+  it("cubre los horarios administrados y reserva el viernes para crear una pauta", () => {
     const managedProgramIds = new Set(programs.filter((program) => program.managed).map((program) => program.id));
     const managedSlots = scheduleSlots.filter((slot) => managedProgramIds.has(slot.programId));
+    const emptyDate = demoDateForDayOfWeek("2026-08-24", DEMO_EMPTY_DAY_OF_WEEK);
+    const emptyEmissions = demoWeekEmissions.filter((emission) => emission.date === emptyDate);
 
     expect(demoWeekEmissions).toHaveLength(managedSlots.length);
+    expect(emptyEmissions.length).toBeGreaterThan(0);
+    expect(emptyEmissions.every((emission) => emission.status === "empty" && !emission.rawText && emission.segments.length === 0)).toBe(true);
     expect(demoWeekEmissions.every((emission) => isDemoId(emission.id))).toBe(true);
-    expect(demoWeekEmissions.every((emission) => emission.segments.length >= 2)).toBe(true);
-    expect(demoWeekEmissions.every((emission) => emission.rawText.includes("DATOS DE PRUEBA"))).toBe(true);
+    expect(demoWeekEmissions.filter((emission) => emission.date !== emptyDate).every((emission) => emission.segments.length >= 2)).toBe(true);
+    expect(demoWeekEmissions.filter((emission) => emission.date !== emptyDate).every((emission) => emission.rawText.includes("DATOS DE PRUEBA"))).toBe(true);
+  });
+
+  it("genera la misma experiencia en cualquier semana elegida", () => {
+    const emissions = createDemoWeekEmissions("2026-09-07", programs, scheduleSlots);
+
+    expect(emissions.length).toBeGreaterThan(0);
+    expect(emissions.every((emission) => emission.date >= "2026-09-07" && emission.date <= "2026-09-13")).toBe(true);
+    expect(emissions.filter((emission) => emission.date === "2026-09-11").every((emission) => emission.status === "empty" && !emission.rawText)).toBe(true);
+    expect(emissions.filter((emission) => emission.date !== "2026-09-11").every((emission) => emission.rawText.includes("DATOS DE PRUEBA"))).toBe(true);
   });
 
   it("mantiene las pautas reales por encima de las ficticias", () => {
@@ -45,7 +61,7 @@ describe("semana de datos de prueba", () => {
   });
 
   it("incluye una bandeja demo para probar la post-pauta por noticia", () => {
-    const emission = demoWeekEmissions.find((item) => item.programId === "rotativa-am" && item.date === "2026-08-28");
+    const emission = demoWeekEmissions.find((item) => item.programId === "rotativa-am" && item.date === "2026-08-27");
     const pool = emission?.segments.find((segment) => (segment.stories?.length ?? 0) > 0);
 
     expect(pool?.stories).toHaveLength(4);
@@ -55,7 +71,7 @@ describe("semana de datos de prueba", () => {
   it("oculta fixtures y overrides al apagar el modo demo", () => {
     const override = { ...demoWeekEmissions[0], status: "post" as const };
     expect(mergeDemoEmissions(initialWorkspaceState.emissions, [override], false)).toEqual(initialWorkspaceState.emissions);
-    expect(mergeDemoPeople(initialWorkspaceState.people, false)).toEqual(initialWorkspaceState.people);
+    expect(mergeDemoPeople(initialWorkspaceState.people, false, demoWeekEmissions)).toEqual(initialWorkspaceState.people);
   });
 
   it("elimina defensivamente cualquier demo antes de persistir", () => {

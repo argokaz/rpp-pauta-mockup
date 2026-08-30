@@ -1,9 +1,11 @@
 import { normalizePersonName } from "../domain/people-history";
-import type { Emission, Person, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "../domain/schemas";
+import { slotAppliesOnDate } from "../domain/editorial-calendar";
+import type { Emission, Person, Program, ScheduleSlot, Segment, StoryItem, WorkspaceState } from "../domain/schemas";
 import { programs, scheduleSlots } from "./seed";
 
 export const DEMO_WEEK_START = "2026-08-24";
 export const DEMO_WEEK_END = "2026-08-30";
+export const DEMO_EMPTY_DAY_OF_WEEK = 5;
 export const DEMO_DATA_AVAILABLE = process.env.NEXT_PUBLIC_DEMO_DATA !== "false";
 
 const DEMO_PREFIX = "demo-";
@@ -106,16 +108,20 @@ function formatClock(totalMinutes: number): string {
   return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
 }
 
-function dateForDayOfWeek(dayOfWeek: number): string {
-  const offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  return `2026-08-${String(24 + offset).padStart(2, "0")}`;
+function shiftIsoDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T12:00:00`);
+  shifted.setDate(shifted.getDate() + days);
+  return shifted.toISOString().slice(0, 10);
 }
 
-function statusForDate(date: string, programId: string): Emission["status"] {
-  const day = Number(date.slice(-2));
-  if (day <= 25) return "post";
-  if (day <= 27) return "ready";
-  if (day === 28) return programId.length % 2 === 0 ? "ready" : "draft";
+export function demoDateForDayOfWeek(weekStart: string, dayOfWeek: number): string {
+  const offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  return shiftIsoDate(weekStart, offset);
+}
+
+function statusForDay(dayOfWeek: number, programId: string): Emission["status"] {
+  if (dayOfWeek === 1 || dayOfWeek === 2) return "post";
+  if (dayOfWeek === 3 || dayOfWeek === 4) return programId.length % 2 === 0 ? "ready" : "draft";
   return "draft";
 }
 
@@ -158,7 +164,7 @@ function buildSegments(slot: ScheduleSlot, date: string): Segment[] {
       confidence: 1,
       sourceExcerpt: `[DEMO] ${story.title}${story.guest ? ` — ${story.guest}` : ""}`,
     };
-    if (slot.programId === "rotativa-am" && date === "2026-08-28" && index === 0) {
+    if (slot.programId === "rotativa-am" && slot.dayOfWeek === 4 && index === 0) {
       const storyPool: StoryItem[] = newsStories.slice(0, 4).map((newsStory, storyIndex) => ({
         reference: `N${storyIndex + 1}`,
         title: newsStory.title,
@@ -202,12 +208,30 @@ function rawTextForEmission(programName: string, date: string, segments: Segment
   ].join("\n");
 }
 
-function createDemoEmissions(): Emission[] {
-  return scheduleSlots.flatMap((slot) => {
-    const program = programs.find((item) => item.id === slot.programId);
+export function createDemoWeekEmissions(
+  weekStart: string,
+  availablePrograms: Program[] = programs,
+  availableScheduleSlots: ScheduleSlot[] = scheduleSlots,
+  emptyDayOfWeek = DEMO_EMPTY_DAY_OF_WEEK,
+): Emission[] {
+  return availableScheduleSlots.flatMap<Emission>((slot) => {
+    const program = availablePrograms.find((item) => item.id === slot.programId);
     if (!program?.managed) return [];
-    const date = dateForDayOfWeek(slot.dayOfWeek);
-    const status = statusForDate(date, slot.programId);
+    const date = demoDateForDayOfWeek(weekStart, slot.dayOfWeek);
+    if (!slot.active || !slotAppliesOnDate(slot, date)) return [];
+    if (slot.dayOfWeek === emptyDayOfWeek) {
+      return [{
+        id: `${DEMO_PREFIX}emission-${slot.programId}-${date}`,
+        programId: slot.programId,
+        date,
+        status: "empty",
+        rawText: "",
+        producerName: "",
+        segments: [],
+        updatedAt: `${date}T12:00:00.000Z`,
+      } satisfies Emission];
+    }
+    const status = statusForDay(slot.dayOfWeek, slot.programId);
     const segments = buildSegments(slot, date).map((segment) => status === "post" ? {
       ...segment,
       actualStart: segment.startTime,
@@ -238,7 +262,7 @@ function createDemoEmissions(): Emission[] {
   });
 }
 
-function createDemoPeople(emissions: Emission[]): Person[] {
+export function createDemoPeople(emissions: Emission[]): Person[] {
   const people = new Map<string, Person>();
   for (const emission of emissions) {
     for (const segment of emission.segments) {
@@ -286,28 +310,34 @@ function createDemoPeople(emissions: Emission[]): Person[] {
   return [...people.values()];
 }
 
-export const demoWeekEmissions = createDemoEmissions();
+export const demoWeekEmissions = createDemoWeekEmissions(DEMO_WEEK_START);
 export const demoWeekPeople = createDemoPeople(demoWeekEmissions);
 
 export function isDemoId(id: string): boolean {
   return id.startsWith(DEMO_PREFIX);
 }
 
-export function mergeDemoEmissions(realEmissions: Emission[], demoOverrides: Emission[], enabled: boolean): Emission[] {
+export function mergeDemoEmissions(
+  realEmissions: Emission[],
+  demoOverrides: Emission[],
+  enabled: boolean,
+  generatedDemoEmissions: Emission[] = demoWeekEmissions,
+): Emission[] {
   const realOnly = realEmissions.filter((emission) => !isDemoId(emission.id));
   if (!enabled || !DEMO_DATA_AVAILABLE) return realOnly;
 
   const byProgramAndDate = new Map<string, Emission>();
-  for (const emission of demoWeekEmissions) byProgramAndDate.set(`${emission.programId}:${emission.date}`, emission);
+  for (const emission of generatedDemoEmissions) byProgramAndDate.set(`${emission.programId}:${emission.date}`, emission);
   for (const emission of demoOverrides.filter((item) => isDemoId(item.id))) byProgramAndDate.set(`${emission.programId}:${emission.date}`, emission);
   for (const emission of realOnly) byProgramAndDate.set(`${emission.programId}:${emission.date}`, emission);
   return [...byProgramAndDate.values()];
 }
 
-export function mergeDemoPeople(realPeople: Person[], enabled: boolean): Person[] {
+export function mergeDemoPeople(realPeople: Person[], enabled: boolean, demoEmissions: Emission[] = demoWeekEmissions): Person[] {
   if (!enabled || !DEMO_DATA_AVAILABLE) return realPeople.filter((person) => !isDemoId(person.id));
 
-  const merged = new Map(demoWeekPeople.map((person) => [person.normalizedName, { ...person, appearances: [...person.appearances] }]));
+  const generatedDemoPeople = createDemoPeople(demoEmissions);
+  const merged = new Map(generatedDemoPeople.map((person) => [person.normalizedName, { ...person, appearances: [...person.appearances] }]));
   for (const person of realPeople.filter((item) => !isDemoId(item.id))) {
     const demoPerson = merged.get(person.normalizedName);
     merged.set(person.normalizedName, {

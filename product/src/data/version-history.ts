@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.24.0";
+export const CURRENT_VERSION = "0.25.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.25.0",
+    date: "2026-08-29",
+    title: "Demo disponible en cualquier semana",
+    changes: [
+      "La capa de prueba se genera según la semana que se está consultando y deja de estar limitada al piloto de agosto.",
+      "El interruptor global muestra u oculta los ejemplos de cualquier semana sin modificar los registros reales de Supabase.",
+      "Cada semana reserva el viernes con pautas demo vacías para enseñar el proceso completo de creación.",
+      "Ver día vacío abre directamente la Recepción de Encendidos en ese viernes para comenzar desde cero.",
+      "Todo cambio realizado en una pauta demo vacía permanece únicamente en el navegador.",
+      "Una pauta real siempre reemplaza al ejemplo o al espacio vacío cuando coinciden programa y fecha.",
+      "La parrilla vigente y sus fechas de validez determinan qué programas ficticios aparecen en cada semana.",
+    ],
+  },
   {
     version: "0.24.0",
     date: "2026-08-29",
