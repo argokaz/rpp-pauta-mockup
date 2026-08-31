@@ -1,10 +1,27 @@
-import type { Bulletin } from "@/domain/schemas";
+import type { Bulletin, Program } from "@/domain/schemas";
 
 export type BulletinUpdateState = "new" | "updated" | null;
+
+export function bulletinTargetProgramIds(bulletin: Bulletin): string[] {
+  if (bulletin.scope === "Todos los programas" || bulletin.scope === "Programas informativos") return [];
+  if (bulletin.scope === "Selección de programas") return bulletin.programIds;
+  return bulletin.programIds.length ? bulletin.programIds : [bulletin.scope];
+}
+
+export function bulletinScopeLabel(bulletin: Bulletin, programs: Program[]): string {
+  if (bulletin.scope === "Todos los programas" || bulletin.scope === "Programas informativos") return bulletin.scope;
+  const names = bulletinTargetProgramIds(bulletin)
+    .map((programId) => programs.find((program) => program.id === programId)?.shortName)
+    .filter((name): name is string => Boolean(name));
+  if (!names.length) return "Sin programas";
+  if (names.length === 1) return names[0];
+  return `${names.length} programas`;
+}
 
 export function bulletinVisibleToProgram(bulletin: Bulletin, programId: string, programName: string, shortName: string): boolean {
   return bulletin.scope === "Todos los programas"
     || bulletin.scope === "Programas informativos"
+    || bulletinTargetProgramIds(bulletin).includes(programId)
     || bulletin.scope === programId
     || bulletin.scope === programName
     || bulletin.scope === shortName;
@@ -15,6 +32,7 @@ export function bulletinVersion(bulletin: Bulletin): string {
     bulletin.title.trim(),
     bulletin.body.trim(),
     bulletin.scope,
+    [...bulletin.programIds].sort(),
     bulletin.pinnedRank,
   ]);
 }

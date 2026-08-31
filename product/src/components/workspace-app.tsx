@@ -27,7 +27,7 @@ import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
-import { bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, splitBulletins } from "@/domain/bulletins";
+import { bulletinScopeLabel, bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, splitBulletins } from "@/domain/bulletins";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { bulletinForImportantDate } from "@/domain/event-bulletins";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
@@ -1154,6 +1154,10 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   async function saveBulletin() {
     if (!bulletinDraft?.title.trim() || !bulletinDraft.body.trim()) {
       notify("Completa el título y el detalle.");
+      return;
+    }
+    if (bulletinDraft.scope === "Selección de programas" && !bulletinDraft.programIds.length) {
+      notify("Selecciona al menos un programa.");
       return;
     }
     const exists = workspace.bulletins.some((item) => item.id === bulletinDraft.id);
@@ -2675,7 +2679,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <div className={`bulletin-featured-grid count-${bulletinPresentation.featured.length}`}>
                 {bulletinPresentation.featured.map((item) => (
                   <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => { setBulletinDraft(item); setShowBulletinCenter(true); }}>
-                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Prioridad {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{programs.find((program) => program.id === item.scope || program.name === item.scope || program.shortName === item.scope)?.shortName ?? item.scope}</b>
+                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Prioridad {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{bulletinScopeLabel(item, programs)}</b>
                   </button>
                 ))}
                 {!bulletinPresentation.featured.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
@@ -2769,7 +2773,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
-      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => { setBulletinDraft(null); setShowBulletinCenter(false); }} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} draft={bulletinDraft} saving={saving} onDraftChange={setBulletinDraft} onPinnedRankChange={setBulletinPinnedRank} onCancelEdit={() => setBulletinDraft(null)} onSave={saveBulletin} />}
+      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => { setBulletinDraft(null); setShowBulletinCenter(false); }} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} draft={bulletinDraft} saving={saving} onDraftChange={setBulletinDraft} onPinnedRankChange={setBulletinPinnedRank} onCancelEdit={() => setBulletinDraft(null)} onSave={saveBulletin} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} programs={programs} scheduleSlots={scheduleSlots} initialDate={selectedDate} canEdit={canEdit} onClose={() => setShowAnnualCalendar(false)} onCreateImportantDate={(date) => setDateDraft({ id: newId(), date, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })} onEditImportantDate={setDateDraft} onOpenProgram={openProgramSlot} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
       {showFixedBlocks && selectedProgram && <FixedBlocksManager repository={repository} workspace={{ ...workspace, fixedBlocks }} program={selectedProgram} initialDate={selectedDate} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowFixedBlocks(false)} />}

@@ -33,6 +33,7 @@ describe("bulletinForImportantDate", () => {
       title: "Anterior",
       body: "Anterior",
       scope: "Todos los programas",
+      programIds: [],
       pinnedRank: 2,
       updatedAt: "2026-08-29T12:00:00Z",
     });

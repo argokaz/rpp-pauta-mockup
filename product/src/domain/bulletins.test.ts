@@ -3,12 +3,12 @@ import { bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, sortBul
 import type { Bulletin } from "./schemas";
 
 const bulletins: Bulletin[] = [
-  { id: "old", weekStart: "2026-08-24", title: "Anterior", body: "A", scope: "Todos los programas", pinnedRank: null, updatedAt: "2026-08-27T10:00:00Z" },
-  { id: "pin-2", weekStart: "2026-08-24", title: "Fijada dos", body: "B", scope: "Todos los programas", pinnedRank: 2, updatedAt: "2026-08-29T11:00:00Z" },
-  { id: "new", weekStart: "2026-08-24", title: "Reciente", body: "C", scope: "Todos los programas", pinnedRank: null, updatedAt: "2026-08-29T12:00:00Z" },
-  { id: "pin-1", weekStart: "2026-08-24", title: "Fijada uno", body: "D", scope: "Todos los programas", pinnedRank: 1, updatedAt: "2026-08-28T12:00:00Z" },
-  { id: "pin-4", weekStart: "2026-08-24", title: "Fijada cuatro", body: "E", scope: "Todos los programas", pinnedRank: 4, updatedAt: "2026-08-29T13:00:00Z" },
-  { id: "pin-3", weekStart: "2026-08-24", title: "Fijada tres", body: "F", scope: "Todos los programas", pinnedRank: 3, updatedAt: "2026-08-29T14:00:00Z" },
+  { id: "old", weekStart: "2026-08-24", title: "Anterior", body: "A", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: "2026-08-27T10:00:00Z" },
+  { id: "pin-2", weekStart: "2026-08-24", title: "Fijada dos", body: "B", scope: "Todos los programas", programIds: [], pinnedRank: 2, updatedAt: "2026-08-29T11:00:00Z" },
+  { id: "new", weekStart: "2026-08-24", title: "Reciente", body: "C", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: "2026-08-29T12:00:00Z" },
+  { id: "pin-1", weekStart: "2026-08-24", title: "Fijada uno", body: "D", scope: "Todos los programas", programIds: [], pinnedRank: 1, updatedAt: "2026-08-28T12:00:00Z" },
+  { id: "pin-4", weekStart: "2026-08-24", title: "Fijada cuatro", body: "E", scope: "Todos los programas", programIds: [], pinnedRank: 4, updatedAt: "2026-08-29T13:00:00Z" },
+  { id: "pin-3", weekStart: "2026-08-24", title: "Fijada tres", body: "F", scope: "Todos los programas", programIds: [], pinnedRank: 3, updatedAt: "2026-08-29T14:00:00Z" },
 ];
 
 describe("bulletins", () => {
@@ -40,5 +40,17 @@ describe("bulletins", () => {
     expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "Todos los programas" }, "encendidos", "Encendidos", "Encendidos")).toBe(true);
     expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "encendidos" }, "encendidos", "Encendidos", "Encendidos")).toBe(true);
     expect(bulletinVisibleToProgram({ ...bulletins[0], scope: "encendidos" }, "conexion", "Conexión", "Conexión")).toBe(false);
+  });
+
+  it("muestra una indicación a cualquiera de los programas seleccionados", () => {
+    const item = { ...bulletins[0], scope: "encendidos", programIds: ["encendidos", "conexion"] };
+    expect(bulletinVisibleToProgram(item, "encendidos", "Encendidos", "Encendidos")).toBe(true);
+    expect(bulletinVisibleToProgram(item, "conexion", "Conexión", "Conexión")).toBe(true);
+    expect(bulletinVisibleToProgram(item, "rotativa-am", "Rotativa AM", "Rotativa AM")).toBe(false);
+  });
+
+  it("no confunde el modo de selección vacío con un programa", () => {
+    const item = { ...bulletins[0], scope: "Selección de programas", programIds: [] };
+    expect(bulletinVisibleToProgram(item, "encendidos", "Encendidos", "Encendidos")).toBe(false);
   });
 });

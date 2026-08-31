@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.34.1";
+export const CURRENT_VERSION = "0.35.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.35.0",
+    date: "2026-08-31",
+    title: "Indicaciones para varios programas",
+    changes: [
+      "Aplica a ahora permite enviar una indicación a uno o varios programas desde una sola selección.",
+      "El alcance se organiza en Todos, Informativos o Elegir programas, con contador y controles para seleccionar o limpiar la lista.",
+      "Los resúmenes muestran un alcance compacto y cada producción recibe únicamente las indicaciones que le corresponden.",
+    ],
+  },
   {
     version: "0.34.1",
     date: "2026-08-30",

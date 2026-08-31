@@ -31,6 +31,7 @@ export function bulletinForImportantDate(
     title: `Preparar para el ${eventDateLabel(event.date)}: ${event.title.trim()}`,
     body: [event.details.trim(), assignment, "Abre el evento para revisar la planificación y preparar la pauta."].filter(Boolean).join(" "),
     scope: "Todos los programas",
+    programIds: [],
     pinnedRank: existing?.pinnedRank ?? null,
     updatedAt,
   };

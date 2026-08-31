@@ -101,7 +101,7 @@ export function createSupabaseWorkspaceRepository(
       supabase.from("programs").select("id,name,short_name,hosts,managed,active,accent_color").order("name"),
       supabase.from("schedule_slots").select("id,program_id,day_of_week,start_time,end_time,effective_from,effective_to,active").order("start_time"),
       supabase.from("recurring_blocks").select("id,program_id,title,sequence_name,segment_type,guest_text,guest_role,notes,days_of_week,start_time,duration_minutes,effective_from,effective_to,active").order("start_time"),
-      supabase.from("bulletins").select("id,week_start,title,body,scope,scope_program_id,pin_rank,updated_at").eq("active", true).order("created_at"),
+      supabase.from("bulletins").select("id,week_start,title,body,scope,scope_program_id,scope_program_ids,pin_rank,updated_at").eq("active", true).order("created_at"),
       supabase.from("important_dates").select("id,event_date,title,details,date_category,source_url,important_date_plans(program_id,notes)").order("event_date"),
       supabase.from("emissions").select("id,program_id,emission_date,status,raw_text,producer_name,applied_fixed_block_ids,post_review_status,post_notes,media_source_type,media_source_url,transcript_status,post_verified_at,updated_at,segments(id,sort_order,planned_start,planned_end,actual_start,actual_end,disposition,segment_type,sequence_name,slug,topic,focus,guest_text,guest_role,participant_items,entity_items,audience_question,production_cues,story_items,notes,extraction_confidence,source_excerpt,post_summary,key_quote,quote_verified,fixed_block_id,row_version,last_edited_at)").order("emission_date"),
       supabase.from("people").select("id,display_name,normalized_name,aliases,primary_role,organization,contact_phone,tags,relationship_type,editorial_roles,contact_items,program_roles,notes").order("display_name"),
@@ -168,6 +168,9 @@ export function createSupabaseWorkspaceRepository(
         title: row.title,
         body: row.body,
         scope: row.scope === "program" && row.scope_program_id ? row.scope_program_id : scopeFromDatabase[row.scope] ?? "Todos los programas",
+        programIds: Array.isArray(row.scope_program_ids)
+          ? row.scope_program_ids.filter((programId): programId is string => typeof programId === "string")
+          : row.scope === "program" && row.scope_program_id ? [row.scope_program_id] : [],
         pinnedRank: row.pin_rank ?? null,
         updatedAt: row.updated_at,
       })),
@@ -255,13 +258,17 @@ export function createSupabaseWorkspaceRepository(
 
     for (const bulletin of state.bulletins) {
       const databaseScope = scopeToDatabase[bulletin.scope];
+      const selectedProgramIds = databaseScope
+        ? []
+        : bulletin.programIds.length ? bulletin.programIds : [bulletin.scope];
       const { error } = await supabase.from("bulletins").upsert({
         id: bulletin.id,
         week_start: bulletin.weekStart,
         title: bulletin.title,
         body: bulletin.body,
         scope: databaseScope ?? "program",
-        scope_program_id: databaseScope ? null : bulletin.scope,
+        scope_program_id: selectedProgramIds[0] ?? null,
+        scope_program_ids: selectedProgramIds,
         pin_rank: bulletin.pinnedRank,
         active: true,
         created_by: userId,
