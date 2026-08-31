@@ -8,6 +8,7 @@ import { PostPautaAiReview } from "@/components/post-pauta-ai-review";
 import { ArchiveSearch } from "@/components/archive-search";
 import { AnnualCalendar } from "@/components/annual-calendar";
 import { BulletinCenter } from "@/components/bulletin-center";
+import { ProgramIdentityCard } from "@/components/program-identity-card";
 import { FixedBlocksManager } from "@/components/fixed-blocks-manager";
 import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
@@ -1392,8 +1393,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants }));
   }
 
-  function addSegmentParticipant(segment: Segment) {
-    updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants: [...segmentParticipants(segment), newParticipant()] }), 0);
+  function addSegmentParticipant(segment: Segment, role: SegmentParticipant["role"] = "guest") {
+    updateSegmentDraft(segment.id, withParticipantCompatibility({ ...segment, participants: [...segmentParticipants(segment), newParticipant(role)] }), 0);
   }
 
   function removeSegmentParticipant(segment: Segment, participantId: string) {
@@ -1934,16 +1935,18 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function renderSegmentParticipantsEditor(segment: Segment, compact = false) {
-    const participants = segmentParticipants(segment);
+    const allParticipants = segmentParticipants(segment);
+    const participants = allParticipants.filter((participant) => participant.role !== "host");
+    const replacementHosts = allParticipants.filter((participant) => participant.role === "host");
     return <section className={`segment-participants-editor ${compact ? "compact" : "wide"}`}>
-      <header><div><strong>Personas en este bloque</strong><span>Invitados, conductores, producción o reporteros; puedes añadir más de uno.</span></div><button disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir persona</button></header>
+      <header><div><strong>Personas en este bloque</strong><span>Invitados, especialistas, producción, reporteros o colaboradores.</span></div><button disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir persona</button></header>
       <div>{participants.map((participant, participantIndex) => {
         const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
         const matches = exact ? [] : findSimilarPeople(participant.name, effectivePeople, 2);
         return <article key={participant.id}>
           <b>{participantIndex + 1}</b>
           <label><span>Nombre completo</span><input list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" /></label>
-          <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => updateSegmentParticipant(segment, participant.id, { role: event.target.value as SegmentParticipant["role"] })}>{Object.entries(participantRoleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => updateSegmentParticipant(segment, participant.id, { role: event.target.value as SegmentParticipant["role"] })}>{Object.entries(participantRoleLabels).filter(([value]) => value !== "host").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label><span>Cargo o especialidad</span><input disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updateSegmentParticipant(segment, participant.id, { roleDescription: event.target.value })} /></label>
           <label><span>Organización</span><input disabled={!canEdit} value={participant.organization} onChange={(event) => updateSegmentParticipant(segment, participant.id, { organization: event.target.value })} /></label>
           <button className="participant-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)}>Quitar</button>
@@ -1951,6 +1954,18 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         </article>;
       })}</div>
       {!participants.length && <button className="participant-empty" disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir el primer invitado o participante</button>}
+      <section className={`replacement-host-editor ${replacementHosts.length ? "active" : ""}`}>
+        <header><div><strong>Conductor de reemplazo</strong><span>Solo si cambia la conducción habitual para este bloque.</span></div>{!replacementHosts.length && <button disabled={!canEdit} onClick={() => addSegmentParticipant(segment, "host")}>Registrar reemplazo</button>}</header>
+        {replacementHosts.map((participant) => {
+          const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
+          const matches = exact ? [] : findSimilarPeople(participant.name, effectivePeople, 2);
+          return <article key={participant.id}>
+            <label><span>Nombre del reemplazo</span><input list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" /></label>
+            <button className="participant-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)}>Quitar</button>
+            {participant.name.trim().length >= 4 && <div className="participant-match">{exact ? <small className="guest-match exact">Ficha vinculada: {exact.displayName}</small> : matches.length ? <div className="guest-match suggestions"><span>¿Quisiste decir?</span>{matches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentParticipant(segment, participant.id, { name: person.displayName, personId: person.id, roleDescription: participant.roleDescription || person.primaryRole, organization: participant.organization || person.organization })}>{person.displayName}</button>)}</div> : <small className="guest-match new-person">Se creará una ficha nueva al guardar.</small>}</div>}
+          </article>;
+        })}
+      </section>
       {!compact && <div className="segment-entities-editor"><header><div><strong>Entidades editoriales</strong><span>Organizaciones, lugares, eventos o sucesos que luego podrán buscarse.</span></div><button disabled={!canEdit} onClick={() => addSegmentEntity(segment)}>+ Añadir entidad</button></header>{(segment.entities ?? []).map((entity) => <div key={entity.id}><select disabled={!canEdit} value={entity.type} onChange={(event) => updateSegmentEntity(segment, entity.id, { type: event.target.value as EditorialEntity["type"] })}>{Object.entries(entityTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input disabled={!canEdit} value={entity.name} onChange={(event) => updateSegmentEntity(segment, entity.id, { name: event.target.value })} placeholder="Nombre verificable" /><button disabled={!canEdit} onClick={() => removeSegmentEntity(segment, entity.id)}>Quitar</button></div>)}</div>}
     </section>;
   }
@@ -2113,10 +2128,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
           <section className="ordered-pane">
             {aiResult ? (
-              <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(captureHasPreparedPauta); }} onApply={applyAiProposal} />
+              selectedProgram ? <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} program={selectedProgram} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(captureHasPreparedPauta); }} onApply={applyAiProposal} /> : null
             ) : (
               <>
                 <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
+                {selectedProgram && <ProgramIdentityCard program={selectedProgram} />}
                 {renderSavedRundown()}
                 {dirty && <footer className="ordered-save"><span>Cambios sin guardar</span><button className="primary" onClick={saveDraft} disabled={saving || !canEdit}>{saving ? "Guardando..." : "Guardar cambios"}</button></footer>}
               </>
@@ -2438,6 +2454,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
               <div className="producer-today-grid">
                 <section className="producer-rundown-panel">
                   <header><div><span>Escaleta editable</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Bloques fijos</button><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
+                  {producerProgram && <ProgramIdentityCard program={producerProgram} />}
                   {renderSavedRundown()}
                 </section>
 
@@ -2499,7 +2516,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   <small>La pauta original permanece intacta.</small>
                 </div>
               ) : aiResult ? (
-                <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} />
+                producerProgram ? <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} program={producerProgram} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} /> : null
               ) : null}
             </section>
           </div>

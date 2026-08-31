@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
 import { RundownBlock } from "@/components/rundown-block";
+import { ProgramIdentityCard } from "@/components/program-identity-card";
 import type { PautaProposal, StructuredPautaSegment, StructuredPautaStory } from "@/domain/pauta-import";
 import { normalizePersonName } from "@/domain/people-history";
 import { durationMinutes, endTimeForDuration, reorderItems } from "@/domain/rundown";
-import type { Person } from "@/domain/schemas";
+import type { Person, Program } from "@/domain/schemas";
 
 const typeLabels: Record<StructuredPautaSegment["type"], string> = {
   opening: "Apertura",
@@ -68,6 +69,7 @@ type PautaAiReviewProps = {
   processingMode: "local" | "luna" | "fallback";
   applying: boolean;
   people: Person[];
+  program: Program;
   producerName: string;
   onChange: (proposal: PautaProposal) => void;
   onProducerNameChange: (value: string) => void;
@@ -75,7 +77,7 @@ type PautaAiReviewProps = {
   onApply: () => void;
 };
 
-export function PautaAiReview({ proposal, model, processingMode, applying, people, producerName, onChange, onProducerNameChange, onClose, onApply }: PautaAiReviewProps) {
+export function PautaAiReview({ proposal, model, processingMode, applying, people, program, producerName, onChange, onProducerNameChange, onClose, onApply }: PautaAiReviewProps) {
   const [expandedSegments, setExpandedSegments] = useState<Set<number>>(() => new Set());
 
   function updateSegment(index: number, change: Partial<StructuredPautaSegment>) {
@@ -181,8 +183,9 @@ export function PautaAiReview({ proposal, model, processingMode, applying, peopl
         <div><span>Estructura</span><strong>{layoutLabels[proposal.layoutMode]}</strong></div>
       </div>
 
-      <div className="ordered-team">
-        <p><strong>Conducción detectada</strong><span>{proposal.hosts.join(", ") || "No indicada"}</span></p>
+      <ProgramIdentityCard program={program} detectedHosts={proposal.hosts} />
+
+      <div className="ordered-team single">
         <label><strong>Productor responsable</strong><input list="known-producers" value={producerName} onChange={(event) => onProducerNameChange(event.target.value)} placeholder="Nombre del productor" /></label>
       </div>
 

@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.35.0";
+export const CURRENT_VERSION = "0.36.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.36.0",
+    date: "2026-08-31",
+    title: "Conducción fija y reemplazos por excepción",
+    changes: [
+      "La pre-pauta muestra una ficha del programa con sus conductores habituales en las vistas de superadmin y Producción.",
+      "Los bloques dejan de ofrecer Conducción como participación habitual y muestran un control compacto solo para registrar un reemplazo.",
+      "Si Luna detecta una conducción distinta a la ficha del programa, la señala como posible reemplazo antes de aceptar la pauta.",
+    ],
+  },
   {
     version: "0.35.0",
     date: "2026-08-31",
