@@ -5,9 +5,19 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.36.0";
+export const CURRENT_VERSION = "0.37.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.37.0",
+    date: "2026-08-31",
+    title: "Inicio del piloto editorial",
+    changes: [
+      "La versión de producción deja de ofrecer el modo demo y trabaja únicamente con información real de la base compartida.",
+      "Superadmin y Producción ven una señal compacta que confirma que el piloto editorial está activo.",
+      "Los datos ficticios permanecen disponibles solo en entornos de desarrollo y no se mezclan con el trabajo del piloto.",
+    ],
+  },
   {
     version: "0.36.0",
     date: "2026-08-31",

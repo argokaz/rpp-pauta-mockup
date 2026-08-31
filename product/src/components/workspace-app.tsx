@@ -41,6 +41,7 @@ const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
 const DEMO_SHOWCASE_DATE = "2026-08-28";
 const DEMO_SHOWCASE_PROGRAM_ID = "encendidos";
 const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
+const PILOT_MODE_ACTIVE = process.env.NEXT_PUBLIC_PILOT_MODE !== "false";
 
 type ProducerComposerMode = "paste" | "write";
 type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
@@ -343,6 +344,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
   const canReturnToDashboard = appRole === "superadmin";
+  const pilotReady = PILOT_MODE_ACTIVE && !DEMO_DATA_AVAILABLE && repository.mode === "supabase";
   const adminDemoEmptyTarget = useMemo(
     () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots),
     [programs, scheduleSlots, visibleWeekStart, workspace.emissions],
@@ -2385,6 +2387,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <div>{demoDataEnabled && producerDemoEmptyTarget && <button className="demo-empty-day" onClick={openProducerDemoEmptyDay}>Ver día vacío</button>}<button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button></div>
         </aside>}
 
+        {pilotReady && <aside className="producer-demo-bar pilot-ready-bar" aria-label="Estado del piloto editorial">
+          <div><b>Piloto editorial activo</b><span>Trabajas con la base compartida de RPP. Los cambios se guardan y quedan disponibles para el equipo.</span></div>
+          <strong className="pilot-status-chip">Datos reales</strong>
+        </aside>}
+
         <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
           <header>
             <div>{producerNoticesUpdated && <b className="producer-update-flag">Nuevo</b>}<span>Coordinación compartida</span><strong aria-live="assertive">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación requiere tu atención" : "indicaciones requieren tu atención"}` : producerNoticesUpdated ? "Hay novedades que debes revisar" : "Información de la semana"}</strong></div>
@@ -2658,6 +2665,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
             {demoDataEnabled && adminDemoEmptyTarget && <button className="demo-empty-day" onClick={openDemoEmptyDay}>Ver día vacío</button>}
             <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button>
           </div>
+        </aside>
+      )}
+
+      {pilotReady && (
+        <aside className="demo-data-bar pilot-ready-bar" aria-label="Estado del piloto editorial">
+          <div><b>Piloto editorial activo</b><span>Base compartida conectada. Los cambios realizados aquí forman parte del periodo piloto.</span></div>
+          <strong className="pilot-status-chip">Datos reales</strong>
         </aside>
       )}
 
