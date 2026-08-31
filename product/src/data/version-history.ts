@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.37.0";
+export const CURRENT_VERSION = "0.38.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.38.0",
+    date: "2026-08-31",
+    title: "Ayuda y onboarding completo por rol",
+    changes: [
+      "Un botón Ayuda permanece disponible en el dashboard general y en cada espacio de Producción, con una señal Nuevo hasta la primera apertura.",
+      "El tutorial separa los recorridos de superadmin y Producción, y explica Agenda, Mesa, Programa, Recepción y Post-pauta desde tareas concretas.",
+      "Pre-pauta y Post-pauta incluyen instrucciones breves, reglas para invitados, revisión humana y los pasos para aceptar o verificar la información.",
+      "Seis escenas SVG animadas muestran cada flujo sin bloquear el trabajo y respetan la preferencia de reducción de movimiento.",
+      "La sección Estado distingue lo disponible en el piloto de YouTube, transcripción, notificaciones y reportes que todavía requieren integración.",
+      "El recorrido se adapta a teléfonos sin desborde horizontal, conserva controles táctiles y permite navegar con teclado o cerrar con Escape.",
+    ],
+  },
   {
     version: "0.37.0",
     date: "2026-08-31",

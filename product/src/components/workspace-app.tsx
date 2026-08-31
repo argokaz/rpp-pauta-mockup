@@ -14,6 +14,7 @@ import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
 import { RundownBlock } from "@/components/rundown-block";
 import { VersionHistoryModal } from "@/components/version-history-modal";
+import { HelpTutorial } from "@/components/help-tutorial";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { isFriday28PostPilot, YoutubePostSource } from "@/components/youtube-post-source";
 import { structurePauta } from "@/data/ai-pauta-client";
@@ -41,6 +42,7 @@ const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
 const DEMO_SHOWCASE_DATE = "2026-08-28";
 const DEMO_SHOWCASE_PROGRAM_ID = "encendidos";
 const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
+const HELP_SEEN_STORAGE_KEY = "rpp-pauta-help-seen-v1";
 const PILOT_MODE_ACTIVE = process.env.NEXT_PUBLIC_PILOT_MODE !== "false";
 
 type ProducerComposerMode = "paste" | "write";
@@ -275,6 +277,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [postAiApplying, setPostAiApplying] = useState(false);
   const [postAiResult, setPostAiResult] = useState<StructurePostPautaResponse | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showHelpTutorial, setShowHelpTutorial] = useState(false);
+  const [helpIsNew, setHelpIsNew] = useState(true);
   const [showPeopleDirectory, setShowPeopleDirectory] = useState(false);
   const [peopleDirectorySelectedId, setPeopleDirectorySelectedId] = useState("");
   const [showArchiveSearch, setShowArchiveSearch] = useState(false);
@@ -311,6 +315,27 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
   const producerDashboardHistoryRef = useRef(false);
   const demoReturnContextRef = useRef<DemoReturnContext | null>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        setHelpIsNew(window.localStorage.getItem(HELP_SEEN_STORAGE_KEY) !== "seen");
+      } catch {
+        setHelpIsNew(true);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  function openHelpTutorial() {
+    setShowHelpTutorial(true);
+    setHelpIsNew(false);
+    try {
+      window.localStorage.setItem(HELP_SEEN_STORAGE_KEY, "seen");
+    } catch {
+      // La ayuda sigue disponible aunque el navegador no permita almacenamiento local.
+    }
+  }
   const programs = workspace.programs.length ? workspace.programs : seedPrograms;
   const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
   const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
@@ -2562,7 +2587,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <datalist id="known-producers">{producerSuggestions.map((producer) => <option key={producer} value={producer} />)}</datalist>
         {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
         {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onClose={() => setShowArchiveSearch(false)} />}
+        {showHelpTutorial && <HelpTutorial initialAudience="producer" onClose={() => setShowHelpTutorial(false)} />}
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}><span>Versión</span><strong>v{CURRENT_VERSION}</strong></button>
+        <button className={`floating-help ${helpIsNew ? "is-new" : ""}`} onClick={openHelpTutorial}><span aria-hidden="true">?</span><strong>Ayuda</strong>{helpIsNew && <b>Nuevo</b>}</button>
         {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
         <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
       </main>
@@ -2830,12 +2857,15 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       )}
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
+      {showHelpTutorial && <HelpTutorial initialAudience="superadmin" onClose={() => setShowHelpTutorial(false)} />}
 
       {activeView !== "agenda" && (
         <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
           <span>Versión</span><strong>v{CURRENT_VERSION}</strong>
         </button>
       )}
+
+      <button className={`floating-help ${helpIsNew ? "is-new" : ""}`} onClick={openHelpTutorial}><span aria-hidden="true">?</span><strong>Ayuda</strong>{helpIsNew && <b>Nuevo</b>}</button>
 
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
