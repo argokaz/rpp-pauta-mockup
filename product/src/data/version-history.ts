@@ -5,9 +5,22 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.38.0";
+export const CURRENT_VERSION = "0.39.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.39.0",
+    date: "2026-09-08",
+    title: "Operación diaria más simple",
+    changes: [
+      "Producción abre con su fecha y pauta; las indicaciones quedan en un panel compacto y las próximas fechas se consultan al desplegarlo.",
+      "Una pauta vacía ofrece Pegar prepauta o Crear por bloques. El editor de texto abre en el mismo lugar, también en móvil.",
+      "Guardar y marcar lista confirma el guardado antes de cambiar el estado. Los pendientes, errores y conflictos de guardado permanecen visibles.",
+      "Los invitados se muestran como personas en pauta, sin dar por confirmada su asistencia.",
+      "Post-pauta separa Durante el programa y Después del programa sobre la misma escaleta, con controles operativos directos y fuentes plegables.",
+      "Revisar pendientes abre el primer bloque incompleto. Las emisiones vacías muestran una acción para empezar y el cierre exige resultados completos.",
+    ],
+  },
   {
     version: "0.38.0",
     date: "2026-08-31",

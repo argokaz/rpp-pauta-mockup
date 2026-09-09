@@ -1,4 +1,4 @@
-import type { StoryItem } from "./schemas";
+import type { Segment, StoryItem } from "./schemas";
 
 export function markStoryResult(
   stories: StoryItem[],
@@ -28,4 +28,11 @@ export function moveStoryInActualOrder(stories: StoryItem[], storyIndex: number,
 
 export function storyResultComplete(story: StoryItem): boolean {
   return story.disposition === "skipped" || Boolean(story.disposition && story.postSummary?.trim());
+}
+
+/** The pending list and the close action must agree on what is complete. */
+export function segmentResultComplete(segment: Segment): boolean {
+  if (segment.disposition === "skipped") return true;
+  if (segment.stories?.length) return segment.stories.every(storyResultComplete);
+  return Boolean(segment.disposition && segment.postSummary?.trim());
 }

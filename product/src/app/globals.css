@@ -2355,3 +2355,66 @@ h1, h2, h3, h4, p { margin-top: 0; }
   .help-scene-wrap { border-radius: 12px; }
   .help-scene { min-height: 178px; object-fit: cover; }
 }
+
+/* Daily workflow: date, task, and a truthful save state. */
+.producer-pilot-label { color: #d7d7d7; font-size: 11px; white-space: nowrap; }
+.producer-coordination { margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.producer-coordination > summary { min-height: 44px; padding: 12px 14px; cursor: pointer; font-size: 13px; }
+.producer-coordination > summary b { margin-left: 10px; padding: 4px 8px; border-radius: 4px; background: var(--yellow); font-size: 12px; }
+.producer-coordination.has-updates { border-color: #b59b00; }
+.producer-coordination .producer-alert-grid { padding: 0 12px 12px; grid-template-columns: 1fr; }
+.producer-coordination .producer-bulletin-empty { min-height: 0; padding: 12px; }
+.producer-coordination .producer-dates { padding: 0; background: transparent; }
+.producer-coordination .producer-dates > summary { padding: 12px 0; cursor: pointer; font-weight: 750; font-size: 13px; }
+.producer-coordination .producer-dates > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); overflow: visible; }
+.producer-coordination .producer-dates .producer-alert-title { display: none; }
+.notice-mark-seen { min-height: 44px; margin: 0 12px 12px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--yellow-soft); font-size: 12px; font-weight: 750; }
+.producer-other-date { grid-column: 1 / -1; justify-self: end; min-height: 36px; padding: 0 8px; border: 0; background: transparent; color: var(--muted); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.producer-today-actions .workspace-save-status { min-width: 0; }
+.workspace-save-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; color: #42614a; }
+.workspace-save-status span { color: inherit; font-size: 12px; font-weight: 700; }
+.workspace-save-status[data-sync="pending"], .workspace-save-status[data-sync="saving"] { color: #705b0d; }
+.workspace-save-status[data-sync="error"], .workspace-save-status[data-sync="conflict"] { color: #a12d22; }
+.workspace-save-status button { min-height: 44px; padding: 0 12px; border: 1px solid currentColor; border-radius: var(--control-radius); background: var(--surface); color: inherit; font-size: 12px; font-weight: 750; }
+.producer-content > .producer-compose-card { margin: 0 0 16px; max-width: 900px; }
+.producer-content > .producer-compose-card .producer-compose-editor textarea { min-height: 160px; font-size: 16px; }
+.producer-start-options > button.primary { background: var(--ink); color: #fff; }
+.producer-start-options > button.primary span { color: #dedede; }
+.producer-today-grid > *, .producer-compose-card { min-width: 0; }
+.post-mode-switch { display: flex; gap: 6px; padding: 5px; margin: 12px 0 0; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.post-mode-switch button { flex: 1; min-height: 46px; padding: 8px 12px; border: 0; border-radius: 5px; background: transparent; font-size: 14px; font-weight: 800; }
+.post-mode-switch button[aria-pressed="true"] { background: var(--ink); color: white; }
+.post-mode-hint { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.post-sources-disclosure { margin: 12px 0; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.post-sources-disclosure > summary { padding: 14px; min-height: 48px; cursor: pointer; font-size: 14px; font-weight: 750; }
+.post-sources-disclosure > section { margin: 0 12px 12px; }
+.post-pending-action { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 12px; border: 1px solid #c3ac43; border-radius: var(--control-radius); background: var(--yellow-soft); font-size: 14px; }
+.post-pending-action button, .post-empty-start button { min-height: 46px; padding: 10px 14px; border: 1px solid var(--ink); border-radius: var(--control-radius); background: var(--ink); color: white; font-size: 14px; font-weight: 800; }
+.post-empty-start > div { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.post-empty-start button:not(.primary) { background: var(--surface); color: var(--ink); }
+.post-segment { scroll-margin-top: 140px; }
+.post-live-block { padding: 16px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface); }
+.post-live-block.running { border: 2px solid #2f784d; }
+.post-live-block > header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.post-live-block h3 { margin: 4px 0; font-size: 18px; }
+.post-live-block header span, .post-live-block p, .post-live-block > small { font-size: 13px; color: var(--muted); }
+.post-live-block header b { font-size: 13px; }
+.post-live-block .post-live-actions { margin: 12px 0; }
+.post-live-block .post-live-actions button { min-height: 46px; font-size: 14px; }
+.post-live-stories { padding: 0; list-style: none; }
+.post-live-stories li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.post-live-stories li > span { flex: 1 1 160px; font-size: 14px; }
+.post-live-stories small { display: block; color: var(--muted); }
+.post-live-stories button { min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface); font-size: 13px; }
+@media (max-width: 760px) {
+  .producer-pilot-label { display: none; }
+  .producer-coordination > summary b { display: inline-block; margin: 6px 0 0; }
+  .producer-coordination .producer-dates > div { grid-template-columns: 1fr; }
+  .producer-content > .producer-compose-card { max-width: 100%; }
+  .producer-today-actions { flex-wrap: wrap; }
+  .producer-today-actions .workspace-save-status { width: 100%; }
+  .producer-page-heading h1 { font-size: 25px; }
+  .producer-coordination .producer-alert-grid { display: grid; }
+  .post-mode-switch button { font-size: 13px; }
+  .post-pending-action button { width: 100%; }
+}

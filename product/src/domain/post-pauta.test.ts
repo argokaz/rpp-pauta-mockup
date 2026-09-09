@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "./post-pauta";
-import type { StoryItem } from "./schemas";
+import { markStoryResult, moveStoryInActualOrder, segmentResultComplete, storyResultComplete } from "./post-pauta";
+import type { Segment, StoryItem } from "./schemas";
 
 const story = (reference: string): StoryItem => ({
   reference,
@@ -29,5 +29,26 @@ describe("post-pauta por noticia", () => {
     expect(storyResultComplete({ ...story("1"), disposition: "skipped" })).toBe(true);
     expect(storyResultComplete({ ...story("2"), disposition: "aired" })).toBe(false);
     expect(storyResultComplete({ ...story("3"), disposition: "partial", postSummary: "Se emitió el informe principal." })).toBe(true);
+  });
+});
+
+
+describe("pendientes de cierre de emisión", () => {
+  const block: Segment = { id: "test", title: "Entrevista", startTime: "10:00", endTime: "10:15", type: "interview", guest: "", notes: "" };
+
+  it("no permite cerrar un resumen sin confirmar qué salió", () => {
+    expect(segmentResultComplete({ ...block, postSummary: "Conversación sobre salud." })).toBe(false);
+    expect(segmentResultComplete({ ...block, disposition: "aired", postSummary: "  " })).toBe(false);
+    expect(segmentResultComplete({ ...block, disposition: "aired", postSummary: "Conversación sobre salud." })).toBe(true);
+  });
+
+  it("un bloque omitido no exige resumir sus noticias", () => {
+    expect(segmentResultComplete({ ...block, disposition: "skipped", stories: [story("1")] })).toBe(true);
+  });
+
+  it("cada noticia debe tener resultado y resumen o estar omitida", () => {
+    const stories = [{ ...story("1"), disposition: "aired" as const, postSummary: "Informe emitido." }, story("2")];
+    expect(segmentResultComplete({ ...block, disposition: "aired", postSummary: "Resumen general", stories })).toBe(false);
+    expect(segmentResultComplete({ ...block, stories: [stories[0], { ...stories[1], disposition: "skipped" }] })).toBe(true);
   });
 });

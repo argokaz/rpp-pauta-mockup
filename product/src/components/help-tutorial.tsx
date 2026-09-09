@@ -182,13 +182,13 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "producer") return <div className="help-body-stack">
     <ol className="help-step-list">
-      <li><b>1</b><span><strong>Lee lo nuevo</strong><small>Indicaciones y fechas importantes aparecen arriba. Una novedad queda marcada hasta que la veas.</small></span></li>
-      <li><b>2</b><span><strong>Elige la fecha</strong><small>Usa los días visibles o Crear nueva pauta para saltar a una fecha futura.</small></span></li>
+      <li><b>1</b><span><strong>Lee lo nuevo</strong><small>Las indicaciones de tu programa aparecen debajo de la fecha. Despliega el panel para consultar las próximas fechas.</small></span></li>
+      <li><b>2</b><span><strong>Elige la fecha</strong><small>Usa los días visibles o Preparar otra fecha para trabajar una emisión futura.</small></span></li>
       <li><b>3</b><span><strong>Prepara y revisa</strong><small>Pega un texto o escribe aquí. Luego corrige solo las excepciones que detecte Luna.</small></span></li>
-      <li><b>4</b><span><strong>Deja la pauta lista</strong><small>Los bloques se guardan por separado y quedan disponibles para el equipo.</small></span></li>
+      <li><b>4</b><span><strong>Deja la pauta lista</strong><small>Pulsa Guardar y marcar lista. Espera la confirmación de guardado para el equipo.</small></span></li>
       <li><b>5</b><span><strong>Cierra en Post-pauta</strong><small>Marca resultados y resume lo emitido sin duplicar la escaleta.</small></span></li>
     </ol>
-    <div className="help-tip"><strong>Tres accesos permanentes</strong><p>Pauta de hoy para trabajar, Invitados para encontrar especialistas y Post-pauta para cerrar la emisión.</p></div>
+    <div className="help-tip"><strong>Tres accesos permanentes</strong><p>Mi pauta para trabajar, Invitados para encontrar especialistas y Post-pauta para cerrar la emisión.</p></div>
   </div>;
 
   if (id === "pre") return <div className="help-body-stack">
@@ -197,7 +197,7 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
       <article><span>Si empiezas aquí</span><strong>Hacerla en la app</strong><p>Escribe libremente o añade bloques editables. Puedes moverlos y variar su duración.</p></article>
     </div>
     <ol className="help-compact-steps">
-      <li><b>1</b><span>Pulsa <strong>Ordenar con Luna</strong>.</span></li>
+      <li><b>1</b><span>Pulsa <strong>Convertir en escaleta</strong>.</span></li>
       <li><b>2</b><span>Revisa horarios, títulos e invitados en la vista ordenada.</span></li>
       <li><b>3</b><span>Corrige lo dudoso y pulsa <strong>Aceptar escaleta</strong>.</span></li>
     </ol>
@@ -206,9 +206,9 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "post") return <div className="help-body-stack">
     <ol className="help-step-list">
-      <li><b>1</b><span><strong>Abre Post-pauta</strong><small>Encontrarás los mismos bloques de la pre-pauta, plegados para revisar rápido.</small></span></li>
-      <li><b>2</b><span><strong>Durante la emisión</strong><small>Marca Emitido, Parcial, No salió o Añadir en vivo. Ajusta horas solo si hace falta.</small></span></li>
-      <li><b>3</b><span><strong>Después de la emisión</strong><small>Resume qué se dijo. Una cita se considera verificada únicamente después de compararla con el audio.</small></span></li>
+      <li><b>1</b><span><strong>Abre Post-pauta</strong><small>Elige Durante el programa o Después del programa. Ambos usan los mismos bloques.</small></span></li>
+      <li><b>2</b><span><strong>Durante la emisión</strong><small>Usa Entró ahora, Terminó ahora o No salió directamente en cada bloque.</small></span></li>
+      <li><b>3</b><span><strong>Después de la emisión</strong><small>Pulsa Revisar pendientes para abrir el primer bloque incompleto. Resume lo emitido y comprueba las citas con el audio.</small></span></li>
       <li><b>4</b><span><strong>Usa una fuente si existe</strong><small>Pega un documento posterior o vincula un video público de RPP. Luna propone la comparación y tú la confirmas.</small></span></li>
       <li><b>5</b><span><strong>Verifica y cierra</strong><small>El invitado, el tema y el resumen alimentan el histórico compartido.</small></span></li>
     </ol>

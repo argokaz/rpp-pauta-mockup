@@ -50,3 +50,35 @@ asigna una pregunta operativa:
 - [BBC Academy: Proteus production guide](https://downloads.bbc.co.uk/academy/academyfiles/Indie_%20Proteus_production_guide.pdf)
 - [Ross Inception: Running Order](https://help.rossvideo.com/inception/help/v15.0/UserHelp/Online_Help_System/Dialogs/Running_Order/Running_Order.htm)
 - [Ross Inception: Production Cues](https://help.rossvideo.com/inception/help/v15.7/UserHelp/Online_Help_System/Procedures/Broadcast_Stories/Production_Cues.htm)
+
+## Simplificación del recorrido diario — 8 de septiembre de 2026
+
+Implementado en la versión 0.39.0:
+
+- Producción muestra programa y fecha antes de las indicaciones. Las novedades se
+  basan en indicaciones nuevas o actualizadas; los feriados futuros no generan
+  una alerta genérica. Las próximas fechas permanecen consultables en un panel
+  plegable.
+- La pauta vacía ofrece dos entradas: Pegar prepauta y Crear por bloques. El
+  editor abre antes de la escaleta, con foco en el texto también en teléfonos.
+- Guardar y marcar lista guarda la emisión seleccionada y solo muestra Lista
+  después de recibir confirmación. Espera a que terminen los guardados por
+  bloque y no permite cerrar sobre errores o conflictos pendientes.
+- El estado global distingue cambios por guardar, guardado en curso, error,
+  conflicto y guardado confirmado. Reintentar conserva la intención de marcar
+  lista cuando esa acción falló. La salida del navegador avisa si hay cambios
+  pendientes.
+- Invitados en pauta describe inclusión editorial, sin afirmar confirmación de
+  asistencia.
+- Post-pauta separa Durante el programa y Después del programa sobre los mismos
+  datos. Los controles operativos son directos; los documentos y fuentes quedan
+  plegados en revisión. Los campos de cada bloque se guardan automáticamente.
+- Revisar pendientes abre y enfoca el primer bloque incompleto. La lista de
+  pendientes y el cierre usan la misma regla: resultado y resumen, u omisión;
+  las noticias se evalúan individualmente. Una emisión vacía ofrece cómo empezar.
+- La fecha permanece accesible en Post-pauta y la ayuda describe el recorrido
+  actualizado.
+
+Validación local: creación y edición de un bloque; marcar lista y recargar;
+registro de inicio y fin; salto al pendiente; resumen y cierre editorial.
+Revisión móvil a 390 × 844: editor enfocado y sin desborde horizontal.
