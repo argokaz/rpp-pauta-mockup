@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isDemoId } from "@/data/demo-week";
 import { programs } from "@/data/seed";
 import type { PersonRevision, PersonSnapshot } from "@/data/workspace-repository";
@@ -79,6 +79,14 @@ type PeopleDirectoryProps = {
 };
 
 export function PeopleDirectory({ people, canEdit = false, initialSelectedId, onSave, onLoadRevisions, onRestoreField, onMerge, onClose }: PeopleDirectoryProps) {
+  const modalRef = useRef<HTMLElement>(null);
+  const focusedProfile = Boolean(initialSelectedId);
+  useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const modal = modalRef.current;
+    (modal?.querySelector<HTMLElement>('input[type="search"]') ?? modal?.querySelector<HTMLElement>("button"))?.focus();
+    return () => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+  }, []);
   const orderedPeople = useMemo(() => sortPeopleEditorially(people), [people]);
   const initialPerson = orderedPeople.find((person) => person.id === initialSelectedId) ?? orderedPeople[0] ?? null;
   const [query, setQuery] = useState("");
@@ -204,20 +212,28 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal people-directory-modal" role="dialog" aria-modal="true" aria-labelledby="people-directory-title">
+    <div className="modal-backdrop people-directory-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section ref={modalRef} className={`modal people-directory-modal${focusedProfile ? " focused-person-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="people-directory-title" onKeyDown={(event) => {
+        if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+        if (event.key !== "Tab") return;
+        const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter((element) => element.getClientRects().length > 0);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }}>
         <header>
-          <div><span>Archivo editorial</span><h2 id="people-directory-title">Personas e intervenciones</h2></div>
+          <div><span>Archivo editorial</span><h2 id="people-directory-title">{focusedProfile ? "Ficha de la persona" : "Personas e intervenciones"}</h2></div>
           <button onClick={onClose}>Cerrar</button>
         </header>
 
-        <div className="people-directory-toolbar">
+        {!focusedProfile && <div className="people-directory-toolbar">
           <label><span>Buscar por nombre, especialidad, tag, teléfono o tema</span><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ej. psicología infantil, tecnología, Encendidos" /></label>
           <p><strong>{people.length}</strong><span>personas registradas</span></p>
-        </div>
+        </div>}
 
         <div className="people-directory-grid">
-          <aside className="people-results" aria-label="Resultados de personas">
+          {!focusedProfile && <aside className="people-results" aria-label="Resultados de personas">
             <header><strong>{filtered.length} resultado{filtered.length === 1 ? "" : "s"}</strong><span>Colaboradores, frecuencia y reciente</span></header>
             <div>
               {filtered.map((person) => (
@@ -229,7 +245,7 @@ export function PeopleDirectory({ people, canEdit = false, initialSelectedId, on
               ))}
               {!filtered.length && <div className="people-empty"><strong>No encontramos coincidencias</strong><p>Prueba con otro nombre, tag, tema o programa.</p></div>}
             </div>
-          </aside>
+          </aside>}
 
           <section className="person-profile">
             {selected ? (

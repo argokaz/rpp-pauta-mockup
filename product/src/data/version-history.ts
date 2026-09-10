@@ -5,9 +5,10 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.41.2";
+export const CURRENT_VERSION = "0.41.3";
 
 export const versionHistory: VersionEntry[] = [
+  { version: "0.41.3", date: "2026-09-10", title: "Fichas vinculadas dentro de la pauta", changes: ["El nombre de una ficha vinculada abre su perfil completo en un popup: datos, edición, contactos, intervenciones e historial, según los permisos habituales.", "Al cerrar la ficha vuelves al mismo bloque, con soporte de teclado y una vista adaptada al móvil."] },
   { version: "0.41.2", date: "2026-09-10", title: "Indicaciones siempre en amarillo RPP", changes: ["Indicaciones de la semana conserva el amarillo RPP en Agenda y Producción, con o sin novedades, también en modo demo."] },
   { version: "0.41.1", date: "2026-09-10", title: "Acciones administrativas legibles en móvil", changes: ["Crear cambio y Retirar tienen su propia fila adaptable en la parrilla administrativa, sin comprimir ni superponer sus textos."] },
   {

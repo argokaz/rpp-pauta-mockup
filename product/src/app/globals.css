@@ -2644,3 +2644,12 @@ h1, h2, h3, h4, p { margin-top: 0; }
  .admin-schedule-list article > .admin-schedule-actions { grid-column: 1 / -1; }
  .admin-schedule-actions button { flex: 1 1 120px; }
 }
+
+/* Linked profiles keep the pauta underneath and use the complete directory editor. */
+.guest-match .linked-person-button { min-height: 44px; max-width: 100%; padding: 4px 8px; border: 1px solid #aac9b1; border-radius: 6px; background: #edf7ef; color: #245331; font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; white-space: normal; overflow-wrap: anywhere; }
+.guest-match .linked-person-button:hover { background: #dcefe1; }
+.guest-match .linked-person-button:focus-visible { outline: 3px solid var(--action-blue); outline-offset: 2px; }
+.people-directory-backdrop { z-index: 75; }
+.focused-person-modal { width: min(860px, 100%); }
+.focused-person-modal .people-directory-grid { display: block; height: auto; min-height: 0; max-height: calc(100dvh - 140px); overflow: auto; }
+.focused-person-modal .person-profile { overflow: visible; }
