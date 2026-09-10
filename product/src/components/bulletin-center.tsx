@@ -15,6 +15,7 @@ type BulletinCenterProps = {
   onResend: (bulletin: Bulletin) => Promise<void>;
   draft: Bulletin | null;
   saving: boolean;
+  error?: string;
   onDraftChange: (bulletin: Bulletin) => void;
   onPinnedRankChange: (value: string) => void;
   onCancelEdit: () => void;
@@ -25,7 +26,7 @@ function weekLabel(weekStart: string): string {
   return new Intl.DateTimeFormat("es-PE", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${weekStart}T12:00:00`)).replace(".", "");
 }
 
-export function BulletinCenter({ bulletins, programs, weekStart, canEdit, onClose, onCreate, onEdit, onResend, draft, saving, onDraftChange, onPinnedRankChange, onCancelEdit, onSave }: BulletinCenterProps) {
+export function BulletinCenter({ bulletins, programs, weekStart, canEdit, onClose, onCreate, onEdit, onResend, draft, saving, error, onDraftChange, onPinnedRankChange, onCancelEdit, onSave }: BulletinCenterProps) {
   const [tab, setTab] = useState<"current" | "history">("current");
   const [query, setQuery] = useState("");
   const current = useMemo(() => bulletins.filter((item) => item.weekStart === weekStart).sort((left, right) => (left.pinnedRank ?? 99) - (right.pinnedRank ?? 99) || right.updatedAt.localeCompare(left.updatedAt)), [bulletins, weekStart]);
@@ -58,10 +59,10 @@ export function BulletinCenter({ bulletins, programs, weekStart, canEdit, onClos
     }
 
     return (
-      <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancelEdit()}>
+      <div className="modal-backdrop" role="presentation" onMouseDown={(event) => !saving && event.target === event.currentTarget && onCancelEdit()}>
         <section className="modal bulletin-center bulletin-editor" role="dialog" aria-modal="true" aria-labelledby="bulletin-editor-title">
-          <header><div><span>Comunicación editorial</span><h2 id="bulletin-editor-title">{exists ? "Editar indicación" : "Nueva indicación"}</h2><p>Define el mensaje, su alcance y la prioridad. Todas las indicaciones de la semana permanecerán visibles.</p></div><button onClick={onCancelEdit}>Volver</button></header>
-          <div className="bulletin-editor-fields">
+          <header><div><span>Comunicación editorial</span><h2 id="bulletin-editor-title">{exists ? "Editar indicación" : "Nueva indicación"}</h2><p>Define el mensaje, su alcance y la prioridad. Todas las indicaciones de la semana permanecerán visibles.</p></div><button disabled={saving} onClick={onCancelEdit}>Volver</button></header>
+          <fieldset className="bulletin-editor-fields" disabled={saving}>
             <label className="field"><span>Título</span><input autoFocus value={draft.title} onChange={(event) => onDraftChange({ ...draft, title: event.target.value })} /></label>
             <label className="field"><span>Detalle</span><textarea rows={5} value={draft.body} onChange={(event) => onDraftChange({ ...draft, body: event.target.value })} /></label>
             <div className="bulletin-editor-options">
@@ -89,8 +90,9 @@ export function BulletinCenter({ bulletins, programs, weekStart, canEdit, onClos
               </section>
               <label className="field"><span>Prioridad</span><select value={draft.pinnedRank ?? ""} onChange={(event) => onPinnedRankChange(event.target.value)}><option value="">Orden normal</option><option value="1">Prioridad 1</option><option value="2">Prioridad 2</option><option value="3">Prioridad 3</option><option value="4">Prioridad 4</option></select><small>La prioridad cambia el orden; nunca oculta otras indicaciones.</small></label>
             </div>
-          </div>
-          <footer><button onClick={onCancelEdit}>Cancelar</button><button className="primary" disabled={saving || (scopeMode === "selected" && !selectedProgramIds.length)} onClick={() => void onSave()}>{saving ? "Guardando…" : "Guardar indicación"}</button></footer>
+          </fieldset>
+          {error && <p className="save-feedback-error" role="alert">{error}</p>}
+          <footer><button disabled={saving} onClick={onCancelEdit}>Cancelar</button><button className="primary" disabled={saving || (scopeMode === "selected" && !selectedProgramIds.length)} onClick={() => void onSave()}>{saving ? "Guardando…" : "Guardar indicación"}</button></footer>
         </section>
       </div>
     );
@@ -109,7 +111,7 @@ export function BulletinCenter({ bulletins, programs, weekStart, canEdit, onClos
           {visible.map((item) => <article key={item.id} className={item.pinnedRank ? "pinned" : ""}>
             <div className="bulletin-center-meta"><span>{item.pinnedRank ? `Fijada ${item.pinnedRank}` : `Semana del ${weekLabel(item.weekStart)}`}</span><b title={bulletinTargetProgramIds(item).map((programId) => programs.find((program) => program.id === programId)?.shortName).filter(Boolean).join(", ")}>{bulletinScopeLabel(item, programs)}</b></div>
             <h3>{item.title}</h3><p>{item.body}</p>
-            <footer><time>{item.updatedAt ? new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.updatedAt)) : weekLabel(item.weekStart)}</time><div>{tab === "history" && <button disabled={!canEdit} onClick={() => void onResend(item)}>Volver a enviar</button>}<button disabled={!canEdit} onClick={() => onEdit(item)}>{tab === "history" ? "Ver y editar" : "Editar"}</button></div></footer>
+            <footer><time>{item.updatedAt ? new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.updatedAt)) : weekLabel(item.weekStart)}</time><div>{tab === "history" && <button disabled={!canEdit || saving} onClick={() => void onResend(item)}>Volver a enviar</button>}<button disabled={!canEdit} onClick={() => onEdit(item)}>{tab === "history" ? "Ver y editar" : "Editar"}</button></div></footer>
           </article>)}
           {!visible.length && <div className="empty-state"><strong>{tab === "current" ? "Sin indicaciones esta semana" : "No encontramos indicaciones anteriores"}</strong><p>{tab === "current" ? "Añade solo la información que producción necesita tener presente." : "Prueba con otra búsqueda."}</p></div>}
         </div>

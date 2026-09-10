@@ -2569,3 +2569,68 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .workspace-tools .tools-account { padding: 8px; font-size: 15px; line-height: 1.4; border-bottom: 1px solid var(--line); }
 .mode-switcher > nav .loading-mode { display: flex; align-items: center; justify-content: center; flex: 1 0 auto; min-height: 48px; padding: 10px 12px; white-space: nowrap; }
 .mode-switcher > nav .loading-mode strong { font-size: 16px; }
+
+/* Actions take their own layout space, including at intermediate widths. */
+.agenda-program-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; padding-right: 12px; border-left-color: var(--program-accent, #245b91); }
+.agenda-program-summary { min-width: 0; grid-template-columns: 62px minmax(0, 1fr) auto; }
+.agenda-program-summary .slot-badges { grid-column: 2; grid-row: 2; justify-content: flex-start; flex-wrap: wrap; }
+.agenda-program-summary .agenda-expand-label { grid-column: 3; grid-row: 1 / 3; }
+.agenda-direct-open { position: static; margin: 0; width: auto; min-height: 44px; padding: 10px 14px; white-space: normal; max-width: 190px; }
+.agenda-program-detail { grid-column: 1 / -1; min-width: 0; }
+.agenda-program-row.expanded { grid-template-columns: minmax(0, 1fr); padding-right: 0; }
+.agenda-program-detail > header, .agenda-program-detail > header > div:last-child,
+.modal > header, .modal > footer, .post-footer, .admin-toolbar, .bulletin-center-toolbar { gap: 12px; flex-wrap: wrap; }
+.agenda-program-detail > header > div:last-child { display: flex; }
+.agenda-program-detail > header button { height: auto; padding: 10px 12px; white-space: normal; }
+.modal > header > div:first-child, .post-heading > div { min-width: 0; flex: 1 1 220px; }
+.modal > header > button { flex-shrink: 0; }
+.modal > footer > button, .primary { white-space: normal; height: auto; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+.bulletin-editor-fields { margin: 0; border: 0; min-width: 0; }
+.save-feedback-error { margin: 10px 18px; padding: 12px; border: 1px solid #e5a4a4; border-radius: 8px; color: #922a2a; background: #fff0ef; }
+.producer-coordination-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; color: #174e7a; }
+.producer-coordination-heading b { padding: 4px 9px; border-radius: 6px; background: #daeaf8; font-size: 14px; }
+.producer-coordination { border-color: #abc8e1; background: #f0f7fc; }
+.producer-coordination.has-updates { border-color: #70a8d5; }
+.producer-coordination .producer-bulletins { min-width: 0; }
+.producer-coordination .producer-bulletin-featured article { border-color: #b6cee2; background: #fff; }
+.producer-coordination .producer-bulletin-featured article.is-unseen { background: #e9f4fc; border-left: 4px solid #267bb8; }
+.producer-coordination .producer-alert-title { display: none; }
+:root { --action-blue: #215d91; --action-blue-hover: #174773; }
+.primary, .agenda-direct-open { background: var(--action-blue); border-color: var(--action-blue); color: #fff; }
+.primary:hover, .agenda-direct-open:hover { background: var(--action-blue-hover); }
+.home-actions > button:nth-child(2) { background: #eef5fd; border-color: #abc7e7; color: #214f7b; }
+.home-actions > button:nth-child(3) { background: #edf6f1; border-color: #b2d5c2; color: #245c42; }
+.slot-badges i, .home-state { width: fit-content; padding: 5px 9px; border: 1px solid transparent; border-radius: 7px; font-style: normal; font-size: 14px; font-weight: 750; }
+.slot-badges i[data-status="empty"], .home-state[data-status="empty"] { background: #fff0da; border-color: #e4c18a; color: #78490c; }
+.slot-badges i[data-status="draft"], .home-state[data-status="draft"] { background: #e8f1fc; border-color: #b1c9e7; color: #215382; }
+.slot-badges i[data-status="ready"], .home-state[data-status="ready"] { background: #e5f4e9; border-color: #a8d2b5; color: #22653b; }
+.slot-badges i[data-status="post"], .home-state[data-status="post"] { background: #f1eafd; border-color: #cdb9e7; color: #694293; }
+.home-state[data-status="live"] { background: #ffeadc; border-color: #e7b298; color: #924021; }
+.agenda-program-row.live { background: #fff5e9; border-color: #d5a16d; border-left-color: #c47732; }
+@media (max-width: 700px) {
+ .agenda-program-row { grid-template-columns: minmax(0, 1fr); padding-right: 0; gap: 0; }
+ .agenda-program-summary { grid-template-columns: 48px minmax(0, 1fr) auto; padding: 12px 10px; }
+ .agenda-program-summary .slot-badges { grid-column: 2 / -1; }
+ .agenda-program-summary .agenda-expand-label { grid-row: 1; }
+ .agenda-direct-open { width: auto; max-width: none; justify-self: stretch; margin: 0 10px 10px; }
+ .agenda-program-detail > header > div:last-child { flex-wrap: wrap; }
+ .agenda-program-detail > header button { flex: 1 1 140px; }
+ .producer-coordination .producer-alert-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Help and version controls no longer float over editable content. */
+.floating-help, .floating-version { position: static; display: inline-flex; vertical-align: middle; margin: 12px; }
+.producer-account .producer-header-help { min-height: 44px; display: inline-flex; align-items: center; padding: 8px 12px; }
+.producer-brand img, .producer-account > b { flex-shrink: 0; }
+.producer-coordination .producer-bulletin-featured { background: transparent; border: 0; padding: 0; }
+@media (max-width: 1000px) {
+ .producer-portal .producer-dashboard-back { font-size: 0; width: 44px; min-width: 44px; flex-shrink: 0; padding: 0; }
+ .producer-portal .producer-dashboard-back > span { font-size: 20px; }
+ .producer-leading .producer-brand { flex: 1; }
+ .producer-brand > span { min-width: 0; }
+ .producer-account { gap: 6px; flex-wrap: wrap; max-width: 145px; justify-content: flex-end; }
+ .producer-account .producer-pilot-label { flex-basis: 100%; white-space: normal; text-align: right; }
+ .producer-portal .producer-account .producer-header-help { font-size: 15px; width: auto; max-width: none; flex-shrink: 0; }
+ .producer-account .producer-header-help::after { content: none; }
+ .producer-portal .producer-account .producer-sign-out { font-size: 0; width: 44px; padding: 0; }
+ .producer-account .producer-sign-out::after { content: "Salir"; font-size: 14px; }
+}

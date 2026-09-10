@@ -1,5 +1,7 @@
 "use client";
 
+import type { EditorialChanges } from "@/data/workspace-repository";
+
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import Image from "next/image";
 import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
@@ -590,7 +592,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     </>;
   }
 
-  async function commit(next: WorkspaceState, message: string) {
+  async function commit(next: WorkspaceState, message: string, editorialChanges?: EditorialChanges) {
     if (!canEdit) {
       notify("Tu perfil tiene acceso de lectura.");
       return false;
@@ -599,9 +601,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSaveError("");
     setSaveRetryAction("draft");
     try {
+      if (editorialChanges && repository.saveEditorialChanges) {
+        await repository.saveEditorialChanges(editorialChanges);
+        setWorkspace((current) => {
+          const merged = { ...current };
+          for (const field of ["bulletins", "importantDates"] as const) {
+            const updates = editorialChanges[field];
+            if (updates) Object.assign(merged, { [field]: [...current[field].filter((item) => !updates.some((update) => update.id === item.id)), ...updates] });
+          }
+          return merged;
+        });
+        notify(message);
+        return true;
+      }
       const cleanNext = demoMode ? next : stripDemoData(next);
-      const scopedEmission = isRestrictedProducer
-        ? cleanNext.emissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === selectedDate)
+      const scopedEmission = !editorialChanges
+        ? cleanNext.emissions.find((emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate)
         : undefined;
       const saved = scopedEmission && repository.saveProgramEmission
         ? await repository.saveProgramEmission(scopedEmission)
@@ -1114,6 +1129,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   async function saveBulletin() {
+    if (saving) return;
     if (!bulletinDraft?.title.trim() || !bulletinDraft.body.trim()) {
       notify("Completa el título y el detalle.");
       return;
@@ -1130,10 +1146,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         ? workspace.bulletins.map((item) => item.id === bulletinDraft.id ? savedBulletin : item)
         : [...workspace.bulletins, savedBulletin],
     };
-    if (await commit(next, exists ? "Indicación actualizada." : "Indicación añadida.")) setBulletinDraft(null);
+    if (await commit(next, exists ? "Indicación actualizada." : "Indicación añadida.", { bulletins: [savedBulletin] })) setBulletinDraft(null);
   }
 
   async function resendBulletin(item: Bulletin) {
+    if (saving) return;
     const resent: Bulletin = {
       ...item,
       id: newId(),
@@ -1141,7 +1158,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       pinnedRank: null,
       updatedAt: new Date().toISOString(),
     };
-    await commit({ ...workspace, bulletins: [...workspace.bulletins, resent] }, "Indicación reenviada a la semana actual.");
+    await commit({ ...workspace, bulletins: [...workspace.bulletins, resent] }, "Indicación reenviada a la semana actual.", { bulletins: [resent] });
   }
 
   function setBulletinPinnedRank(value: string) {
@@ -1181,7 +1198,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     const message = eventBulletin
       ? exists ? "Evento actualizado y producción avisada." : "Evento añadido y producción avisada."
       : exists ? "Evento actualizado." : "Evento añadido.";
-    if (await commit(next, message)) setDateDraft(null);
+    if (await commit(next, message, { importantDates: [dateDraft], ...(eventBulletin ? { bulletins: [eventBulletin] } : {}) })) setDateDraft(null);
   }
 
   async function savePersonRecord(person: Person): Promise<boolean> {
@@ -2378,7 +2395,7 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
         <header className="producer-topbar">
           <div className="producer-leading">
             {canReturnToDashboard && <button className="producer-dashboard-back" onClick={returnToDashboard}><span aria-hidden="true">←</span> Dashboard general</button>}
-            <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><small>Espacio de producción</small><strong>{producerProgram?.name ?? "Mi programa"}</strong></span></div>
+            <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><small>Espacio de producción</small><strong>{producerProgram?.shortName ?? "Mi programa"}</strong></span></div>
             {isRestrictedProducer && (producerProgramIds?.length ?? 0) > 1 && <label className="producer-program-switch"><span>Programa</span><select aria-label="Programa de producción" value={activeProducerProgramId} onChange={(event) => setActiveProducerProgramId(event.target.value)}>{programs.filter((program) => producerProgramIds?.includes(program.id)).map((program) => <option key={program.id} value={program.id}>{program.shortName}</option>)}</select></label>}
           </div>
           <nav aria-label="Secciones de producción">
@@ -2387,7 +2404,8 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
             <button className={producerSection === "post" ? "active" : ""} onClick={() => setProducerSection("post")}>Post-pauta</button>
           </nav>
           <div className="producer-account">
-            {isRestrictedProducer && onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
+            <button className="producer-header-help" onClick={openHelpTutorial}>Ayuda</button>
+            {isRestrictedProducer && onSignOut && <button className="producer-sign-out" onClick={onSignOut}>Cerrar sesión</button>}
             <b>{accountLabel}</b>{pilotReady && <small className="producer-pilot-label">Base compartida · Piloto</small>}
           </div>
         </header>
@@ -2396,22 +2414,12 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
 
         <section className="producer-content">
           <header className="producer-page-heading">
-            <div><span>{selectedSlot?.startTime ?? "10:00"} - {selectedSlot?.endTime ?? "12:30"}</span><h1>{producerSection === "today" ? longSpanishDate(selectedDate) : producerSection === "people" ? "Base de invitados" : "Post-pauta"}</h1><p>{producerSection === "today" ? "Prepara, revisa y deja lista la pauta del programa desde una sola pantalla." : producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p></div>
+            <div><span>{selectedSlot?.startTime ?? "10:00"} - {selectedSlot?.endTime ?? "12:30"}</span><h1>{producerSection === "today" ? longSpanishDate(selectedDate) : producerSection === "people" ? "Base de invitados" : "Post-pauta"}</h1>{producerSection !== "today" && <p>{producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p>}</div>
 
           </header>
 
-          {producerSection !== "people" && (
-            <div className="producer-date-strip" aria-label="Cambiar fecha de la pauta">
-              <button className="producer-date-arrow" aria-label="Emisión anterior" onClick={() => chooseProducerDate(nearestProducerDate(selectedDate, -1))}>Anterior</button>
-              <div className="producer-day-tabs" aria-label="Días del programa">{producerDays.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseProducerDate(day.date)}><span>{day.label.split(" ")[0]}</span><strong>{day.label.split(" ")[1]}</strong></button>)}</div>
-              <label className="producer-date-picker"><span>Ir a cualquier fecha</span><input type="date" value={selectedDate} onChange={(event) => chooseProducerDate(event.target.value)} /></label>
-              <button className="producer-date-arrow" aria-label="Emisión siguiente" onClick={() => chooseProducerDate(nearestProducerDate(selectedDate, 1))}>Siguiente</button>
-              <button className="producer-other-date" onClick={openProducerNewPauta}>Preparar otra fecha</button>
-            </div>
-          )}
-
-        <details className={`producer-coordination ${producerBulletinUpdateCount ? "has-updates" : ""}`} key={producerNoticesStorageKey} open={producerBulletinUpdateCount > 0 || undefined}>
-          <summary><strong>{visibleBulletins.length ? `${visibleBulletins.length} indicaciones para tu programa` : "Indicaciones y próximas fechas"}</strong>{producerBulletinUpdateCount > 0 && <b>{producerBulletinUpdateCount} nuevas o actualizadas</b>}</summary>
+        <section className={`producer-coordination ${producerBulletinUpdateCount ? "has-updates" : ""}`} aria-label="Indicaciones de la semana">
+          <header className="producer-coordination-heading"><strong>Indicaciones de la semana</strong>{producerBulletinUpdateCount > 0 && <b>{producerBulletinUpdateCount} nuevas o actualizadas</b>}</header>
           {producerBulletinUpdateCount > 0 && <button className="notice-mark-seen" onClick={markProducerNoticesSeen}>Marcar indicaciones como vistas</button>}
           <div className="producer-alert-grid">
             <div className="producer-bulletins">
@@ -2440,7 +2448,17 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
               })}</div>
             </details>
           </div>
-        </details>
+        </section>
+
+          {producerSection !== "people" && (
+            <div className="producer-date-strip" aria-label="Cambiar fecha de la pauta">
+              <button className="producer-date-arrow" aria-label="Emisión anterior" onClick={() => chooseProducerDate(nearestProducerDate(selectedDate, -1))}>Anterior</button>
+              <div className="producer-day-tabs" aria-label="Días del programa">{producerDays.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseProducerDate(day.date)}><span>{day.label.split(" ")[0]}</span><strong>{day.label.split(" ")[1]}</strong></button>)}</div>
+              <label className="producer-date-picker"><span>Ir a cualquier fecha</span><input type="date" value={selectedDate} onChange={(event) => chooseProducerDate(event.target.value)} /></label>
+              <button className="producer-date-arrow" aria-label="Emisión siguiente" onClick={() => chooseProducerDate(nearestProducerDate(selectedDate, 1))}>Siguiente</button>
+              <button className="producer-other-date" onClick={openProducerNewPauta}>Preparar otra fecha</button>
+            </div>
+          )}
 
           {producerSection === "today" && (
             <>
@@ -2740,7 +2758,7 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
                     const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
                     const expanded = expandedAgendaSlots.has(slot.id);
                     return (
-                      <article className={`agenda-program-row ${expanded ? "expanded" : ""} ${isLive ? "live" : ""}`} key={slot.id}>
+                      <article className={`agenda-program-row ${expanded ? "expanded" : ""} ${isLive ? "live" : ""}`} style={{ "--program-accent": program.accentColor } as CSSProperties} key={slot.id}>
                         <button className="agenda-program-summary" aria-expanded={expanded} onClick={() => toggleAgendaSlot(slot.id)}>
                           <time>{slot.startTime}</time><span><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span><span className="slot-badges">{isLive && <b>Al aire ahora</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span><b className="agenda-expand-label">{expanded ? "Cerrar" : emission?.segments.length ? `${emission.segments.length} bloques` : "Ver"}</b>
                         </button>
@@ -2793,7 +2811,7 @@ ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
 
       {showPeopleDirectory && <PeopleDirectory people={effectivePeople} canEdit={canEdit} initialSelectedId={peopleDirectorySelectedId} onSave={savePersonRecord} onLoadRevisions={repository.loadPersonRevisions} onRestoreField={repository.restorePersonField ? restorePersonRecord : undefined} onMerge={repository.mergePeople ? mergePersonRecords : undefined} onClose={() => { setShowPeopleDirectory(false); setPeopleDirectorySelectedId(""); }} />}
       {showArchiveSearch && <ArchiveSearch emissions={effectiveEmissions} programs={programs} searchArchive={repository.searchArchive} onOpenResult={openArchiveResult} onClose={() => setShowArchiveSearch(false)} />}
-      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => { setBulletinDraft(null); setShowBulletinCenter(false); }} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} draft={bulletinDraft} saving={saving} onDraftChange={setBulletinDraft} onPinnedRankChange={setBulletinPinnedRank} onCancelEdit={() => setBulletinDraft(null)} onSave={saveBulletin} />}
+      {showBulletinCenter && <BulletinCenter bulletins={workspace.bulletins} programs={programs} weekStart={visibleWeekStart} canEdit={isEditorialAdmin && canEdit} onClose={() => { setBulletinDraft(null); setShowBulletinCenter(false); }} onCreate={() => setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: new Date().toISOString() })} onEdit={setBulletinDraft} onResend={resendBulletin} draft={bulletinDraft} saving={saving} error={saveError} onDraftChange={setBulletinDraft} onPinnedRankChange={setBulletinPinnedRank} onCancelEdit={() => setBulletinDraft(null)} onSave={saveBulletin} />}
       {showAnnualCalendar && <AnnualCalendar emissions={effectiveEmissions} importantDates={workspace.importantDates} programs={programs} scheduleSlots={scheduleSlots} initialDate={selectedDate} canEdit={canEdit} onClose={() => setShowAnnualCalendar(false)} onCreateImportantDate={(date) => setDateDraft({ id: newId(), date, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })} onEditImportantDate={setDateDraft} onOpenProgram={openProgramSlot} />}
       {showOperationsAdmin && isEditorialAdmin && <OperationsAdmin canManageUsers={appRole === "superadmin"} repository={repository} workspace={{ ...workspace, programs, scheduleSlots }} initialDate={selectedDate} getAccessToken={getAccessToken} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowOperationsAdmin(false)} />}
       {showFixedBlocks && selectedProgram && <FixedBlocksManager repository={repository} workspace={{ ...workspace, fixedBlocks }} program={selectedProgram} initialDate={selectedDate} onWorkspaceChange={(next) => { setWorkspace(next); setDirty(false); }} onClose={() => setShowFixedBlocks(false)} />}

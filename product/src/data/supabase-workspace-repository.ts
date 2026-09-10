@@ -1,6 +1,7 @@
+import { withSaveDeadline } from "./save-deadline";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { segmentSchema, workspaceStateSchema, type Emission, type Segment, type WorkspaceState } from "@/domain/schemas";
-import type { PersonRevision, PersonSnapshot, SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
+import type { EditorialChanges, PersonRevision, PersonSnapshot, SegmentDeleteResult, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import type { ArchiveSearchPage, ArchiveSearchRecord } from "@/domain/archive-search";
 import { legacyParticipant } from "@/domain/editorial-participants";
 
@@ -250,6 +251,33 @@ export function createSupabaseWorkspaceRepository(
           })
           .sort((a, b) => b.date.localeCompare(a.date)),
       })),
+    });
+  }
+
+  async function saveEditorialChanges(changes: EditorialChanges): Promise<void> {
+    await withSaveDeadline(async (signal) => {
+      if (changes.bulletins?.length) {
+        const { error } = await supabase.from("bulletins").upsert(changes.bulletins.map((bulletin) => {
+          const databaseScope = scopeToDatabase[bulletin.scope];
+          const programIds = databaseScope ? [] : bulletin.programIds.length ? bulletin.programIds : [bulletin.scope];
+          return { id: bulletin.id, week_start: bulletin.weekStart, title: bulletin.title, body: bulletin.body,
+            scope: databaseScope ?? "program", scope_program_id: programIds[0] ?? null, scope_program_ids: programIds,
+            pin_rank: bulletin.pinnedRank, active: true, created_by: userId };
+        })).abortSignal(signal);
+        assertNoError(error, "No se pudo guardar la indicación");
+      }
+      for (const item of changes.importantDates ?? []) {
+        const { error } = await supabase.from("important_dates").upsert({ id: item.id, event_date: item.date,
+          title: item.title, details: item.details, date_category: item.category, source_url: item.sourceUrl || null, created_by: userId }).abortSignal(signal);
+        assertNoError(error, "No se pudo guardar la fecha");
+        const { error: removalError } = await supabase.from("important_date_plans").delete().eq("important_date_id", item.id).abortSignal(signal);
+        assertNoError(removalError, "No se pudieron actualizar las coberturas");
+        const plans = Object.entries(item.plans).filter(([, notes]) => notes.trim()).map(([programId, notes]) => ({ important_date_id: item.id, program_id: programId, notes, planned: true }));
+        if (plans.length) {
+          const { error: plansError } = await supabase.from("important_date_plans").insert(plans).abortSignal(signal);
+          assertNoError(plansError, "No se pudieron guardar las coberturas");
+        }
+      }
     });
   }
 
@@ -824,5 +852,5 @@ export function createSupabaseWorkspaceRepository(
     return () => { void supabase.removeChannel(channel); };
   }
 
-  return { mode: "supabase", load, save, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, loadPersonRevisions, restorePersonField, mergePeople, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
+  return { mode: "supabase", load, save, saveEditorialChanges, saveProgramEmission, replaceProgramEmission, saveEmissionStatus, savePerson, loadPersonRevisions, restorePersonField, mergePeople, saveSegment, deleteSegment, saveSegmentOrder, loadSegmentRevisions, searchArchive, saveProgram, saveScheduleSlot, deleteScheduleSlot, saveFixedBlock, deleteFixedBlock, loadEditorialUsers, saveEditorialUser, subscribe, confirmImport };
 }

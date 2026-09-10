@@ -12,6 +12,14 @@ export function createLocalWorkspaceRepository(storage: { load: () => WorkspaceS
   async load() {
     return syncLocalPeople(loadWorkspace());
   },
+  async saveEditorialChanges(changes) {
+    const current = loadWorkspace();
+    for (const field of ["bulletins", "importantDates"] as const) {
+      const updates = changes[field];
+      if (updates) Object.assign(current, { [field]: [...current[field].filter((item) => !updates.some((update) => update.id === item.id)), ...updates] });
+    }
+    saveWorkspace(current);
+  },
   async save(state) {
     const synced = syncLocalPeople(state);
     saveWorkspace(synced);

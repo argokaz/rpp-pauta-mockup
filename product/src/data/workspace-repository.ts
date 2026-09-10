@@ -1,4 +1,4 @@
-import type { Emission, FixedBlock, Person, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, ImportantDate, Emission, FixedBlock, Person, Program, ScheduleSlot, Segment, WorkspaceState } from "@/domain/schemas";
 import type { ArchiveSearchFilters, ArchiveSearchPage } from "@/domain/archive-search";
 
 export type StorageMode = "local" | "supabase";
@@ -35,10 +35,13 @@ export type EditorialUser = {
   programIds: string[];
 };
 
+export type EditorialChanges = { bulletins?: Bulletin[]; importantDates?: ImportantDate[] };
+
 export interface WorkspaceRepository {
   mode: StorageMode;
   load(): Promise<WorkspaceState>;
   save(state: WorkspaceState): Promise<WorkspaceState>;
+  saveEditorialChanges?(changes: EditorialChanges): Promise<void>;
   saveProgramEmission?(emission: Emission): Promise<WorkspaceState>;
   replaceProgramEmission?(emission: Emission): Promise<WorkspaceState>;
   saveEmissionStatus(emission: Emission): Promise<void>;

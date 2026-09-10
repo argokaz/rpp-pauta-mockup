@@ -182,7 +182,7 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "producer") return <div className="help-body-stack">
     <ol className="help-step-list">
-      <li><b>1</b><span><strong>Lee lo nuevo</strong><small>Las indicaciones de tu programa aparecen debajo de la fecha. Despliega el panel para consultar las próximas fechas.</small></span></li>
+      <li><b>1</b><span><strong>Lee lo nuevo</strong><small>Las indicaciones de tu programa permanecen visibles debajo de la fecha. Próximas fechas se despliega por separado.</small></span></li>
       <li><b>2</b><span><strong>Elige la fecha</strong><small>Usa los días visibles o Preparar otra fecha para trabajar una emisión futura.</small></span></li>
       <li><b>3</b><span><strong>Prepara y revisa</strong><small>Pega un texto o escribe aquí. Luego corrige solo las excepciones que detecte Luna.</small></span></li>
       <li><b>4</b><span><strong>Deja la pauta lista</strong><small>Pulsa Guardar y marcar lista. Espera la confirmación de guardado para el equipo.</small></span></li>

@@ -5,9 +5,21 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.40.1";
+export const CURRENT_VERSION = "0.41.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.41.0", date: "2026-09-10", title: "Guardado puntual y controles sin superposición",
+    changes: [
+      "Guardar o reenviar una indicación envía solo esa indicación, sin reescribir calendarios, personas ni pautas ni esperar una recarga completa.",
+      "Los eventos guardan solo sus datos y coberturas. Los borradores y cierres de pauta del superadmin guardan únicamente la emisión seleccionada.",
+      "El guardado editorial tiene un límite de espera de 15 segundos y conserva el formulario para reintentar. Los errores de indicaciones permanecen visibles.",
+      "Las indicaciones de Producción aparecen abiertas justo debajo de la fecha, antes del selector de día, también después de marcarlas como vistas.",
+      "Agenda reserva espacio propio para Abrir programa. Encabezados, grupos de botones y formularios se adaptan al ancho disponible.",
+      "Azul para acciones y edición, verde para pautas listas, ámbar para pendientes y violeta para post-pauta. Los estados conservan sus etiquetas.",
+      "Ayuda y versión dejan de flotar sobre la pauta; Producción mantiene Ayuda en el encabezado y coordinación en Herramientas.",
+    ],
+  },
   {
     version: "0.40.1",
     date: "2026-09-10",

@@ -111,3 +111,22 @@ de emisión, separación del contenido real, persistencia y reinicio, cambios de
 bloques e indicaciones sin red y revisión local de prepautas. Recorrido manual
 con texto de ejemplo, aceptación y guardado, vuelta al trabajo real y revisión
 a 390 px de ancho.
+
+## 10 de septiembre de 2026 · v0.41.0
+
+Se corrigió el guardado de indicaciones: `commit` enviaba todo el estado a
+`persistState`, que reescribía todas las indicaciones, eventos, coberturas,
+personas y emisiones mediante llamadas sucesivas y recargaba ocho tablas.
+`saveEditorialChanges` escribe únicamente los registros editados y confirma
+una indicación con una sola solicitud. Los eventos quedan acotados a su ID y
+coberturas; los guardados de pauta también se acotan al programa seleccionado.
+
+El guardado editorial se cancela tras 15 segundos sin confirmación, conserva el
+borrador y permite reintentar con el mismo ID. El formulario no se cierra en
+error y muestra el mensaje de forma persistente. Los cambios confirmados se
+integran por ID, preservando otros datos que hayan cambiado durante la espera.
+
+Agenda usa columnas reales para sus acciones en lugar de un botón absoluto
+sobre el resumen. Se revisaron anchos de 1280, 1000, 768 y 390 px. Estados con
+colores y texto; ayuda y versión sin superponerse al contenido. Las indicaciones
+de Producción permanecen abiertas inmediatamente debajo de la fecha.
