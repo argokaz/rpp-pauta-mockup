@@ -40,3 +40,20 @@ resumen, cita, programa, productor y fecha directamente en PostgreSQL. La
 consulta devuelve veinte resultados por vez, combina filtros y tolera pequeños
 errores en nombres de invitados. La vista general también puede abrir la pauta
 o post-pauta correspondiente desde cada hallazgo.
+
+## Demo actual y legibilidad · v0.40.0
+
+Pulsa **Activar demo** en la franja superior. El popup muestra pautas ya llenas y
+ofrece una pauta vacía o una post-pauta para completar. **Qué puedo probar**
+reabre la guía. En una pauta vacía, Pegar prepauta ofrece **Cargar texto de ejemplo**:
+puedes modificarlo, convertirlo en escaleta, aceptar y marcar la pauta lista.
+
+El demo se prepara con la semana y hora de Lima al activarlo. Las pruebas se
+guardan solo en ese navegador, separadas de las emisiones reales. **Volver al
+trabajo real** devuelve la vista anterior. **Reiniciar demo** recrea los ejemplos
+actuales y elimina los ejercicios locales de esa semana, previa confirmación.
+La lectura de prepautas es local; IA, video y accesos reales no se ejecutan allí.
+
+Campos de 16 px, textos secundarios de al menos 14 px y títulos de bloque más
+grandes facilitan la operación. Los botones se redistribuyen en móvil para
+mantener la lectura sin desplazamiento horizontal de la página.

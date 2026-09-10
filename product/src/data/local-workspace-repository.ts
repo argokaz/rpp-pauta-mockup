@@ -1,9 +1,13 @@
-import { loadWorkspace, saveWorkspace } from "@/data/local-repository";
+import { loadWorkspace as loadLocalWorkspace, saveWorkspace as saveLocalWorkspace } from "@/data/local-repository";
+import type { WorkspaceState } from "@/domain/schemas";
 import type { WorkspaceRepository } from "@/data/workspace-repository";
 import { syncLocalPeople } from "@/domain/people-history";
 import { searchArchiveLocally } from "@/domain/archive-search";
 
-export const localWorkspaceRepository: WorkspaceRepository = {
+export function createLocalWorkspaceRepository(storage: { load: () => WorkspaceState; save: (state: WorkspaceState) => void } = { load: loadLocalWorkspace, save: saveLocalWorkspace }): WorkspaceRepository {
+  const loadWorkspace = storage.load;
+  const saveWorkspace = storage.save;
+  return {
   mode: "local",
   async load() {
     return syncLocalPeople(loadWorkspace());
@@ -182,3 +186,6 @@ export const localWorkspaceRepository: WorkspaceRepository = {
   },
   async confirmImport() {},
 };
+}
+
+export const localWorkspaceRepository = createLocalWorkspaceRepository();

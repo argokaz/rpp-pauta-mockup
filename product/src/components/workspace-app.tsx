@@ -19,7 +19,10 @@ import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { isFriday28PostPilot, YoutubePostSource } from "@/components/youtube-post-source";
 import { structurePauta } from "@/data/ai-pauta-client";
 import { structurePostPauta } from "@/data/ai-post-pauta-client";
-import { createDemoWeekEmissions, DEMO_DATA_AVAILABLE, findDemoEmptyTarget, isDemoId, mergeDemoEmissions, mergeDemoPeople, stripDemoData } from "@/data/demo-week";
+import { isDemoId, stripDemoData } from "@/data/demo-week";
+import { practicePautaProposal } from "@/data/practice-workspace";
+import { DemoGuide } from "@/components/demo-guide";
+import { EditorialHome } from "@/components/editorial-home";
 import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seedPrograms, scheduleSlots as seedScheduleSlots } from "@/data/seed";
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { PersonSnapshot, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
@@ -34,13 +37,8 @@ import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDays
 import { bulletinForImportantDate } from "@/domain/event-bulletins";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLabels, segmentParticipants, withParticipantCompatibility } from "@/domain/editorial-participants";
-import { emissionSchema } from "@/domain/schemas";
 import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, SegmentParticipant, StoryItem, WorkspaceState } from "@/domain/schemas";
 
-const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled-v2";
-const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
-const DEMO_SHOWCASE_DATE = "2026-08-28";
-const DEMO_SHOWCASE_PROGRAM_ID = "encendidos";
 const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
 const HELP_SEEN_STORAGE_KEY = "rpp-pauta-help-seen-v1";
 const PILOT_MODE_ACTIVE = process.env.NEXT_PUBLIC_PILOT_MODE !== "false";
@@ -49,18 +47,6 @@ type ProducerComposerMode = "paste" | "write";
 type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
 type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
 type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
-type DemoReturnContext = {
-  activeView: WorkspaceView;
-  selectedDate: string;
-  selectedSlotId: string;
-  producerExperience: boolean;
-  activeProducerProgramId: string;
-  producerSection: "today" | "people" | "post";
-  postSourceText: string;
-  postSourceType: "document" | "youtube_captions";
-  postAiResult: StructurePostPautaResponse | null;
-};
-
 function editorialDayForDate(date: string) {
   const parsedDate = new Date(`${date}T12:00:00`);
   const formattedLabel = new Intl.DateTimeFormat("es-PE", {
@@ -242,24 +228,28 @@ type WorkspaceAppProps = {
   onSignOut?: () => void;
   producerProgramIds?: string[];
   appRole?: "superadmin" | "general_producer" | "producer" | "viewer";
+  demoMode?: boolean;
+  onToggleDemo?: () => void;
+  onResetDemo?: () => void;
 };
 
-type WorkspaceView = "agenda" | "program" | "desk" | "reception" | "post";
+type WorkspaceView = "home" | "agenda" | "program" | "desk" | "reception" | "post";
 
 const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
+  { id: "home", code: "", label: "Hoy", description: "Pendientes y siguientes pasos" },
   { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
-  { id: "desk", code: "B", label: "Mesa", description: "Kanban editorial" },
+  { id: "desk", code: "B", label: "Mesa", description: "Pendientes por estado" },
   { id: "program", code: "C", label: "Programa", description: "Editar mi pauta" },
   { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
-  { id: "post", code: "E", label: "Post", description: "Registrar lo emitido" },
+  { id: "post", code: "E", label: "Post-pauta", description: "Registrar lo emitido" },
 ];
 
-export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramIds, appRole = "superadmin" }: WorkspaceAppProps) {
+export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramIds, appRole = "superadmin", demoMode = false, onToggleDemo, onResetDemo }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => initialWorkspace ?? initialWorkspaceState);
-  const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
+  const [activeView, setActiveView] = useState<WorkspaceView>("home");
   const [selectedDate, setSelectedDate] = useState(todayInLima);
   const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
-  const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
+  const [programFilter, setProgramFilter] = useState<"all" | "managed">("managed");
   const [hydrated, setHydrated] = useState(Boolean(initialWorkspace));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -304,8 +294,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [captureCollapseOverride, setCaptureCollapseOverride] = useState<{ selectionKey: string; collapsed: boolean } | null>(null);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
   const [expandedAgendaSlots, setExpandedAgendaSlots] = useState<Set<string>>(() => new Set());
-  const [demoDataEnabled, setDemoDataEnabled] = useState(false);
-  const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
+  const [showDemoGuide, setShowDemoGuide] = useState(demoMode);
   const [segmentSyncStates, setSegmentSyncStates] = useState<Record<string, SegmentSyncStatus>>({});
   const [segmentConflicts, setSegmentConflicts] = useState<Record<string, SegmentConflict>>({});
   const [segmentHistory, setSegmentHistory] = useState<{ segmentId: string; title: string; loading: boolean; entries: SegmentRevision[] } | null>(null);
@@ -316,7 +305,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const segmentSyncStatesRef = useRef<Record<string, SegmentSyncStatus>>({});
   const segmentConflictsRef = useRef<Record<string, SegmentConflict>>({});
   const producerDashboardHistoryRef = useRef(false);
-  const demoReturnContextRef = useRef<DemoReturnContext | null>(null);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -340,7 +328,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
   const programs = workspace.programs.length ? workspace.programs : seedPrograms;
   const scheduleSlots = workspace.scheduleSlots.length ? workspace.scheduleSlots : seedScheduleSlots;
-  const fixedBlocks = workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
+  const fixedBlocks = demoMode ? workspace.fixedBlocks : workspace.fixedBlocks.length ? workspace.fixedBlocks : seedFixedBlocks;
   const days = useMemo(() => weekDaysFor(selectedDate), [selectedDate]);
   const visibleWeekStart = days[0].date;
   const visibleBulletins = useMemo(() => {
@@ -371,15 +359,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
   const canReturnToDashboard = appRole === "superadmin";
-  const pilotReady = PILOT_MODE_ACTIVE && !DEMO_DATA_AVAILABLE && repository.mode === "supabase";
-  const adminDemoEmptyTarget = useMemo(
-    () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots),
-    [programs, scheduleSlots, visibleWeekStart, workspace.emissions],
-  );
-  const producerDemoEmptyTarget = useMemo(
-    () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots, activeProducerProgramId),
-    [activeProducerProgramId, programs, scheduleSlots, visibleWeekStart, workspace.emissions],
-  );
+  const pilotReady = PILOT_MODE_ACTIVE && !demoMode && repository.mode === "supabase";
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeView, producerExperience]);
 
   useEffect(() => () => {
     segmentSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -387,7 +371,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }, []);
 
   useEffect(() => {
-    if (!canReturnToDashboard) return;
+    if (!canReturnToDashboard || demoMode) return;
     function handleProducerHistory(event: PopStateEvent) {
       const programId = typeof event.state?.rppPautaProducerProgramId === "string" ? event.state.rppPautaProducerProgramId : "";
       if (programId && programs.some((program) => program.id === programId)) {
@@ -403,7 +387,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
     window.addEventListener("popstate", handleProducerHistory);
     return () => window.removeEventListener("popstate", handleProducerHistory);
-  }, [canReturnToDashboard, programs]);
+  }, [canReturnToDashboard, demoMode, programs]);
 
   useEffect(() => {
     workspace.emissions.forEach((emission) => emission.segments.forEach((segment) => {
@@ -459,40 +443,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }, []);
 
   useEffect(() => {
-    if (!DEMO_DATA_AVAILABLE) return;
-    const frame = window.requestAnimationFrame(() => {
-      const storedToggle = window.localStorage.getItem(DEMO_TOGGLE_STORAGE_KEY);
-      if (storedToggle === "true") {
-        const availableProgramId = !producerProgramIds?.length || producerProgramIds.includes(DEMO_SHOWCASE_PROGRAM_ID)
-          ? DEMO_SHOWCASE_PROGRAM_ID
-          : producerProgramIds[0];
-        const showcaseSlot = seedScheduleSlots.find((slot) => slot.programId === availableProgramId
-          && slot.dayOfWeek === editorialDayForDate(DEMO_SHOWCASE_DATE).dayOfWeek
-          && slotAppliesOnDate(slot, DEMO_SHOWCASE_DATE));
-        setDemoDataEnabled(true);
-        setSelectedDate(DEMO_SHOWCASE_DATE);
-        if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
-        if (producerProgramIds?.length) {
-          setActiveProducerProgramId(availableProgramId);
-          setProducerSection("post");
-        } else {
-          setActiveView("post");
-        }
-      }
-
-      const storedOverrides = window.localStorage.getItem(DEMO_OVERRIDES_STORAGE_KEY);
-      if (!storedOverrides) return;
-      try {
-        const parsed = emissionSchema.array().safeParse(JSON.parse(storedOverrides));
-        if (parsed.success) setDemoOverrides(parsed.data.filter((emission) => isDemoId(emission.id)));
-      } catch {
-        window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [producerProgramIds]);
-
-  useEffect(() => {
     function warnBeforeLeaving(event: BeforeUnloadEvent) {
       if (!dirty && !saving && !Object.values(segmentSyncStatesRef.current).some((state) => state !== "saved")) return;
       event.preventDefault();
@@ -510,23 +460,13 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     });
   }, [dirty, repository, saving]);
 
-  const visibleDemoEmissions = useMemo(
-    () => createDemoWeekEmissions(visibleWeekStart, programs, scheduleSlots),
-    [programs, scheduleSlots, visibleWeekStart],
-  );
-  const effectiveEmissions = useMemo(
-    () => mergeDemoEmissions(workspace.emissions, demoOverrides, demoDataEnabled, visibleDemoEmissions),
-    [demoDataEnabled, demoOverrides, visibleDemoEmissions, workspace.emissions],
-  );
-  const effectivePeople = useMemo(
-    () => mergeDemoPeople(workspace.people, demoDataEnabled, effectiveEmissions.filter((emission) => isDemoId(emission.id))),
-    [demoDataEnabled, effectiveEmissions, workspace.people],
-  );
+  const effectiveEmissions = workspace.emissions;
+  const effectivePeople = workspace.people;
   const producerNoticesSignature = useMemo(() => JSON.stringify({
     bulletins: visibleBulletins.map((bulletin) => ({ id: bulletin.id, version: bulletinVersion(bulletin) })),
     importantDates: producerImportantDates.slice(0, 6).map(({ id, date, title, details, category, plans }) => ({ id, date, title, details, category, plan: plans[activeProducerProgramId] ?? "" })),
   }), [activeProducerProgramId, producerImportantDates, visibleBulletins]);
-  const producerNoticesStorageKey = `${PRODUCER_NOTICES_STORAGE_KEY}:${activeProducerProgramId}:${visibleWeekStart}`;
+  const producerNoticesStorageKey = `${PRODUCER_NOTICES_STORAGE_KEY}${demoMode ? ":demo" : ""}:${activeProducerProgramId}:${visibleWeekStart}`;
   const producerBulletinUpdates = useMemo(() => {
     const seenVersions = producerSeenNoticesContext === producerNoticesStorageKey ? producerSeenBulletinVersions : {};
     return new Map(visibleBulletins.map((bulletin) => [bulletin.id, bulletinUpdateState(bulletin, seenVersions)]));
@@ -568,7 +508,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     (emission) => emission.programId === selectedProgram?.id && emission.date === selectedDate,
   );
   const storedEmissionIsEmptyDemo = Boolean(storedEmission
-    && isDemoId(storedEmission.id)
+    && (demoMode || isDemoId(storedEmission.id))
     && storedEmission.status === "empty"
     && !storedEmission.rawText.trim()
     && storedEmission.segments.length === 0);
@@ -626,113 +566,28 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   function upsertDemoOverride(nextEmission: Emission, persist = false) {
-    setDemoOverrides((current) => {
-      const exists = current.some((emission) => emission.id === nextEmission.id);
-      const next = exists
-        ? current.map((emission) => emission.id === nextEmission.id ? nextEmission : emission)
-        : [...current, nextEmission];
-      if (persist) window.localStorage.setItem(DEMO_OVERRIDES_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    const next = { ...workspace, emissions: workspace.emissions.some((item) => item.id === nextEmission.id) ? workspace.emissions.map((item) => item.id === nextEmission.id ? nextEmission : item) : [...workspace.emissions, nextEmission] };
+    setWorkspace(next);
+    if (persist && demoMode) void repository.save(next);
   }
 
   function toggleDemoData() {
-    if (!DEMO_DATA_AVAILABLE) return;
-    if (saving || aiProcessing || aiApplying || postAiProcessing || postAiApplying) {
-      notify("Espera a que termine el proceso actual antes de cambiar el modo demo.");
+    if (dirty || saving || aiProcessing || aiApplying || postAiProcessing || postAiApplying || Object.values(segmentSyncStates).some((state) => state !== "saved")) {
+      notify("Guarda los cambios y espera a que terminen los procesos antes de cambiar de modo.");
       return;
     }
-    const next = !demoDataEnabled;
-    setDemoDataEnabled(next);
-    setDirty(false);
-    window.localStorage.setItem(DEMO_TOGGLE_STORAGE_KEY, String(next));
-
-    if (next) {
-      demoReturnContextRef.current = {
-        activeView,
-        selectedDate,
-        selectedSlotId,
-        producerExperience,
-        activeProducerProgramId,
-        producerSection,
-        postSourceText,
-        postSourceType,
-        postAiResult,
-      };
-      const canUseEncendidos = !isRestrictedProducer || producerProgramIds?.includes(DEMO_SHOWCASE_PROGRAM_ID);
-      const showcaseProgramId = canUseEncendidos ? DEMO_SHOWCASE_PROGRAM_ID : activeProducerProgramId;
-      const showcaseSlot = scheduleSlots.find((slot) => slot.programId === showcaseProgramId
-        && slot.dayOfWeek === editorialDayForDate(DEMO_SHOWCASE_DATE).dayOfWeek
-        && slotAppliesOnDate(slot, DEMO_SHOWCASE_DATE));
-      chooseCaptureDate(DEMO_SHOWCASE_DATE);
-      if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
-      setPostSourceText("");
-      setPostSourceType("document");
-      setPostAiResult(null);
-      if (producerExperience) {
-        setActiveProducerProgramId(showcaseProgramId);
-        setProducerSection("post");
-      } else {
-        setActiveView("post");
-      }
-      const showcaseProgram = programs.find((program) => program.id === showcaseProgramId);
-      notify(`Modo demo activado: ${showcaseProgram?.shortName ?? "programa"} del viernes 28 abierto en Post-pauta.`);
-      return;
-    }
-
-    const previous = demoReturnContextRef.current;
-    demoReturnContextRef.current = null;
-    if (previous) {
-      chooseCaptureDate(previous.selectedDate);
-      setSelectedSlotId(previous.selectedSlotId);
-      setActiveView(previous.activeView);
-      setProducerExperience(previous.producerExperience);
-      setActiveProducerProgramId(previous.activeProducerProgramId);
-      setProducerSection(previous.producerSection);
-      setPostSourceText(previous.postSourceText);
-      setPostSourceType(previous.postSourceType);
-      setPostAiResult(previous.postAiResult);
-      notify("Modo demo cerrado. Volvimos a tu vista anterior y las pautas reales siguen intactas.");
-      return;
-    }
-
-    const normalDate = todayInLima();
-    chooseCaptureDate(normalDate);
-    setPostSourceText("");
-    setPostSourceType("document");
-    setPostAiResult(null);
-    if (producerExperience) setProducerSection("today");
-    else setActiveView("agenda");
-    notify("Modo demo cerrado. Volvimos a la programación actual y las pautas reales siguen intactas.");
+    onToggleDemo?.();
   }
 
-  function resetDemoData() {
-    setDemoOverrides([]);
-    setDirty(false);
-    window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
-    notify("La semana de prueba volvió a su estado inicial.");
-  }
-
-  function openDemoEmptyDay() {
-    if (!adminDemoEmptyTarget) {
-      notify("No encontramos un viernes libre en las próximas semanas.");
-      return;
-    }
-    chooseCaptureDate(adminDemoEmptyTarget.date);
-    setSelectedSlotId(adminDemoEmptyTarget.slotId);
-    setActiveView("reception");
-    notify("Abrimos el viernes sin demo para mostrar cómo se crea una pauta desde cero.");
-  }
-
-  function openProducerDemoEmptyDay() {
-    if (!producerDemoEmptyTarget) {
-      notify("No encontramos un viernes libre para este programa en las próximas semanas.");
-      return;
-    }
-    chooseCaptureDate(producerDemoEmptyTarget.date);
-    setSelectedSlotId(producerDemoEmptyTarget.slotId);
-    setProducerSection("today");
-    notify("Abrimos el viernes vacío. Todo lo que pruebes en esta demo queda en el navegador.");
+  function renderDemoControls() {
+    return <><aside className={`environment-bar ${demoMode ? "is-demo" : ""}`} aria-label="Modo de trabajo"><div><strong>{demoMode ? "Modo demo" : "Trabajo real"}</strong><span>{demoMode ? "Ejemplos ficticios de la semana actual · Guardado solo en este navegador" : "Pautas e indicaciones del equipo"}</span></div><div>{demoMode && <><button onClick={() => setShowDemoGuide(true)}>Qué puedo probar</button><button onClick={() => { if (saving || aiProcessing || postAiProcessing) return; if (window.confirm("¿Reiniciar los ejercicios del demo? Las pautas reales no cambian.")) onResetDemo?.(); }}>Reiniciar demo</button></>}<button className={demoMode ? "" : "demo-entry"} onClick={toggleDemoData}>{demoMode ? "Volver al trabajo real" : "Activar demo"}</button></div></aside>
+      {demoMode && showDemoGuide && <DemoGuide today={todayInLima()} emissions={effectiveEmissions.filter((emission) => !producerExperience || emission.programId === activeProducerProgramId)} programs={programs} onClose={() => setShowDemoGuide(false)} onOpen={(emission, post) => {
+        const slot = scheduleSlots.find((item) => item.programId === emission.programId && item.dayOfWeek === editorialDayForDate(emission.date).dayOfWeek && slotAppliesOnDate(item, emission.date));
+        if (!slot) return;
+        chooseCaptureDate(emission.date); setSelectedSlotId(slot.id); setShowDemoGuide(false);
+        if (producerExperience) setProducerSection(post ? "post" : "today"); else setActiveView(post ? "post" : "program");
+      }} onNotice={isEditorialAdmin && !producerExperience ? () => { setShowDemoGuide(false); setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: "" }); setShowBulletinCenter(true); } : undefined} />}
+    </>;
   }
 
   async function commit(next: WorkspaceState, message: string) {
@@ -744,7 +599,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSaveError("");
     setSaveRetryAction("draft");
     try {
-      const cleanNext = stripDemoData(next);
+      const cleanNext = demoMode ? next : stripDemoData(next);
       const scopedEmission = isRestrictedProducer
         ? cleanNext.emissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === selectedDate)
         : undefined;
@@ -1521,7 +1376,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   async function orderWithAi() {
-    if (!selectedEmission || !selectedProgram || !selectedSlot || !getAccessToken) {
+    if (!selectedEmission || !selectedProgram || !selectedSlot || (!getAccessToken && !demoMode)) {
       notify("La conversión requiere una sesión activa en la base compartida.");
       return;
     }
@@ -1532,14 +1387,15 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
     setAiProcessing(true);
     try {
-      const result = await structurePauta({
+      const input = {
         programId: selectedProgram.id,
         programName: selectedProgram.name,
         targetDate: selectedDate,
         plannedStart: selectedSlot.startTime,
         plannedEnd: selectedSlot.endTime,
         rawText: selectedEmission.rawText,
-      }, getAccessToken);
+      };
+      const result = demoMode ? practicePautaProposal(input) : await structurePauta(input, getAccessToken!);
       setAiResult(result);
       const detectedProducer = result.proposal.producers[0]?.trim();
       if (detectedProducer) updateEmission({ producerName: detectedProducer });
@@ -1835,7 +1691,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSelectedSlotId(slot.id);
     setActiveProducerProgramId(programId);
     setProducerSection("today");
-    if (canReturnToDashboard && !producerExperience && !producerDashboardHistoryRef.current) {
+    if (!demoMode && canReturnToDashboard && !producerExperience && !producerDashboardHistoryRef.current) {
       window.history.pushState({ ...window.history.state, rppPautaProducerProgramId: programId }, "", window.location.href);
       producerDashboardHistoryRef.current = true;
     }
@@ -2174,6 +2030,19 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
+  function loadPracticeText() {
+    const start = selectedSlot?.startTime ?? "10:00";
+    updateEmission({ rawText: `PREPAUTA ${selectedProgram?.name ?? "Programa"}
+${start} - ${endTimeForDuration(start, 15)}
+TEMA: Noticias de servicio
+ENFOQUE: Qué necesita saber la audiencia hoy.
+
+${endTimeForDuration(start, 15)} - ${endTimeForDuration(start, 30)}
+TEMA: Hábitos digitales
+INVITADA: Ana Pérez - Especialista de ejemplo
+ENFOQUE: Acuerdos para usar el celular en familia.`, status: "draft" });
+  }
+
   function renderCaptureWorkspace(reception: boolean) {
     return (
       <section className="mode-page">
@@ -2226,8 +2095,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 </label>
 
                 <div className="capture-actions">
-                  <p>El original queda guardado para comparar y auditar.</p>
-                  <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
+                  <p>El original queda guardado para comparar y auditar.</p>{demoMode && !selectedEmission?.rawText.trim() && <button onClick={loadPracticeText}>Cargar texto de ejemplo</button>}
+                  <button className="primary" disabled={!canEdit || (!getAccessToken && !demoMode) || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
                 </div>
               </>
             )}
@@ -2326,7 +2195,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 {postMode === "review" && pendingSegments.length > 0 && <div className="post-pending-action"><span>{pendingSegments.length} {pendingSegments.length === 1 ? "bloque necesita" : "bloques necesitan"} un resultado o un resumen.</span><button onClick={reviewNextPending}>Revisar {pendingSegments.length} {pendingSegments.length === 1 ? "pendiente" : "pendientes"}</button></div>}
 
                 {postMode === "review" && <details className="post-sources-disclosure"><summary>Completar con un documento, audio o video</summary>
-                <section className="post-ai-import">
+                <section className="post-ai-import">{demoMode && <p className="practice-integration-note">En este demo puedes registrar resultados y completar resúmenes manualmente. El análisis con IA y la extracción de video se usan desde Trabajo real.</p>}
                   <header><div><span>{postSourceType === "youtube_captions" ? "Emisión detectada" : "Completar desde un documento"}</span><strong>{postSourceType === "youtube_captions" ? "Convertir el video en post-pauta" : "Contrastar con la pre-pauta"}</strong><p>{postSourceType === "youtube_captions" ? "Los timestamps prueban qué salió. Luna propone los bloques, nombres y resúmenes para que solo corrijas excepciones." : "Pega el registro recibido. Luna propondrá qué salió, qué cambió y qué quedó sin evidencia."}</p></div><b>{postSourceType === "youtube_captions" ? "Corrección opcional" : "Revisión editorial"}</b></header>
                   {!postAiResult && <><label><span>Documento posterior a la emisión</span><textarea disabled={!canEdit || postAiProcessing} rows={6} value={postSourceText} onChange={(event) => { setPostSourceText(event.target.value); setPostSourceType("document"); }} placeholder="Pega aquí el documento, minuta, reporte o texto posterior a la emisión." /></label><div className="post-ai-import-actions"><p>La pre-pauta no se reemplaza. Los bloques ausentes quedan sin confirmar y las citas requieren revisión con el audio.</p><button className="ai-action" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Analizando..." : postSourceType === "youtube_captions" ? "Analizar emisión con Luna" : "Contrastar con Luna"}</button></div></>}
                   {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} people={effectivePeople} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
@@ -2523,10 +2392,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           </div>
         </header>
 
-        {DEMO_DATA_AVAILABLE && <aside className={`producer-demo-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
-          <div><b>{demoDataEnabled ? "Modo demo activo" : "Modo demo desactivado"}</b><span>{demoDataEnabled ? "Encendidos del viernes 28 está listo para demostrar video, captions y Post-pauta." : "Actívalo para abrir el recorrido de demostración sin tocar una pauta real."}</span></div>
-          <div>{demoDataEnabled && producerDemoEmptyTarget && <button className="demo-empty-day" onClick={openProducerDemoEmptyDay}>Ver día vacío</button>}<button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button></div>
-        </aside>}
+        {renderDemoControls()}
 
         <section className="producer-content">
           <header className="producer-page-heading">
@@ -2602,11 +2468,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       <div className={`producer-guest-rule ${rawTextHasGuestLabel ? "valid" : ""}`}><strong>Identifica a cada persona</strong><p>Escribe <b>INVITADO:</b> o <b>INVITADA:</b> antes del nombre completo. Así podremos buscarla en la base o crear su ficha sin confundirla.</p>{selectedEmission?.rawText.trim() && <span>{rawTextHasGuestLabel ? "Formato de invitado detectado" : "Si hay invitados, identifícalos con INVITADO: o INVITADA:"}</span>}</div>
                       <textarea autoFocus aria-label="Texto de la prepauta" disabled={!canEdit || !selectedEmission} rows={7} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder={producerComposerMode === "paste" ? "Pega aquí el texto completo recibido por WhatsApp o email." : "Escribe tu prepauta con horarios, TEMA, INVITADO / INVITADA y ENFOQUE."} />
                       <div className="producer-compose-tools">
+                        {demoMode && !selectedEmission?.rawText.trim() && <button onClick={loadPracticeText}>Cargar texto de ejemplo</button>}
                         {producerComposerMode === "write" && !selectedEmission?.rawText.trim() && <button onClick={insertProducerTemplate}>Usar una guía de texto</button>}
                         {producerComposerMode === "write" && <button onClick={addSegment}>Añadir bloque manual</button>}
                       </div>
                       <p className="producer-fast-import">Revisarás la escaleta antes de aceptarla. El texto original se conserva.</p>
-                      <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Convertir en escaleta"}</button>
+                      <button className="primary" disabled={!canEdit || (!getAccessToken && !demoMode) || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Convertir en escaleta"}</button>
                     </div>
                   </section>
 
@@ -2655,7 +2522,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 <div className="producer-luna-progress" role="status" aria-live="polite">
                   <span>Lectura automática</span>
                   <h2>Ordenando tu prepauta</h2>
-                  <p>Primero reconoce horarios y bloques ya escritos. Luna interviene solo si el texto necesita interpretación.</p>
+                  <p>{demoMode ? "El demo reconoce horarios y conserva tu texto para que practiques la revisión." : "Primero reconoce horarios y bloques ya escritos. Luna interviene solo si el texto necesita interpretación."}</p>
                   <div className="producer-luna-progress-lines" aria-hidden="true"><i /><i /><i /></div>
                   <small>La pauta original permanece intacta.</small>
                 </div>
@@ -2785,34 +2652,17 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         <div className="switcher-brand"><Image src="/rpp-logo.svg" alt="RPP" width={38} height={38} priority /><span><strong>Pauta RPP</strong><small>Informativos</small></span></div>
         <nav aria-label="Vistas de trabajo">
           {workspaceViews.map((view) => (
-            <button className={activeView === view.id ? "active" : ""} key={view.id} onClick={() => setActiveView(view.id)} aria-current={activeView === view.id ? "page" : undefined}>
-              <b>{view.code}</b><span><strong>{view.label}</strong><small>{view.description}</small></span>
+            <button className={activeView === view.id ? "active" : ""} key={view.id} onClick={() => { if (view.id === "home") setSelectedDate(todayInLima()); setActiveView(view.id); }} aria-current={activeView === view.id ? "page" : undefined}>
+              <span><strong>{view.label}</strong><small>{view.description}</small></span>
             </button>
           ))}
         </nav>
-        <div className="switcher-account"><span>{accountName ?? "Equipo editorial"}</span><b>{accountLabel}</b></div>
+        <details className="workspace-tools"><summary>Herramientas</summary><nav aria-label="Recursos y configuración" onClick={(event) => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><strong className="tools-account">{accountName ?? "Equipo editorial"}{demoMode ? " · Demo" : ""}</strong><span>Coordinar</span><button onClick={() => setShowBulletinCenter(true)}>Indicaciones</button><button onClick={() => setShowAnnualCalendar(true)}>Calendario editorial</button><span>Consultar</span><button onClick={() => setShowPeopleDirectory(true)}>Personas e invitados</button><button onClick={() => setShowArchiveSearch(true)}>Archivo de emisiones</button>{isEditorialAdmin && <><span>Configurar</span><button onClick={() => setShowOperationsAdmin(true)}>Programas y equipo</button></>}<button onClick={openHelpTutorial}>Ayuda paso a paso</button>{onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}</nav></details><div className="switcher-account"><span>{accountName ?? "Equipo editorial"}</span><b>{accountLabel}</b></div>
       </header>
 
-      {DEMO_DATA_AVAILABLE && (
-        <aside className={`demo-data-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
-          <div>
-            <b>{demoDataEnabled ? "Modo demo activo: viernes 28" : "Modo demo desactivado"}</b>
-            <span>{demoDataEnabled ? "Encendidos y Post-pauta están listos para demostrar video, captions, transcripción y edición." : "Actívalo para abrir el recorrido de demostración sin modificar la información de Supabase."}</span>
-          </div>
-          <div className="demo-data-actions">
-            {demoDataEnabled && demoOverrides.length > 0 && <button className="demo-reset" onClick={resetDemoData}>Restablecer demo</button>}
-            {demoDataEnabled && adminDemoEmptyTarget && <button className="demo-empty-day" onClick={openDemoEmptyDay}>Ver día vacío</button>}
-            <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button>
-          </div>
-        </aside>
-      )}
+      {renderDemoControls()}
 
-      {pilotReady && (
-        <aside className="demo-data-bar pilot-ready-bar" aria-label="Estado del piloto editorial">
-          <div><b>Piloto editorial activo</b><span>Base compartida conectada. Los cambios realizados aquí forman parte del periodo piloto.</span></div>
-          <strong className="pilot-status-chip">Datos reales</strong>
-        </aside>
-      )}
+      {activeView === "home" && <EditorialHome date={selectedDate} dateLabel={longSpanishDate(selectedDate)} nowMinutes={now?.date === selectedDate ? now.minutes : null} slots={daySlots} programs={programs} emissions={effectiveEmissions} canEdit={canEdit} noticeCount={visibleBulletins.length} onOpen={(slot, post) => { chooseSlot(slot.id); setActiveView(post ? "post" : "program"); }} onReceive={() => setActiveView("reception")} onNotice={() => { setBulletinDraft({ id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: "" }); setShowBulletinCenter(true); }} onAgenda={() => setActiveView("agenda")} onDesk={() => setActiveView("desk")} onHelp={openHelpTutorial} />}
 
       {activeView === "agenda" && (
       <div className="app-shell">
@@ -2870,7 +2720,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           </section>
 
           <section className="agenda-panel">
-            <header className="agenda-toolbar">
+            <header className="agenda-toolbar"><label className="agenda-program-filter"><span>Mostrar</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="managed">Programas administrados</option><option value="all">Toda la señal</option></select></label>
               <div className="week-nav"><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -7))}>Anterior</button><button className="today-button" onClick={() => setSelectedDate(todayInLima())}>Esta semana</button><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 7))}>Siguiente</button></div>
               <div className="day-tabs" aria-label="Días de la semana">
                 {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}
@@ -2896,9 +2746,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         </button>
                         {expanded && <div className="agenda-program-detail">
                           {program.managed ? <>
-                            <header><div><strong>Escaleta compacta</strong><span>{emission?.producerName || "Productor por confirmar"}</span></div><div><button onClick={() => openProducerExperience(program.id)}>Ver como producción</button><button className="primary" onClick={() => openProgramSlot(slot.id)}>Abrir Programa C</button></div></header>
+                            <header><div><strong>Escaleta compacta</strong><span>{emission?.producerName || "Productor por confirmar"}</span></div><div><button onClick={() => openProducerExperience(program.id)}>Ver como producción</button><button className="primary" onClick={() => openProgramSlot(slot.id)}>Abrir pauta</button></div></header>
                             <div className="agenda-rundown-list">{(emission?.segments ?? []).map((segment) => <details key={segment.id}><summary><time>{segment.startTime}</time><span><strong>{segment.title}</strong><small>{segment.guest || segment.topic || segmentTypeLabel[segment.type]}</small></span><b>Editar</b></summary><div><label><span>Horario</span><div className="agenda-time-fields"><input disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div></label><label><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label><label><span>Tema o notas</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? segment.notes} onChange={(event) => updateSegmentDraft(segment.id, segment.topic !== undefined ? { topic: event.target.value } : { notes: event.target.value })} /></label></div></details>)}</div>
-                            {!emission?.segments.length && <div className="empty-state compact"><strong>Esta pauta aún está vacía</strong><p>Ábrela en Programa C para pegar o crear la escaleta.</p></div>}
+                            {!emission?.segments.length && <div className="empty-state compact"><strong>Esta pauta aún está vacía</strong><p>Abre la pauta para pegar un texto o crear sus bloques.</p></div>}
                             {dirty && selectedSlot?.id === slot.id && <footer className="agenda-inline-save"><span>Cambios sin guardar</span><button className="primary" disabled={saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar"}</button></footer>}
                           </> : <div className="empty-state compact"><strong>Solo aparece en la parrilla</strong><p>Este programa todavía no se administra desde la herramienta.</p></div>}
                         </div>}

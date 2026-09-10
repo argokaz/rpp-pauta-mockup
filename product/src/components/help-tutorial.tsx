@@ -162,7 +162,7 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
   if (id === "start") return <div className="help-role-choice">
     <p className="help-lead">No necesitas aprender toda la plataforma. Empieza por el trabajo que haces hoy.</p>
     <div>
-      <button onClick={() => goTo("superadmin")}><span>A-E</span><strong>Soy superadmin</strong><small>Coordino programas, indicaciones, agenda y personas.</small><b>Ver mi recorrido</b></button>
+      <button onClick={() => goTo("superadmin")}><span>Hoy</span><strong>Soy superadmin</strong><small>Coordino programas, indicaciones, agenda y personas.</small><b>Ver mi recorrido</b></button>
       <button onClick={() => goTo("producer")}><span>Mi programa</span><strong>Trabajo en producción</strong><small>Preparo una emisión y registro lo que salió.</small><b>Ver mi recorrido</b></button>
     </div>
     <aside><strong>Una sola base editorial</strong><p>Los cambios aceptados se comparten. Cada usuario ve una interfaz acorde a su responsabilidad.</p></aside>
@@ -170,14 +170,14 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "superadmin") return <div className="help-body-stack">
     <ol className="help-step-list help-step-list-views">
-      <li><b>A</b><span><strong>Agenda</strong><small>Revisa la semana y abre el programa que necesita atención.</small></span></li>
-      <li><b>B</b><span><strong>Mesa</strong><small>Mueve programas entre Falta pauta, En preparación, Lista y Post-pauta.</small></span></li>
-      <li><b>C</b><span><strong>Programa</strong><small>Entra al detalle de una pauta y edita sus bloques.</small></span></li>
-      <li><b>D</b><span><strong>Recepción</strong><small>Elige programa y fecha, pega lo recibido y ordénalo.</small></span></li>
-      <li><b>E</b><span><strong>Post</strong><small>Registra y verifica lo que realmente salió al aire.</small></span></li>
+      <li><b>1</b><span><strong>Empieza en Hoy</strong><small>Revisa qué programas necesitan atención y abre directamente su pauta o post-pauta.</small></span></li>
+      <li><b>2</b><span><strong>Prepara lo pendiente</strong><small>Usa Pegar pauta recibida para ordenar un texto, o Preparar pauta para crear sus bloques.</small></span></li>
+      <li><b>3</b><span><strong>Coordina al equipo</strong><small>Dar una indicación permite comunicar qué debe preparar cada programa.</small></span></li>
+      <li><b>4</b><span><strong>Revisa lo que salió</strong><small>Después de la emisión, abre Revisar post-pauta y completa los resultados pendientes.</small></span></li>
+      <li><b>5</b><span><strong>Amplía cuando lo necesites</strong><small>Agenda muestra la semana. Mesa agrupa las pautas por estado. Herramientas reúne personas, archivo, calendario y administración.</small></span></li>
     </ol>
-    <div className="help-tip"><strong>Atajo útil</strong><p>Desde Agenda abre cualquier programa con <b>Ver como producción</b>. La flecha de regreso te devuelve al dashboard.</p></div>
-    <div className="help-inline-actions"><span>También desde la vista general:</span><b>Indicaciones</b><b>Calendario</b><b>Personas</b><b>Archivo</b><b>Administración</b></div>
+    <div className="help-tip"><strong>Prueba sin afectar el trabajo real</strong><p>Pulsa <b>Activar demo</b> en la franja superior. Encontrarás ejemplos de la semana actual, pautas vacías y una guía con accesos para practicar. <b>Volver al trabajo real</b> recupera tu vista anterior.</p></div>
+    <div className="help-tip"><strong>Mira el espacio del productor</strong><p>Desde Agenda, abre un programa y pulsa <b>Ver como producción</b>. La flecha de regreso te devuelve a la vista general.</p></div>
   </div>;
 
   if (id === "producer") return <div className="help-body-stack">

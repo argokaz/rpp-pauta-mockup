@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { WorkspaceApp } from "@/components/workspace-app";
+import { WorkspaceSession } from "@/components/workspace-session";
 import { WorkspaceLoadingShell } from "@/components/workspace-loading-shell";
 import { localWorkspaceRepository } from "@/data/local-workspace-repository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/data/supabase-client";
@@ -99,7 +99,7 @@ export function AuthShell() {
   }, [remoteRepository, sessionUserId, supabase]);
 
   if (!remoteMode) {
-    return <WorkspaceApp repository={localWorkspaceRepository} accountLabel="AG" canEdit appRole="superadmin" />;
+    return <WorkspaceSession repository={localWorkspaceRepository} accountLabel="AG" canEdit appRole="superadmin" />;
   }
 
   if (loading) return <WorkspaceLoadingShell />;
@@ -113,7 +113,7 @@ export function AuthShell() {
   const accountLabel = (profile.full_name || email).slice(0, 2).toUpperCase();
 
   return (
-    <WorkspaceApp
+    <WorkspaceSession
       repository={remoteRepository}
       initialWorkspace={initialWorkspace}
       accountLabel={accountLabel}

@@ -82,3 +82,32 @@ Implementado en la versión 0.39.0:
 Validación local: creación y edición de un bloque; marcar lista y recargar;
 registro de inicio y fin; salto al pendiente; resumen y cierre editorial.
 Revisión móvil a 390 × 844: editor enfocado y sin desborde horizontal.
+
+## 10 de septiembre de 2026 · v0.40.0
+
+La entrada de coordinación es **Hoy**: programas en emisión, pendientes,
+recepción de pautas e indicaciones. Agenda conserva la planificación semanal y
+Mesa la revisión por estado. Las herramientas secundarias se agrupan en
+Coordinar, Consultar y Configurar; la guía explica tareas en lugar de letras.
+
+Se aumentó la tipografía de toda la interfaz: cuerpo y campos de 16 px,
+etiquetas secundarias de al menos 14 px, títulos de bloque de 19 px en
+Producción. La navegación y las acciones se adaptan al ancho disponible.
+
+**Activar demo** está en la franja superior tanto de coordinación como de
+Producción. Usa un repositorio local independiente, sin credenciales ni
+contenido editorial de la base real. Solo copia la estructura de programas y
+horarios; crea ejemplos ficticios para la semana actual en Lima. Los estados
+reflejan la hora de activación. Se reservan pautas vacías y resúmenes pendientes.
+
+La bienvenida enumera qué está lleno y abre ejercicios concretos. La lectura
+local de prepautas funciona con un texto de ejemplo; IA, video y creación de
+accesos reales requieren Trabajo real. Los ejercicios se conservan por cuenta
+y semana en el navegador. Al reabrir se actualizan ejemplos intactos y se
+mantienen los modificados; Reiniciar demo descarta solo las pruebas del demo.
+
+Validación: pruebas de calendario Lima y cambio de semana, antes/durante/después
+de emisión, separación del contenido real, persistencia y reinicio, cambios de
+bloques e indicaciones sin red y revisión local de prepautas. Recorrido manual
+con texto de ejemplo, aceptación y guardado, vuelta al trabajo real y revisión
+a 390 px de ancho.

@@ -5,9 +5,23 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.39.0";
+export const CURRENT_VERSION = "0.40.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.40.0",
+    date: "2026-09-10",
+    title: "Texto legible, demo actual y una entrada más clara",
+    changes: [
+      "Textos, formularios y controles más grandes, con una escaleta de Producción más fácil de leer en escritorio y móvil.",
+      "Activar demo aparece en la franja superior para todos los roles. Usa la semana y hora actuales de Lima, con pautas llenas y espacios para practicar.",
+      "Una bienvenida explica los ejemplos disponibles y permite abrir una pauta vacía, revisar una post-pauta o crear una indicación.",
+      "Las pruebas se guardan solo en este navegador, separadas del trabajo real. Al volver al demo se conservan los ejercicios y se actualizan los ejemplos intactos; también se puede reiniciar.",
+      "El demo permite cargar un texto de ejemplo, revisar su escaleta y guardarla. Las integraciones de IA, video y accesos reales siguen en Trabajo real.",
+      "Superadmin inicia en Hoy: programas que necesitan atención, recepción de pautas e indicaciones. Herramientas agrupa coordinación, consultas y configuración.",
+      "La guía del superadmin acompaña el trabajo del día y explica dónde encontrar cada herramienta y cómo practicar en el demo.",
+    ],
+  },
   {
     version: "0.39.0",
     date: "2026-09-08",
