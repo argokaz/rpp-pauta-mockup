@@ -2634,3 +2634,13 @@ h1, h2, h3, h4, p { margin-top: 0; }
  .producer-portal .producer-account .producer-sign-out { font-size: 0; width: 44px; padding: 0; }
  .producer-account .producer-sign-out::after { content: "Salir"; font-size: 14px; }
 }
+.admin-schedule-list article { grid-template-columns: 72px minmax(0, 1fr) auto auto; }
+.admin-schedule-list article > .admin-schedule-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-schedule-actions button { min-height: 44px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); font-size: 15px; }
+.admin-schedule-actions button:first-child { color: var(--action-blue); background: #edf5fd; border-color: #b5cde2; }
+.admin-schedule-actions button:last-child { color: #943c31; }
+@media (max-width: 1000px) {
+ .admin-schedule-list article { grid-template-columns: 58px minmax(0, 1fr) auto; }
+ .admin-schedule-list article > .admin-schedule-actions { grid-column: 1 / -1; }
+ .admin-schedule-actions button { flex: 1 1 120px; }
+}
