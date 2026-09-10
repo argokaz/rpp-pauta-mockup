@@ -2567,3 +2567,5 @@ h1, h2, h3, h4, p { margin-top: 0; }
  .mode-switcher > nav button { flex: 0 0 auto; }
 }
 .workspace-tools .tools-account { padding: 8px; font-size: 15px; line-height: 1.4; border-bottom: 1px solid var(--line); }
+.mode-switcher > nav .loading-mode { display: flex; align-items: center; justify-content: center; flex: 1 0 auto; min-height: 48px; padding: 10px 12px; white-space: nowrap; }
+.mode-switcher > nav .loading-mode strong { font-size: 16px; }

@@ -1,11 +1,12 @@
 import Image from "next/image";
 
 const loadingViews = [
+  { code: "home", label: "Hoy", description: "El trabajo del día" },
   { code: "A", label: "Agenda", description: "Programación semanal" },
-  { code: "B", label: "Mesa", description: "Kanban editorial" },
+  { code: "B", label: "Mesa", description: "Pendientes por estado" },
   { code: "C", label: "Programa", description: "Editar mi pauta" },
   { code: "D", label: "Recepción", description: "Pegar y ordenar" },
-  { code: "E", label: "Post", description: "Registrar lo emitido" },
+  { code: "E", label: "Post-pauta", description: "Registrar lo emitido" },
 ];
 
 export function WorkspaceLoadingShell() {
@@ -16,7 +17,7 @@ export function WorkspaceLoadingShell() {
         <nav aria-label="Vistas de trabajo">
           {loadingViews.map((view, index) => (
             <div className={index === 0 ? "loading-mode active" : "loading-mode"} key={view.code}>
-              <b>{view.code}</b><span><strong>{view.label}</strong><small>{view.description}</small></span>
+              <span><strong>{view.label}</strong></span>
             </div>
           ))}
         </nav>
@@ -35,7 +36,7 @@ export function WorkspaceLoadingShell() {
 
         <section className="workspace">
           <header className="topbar">
-            <div><span>Programación informativa</span><h1>Semana del 24 al 30 de agosto</h1></div>
+            <div><span>Pauta RPP</span><h1>Preparando tu espacio editorial</h1></div>
             <div className="loading-top-actions"><span className="loading-block loading-search" /><span className="loading-block loading-circle" /></div>
           </header>
 

@@ -5,9 +5,15 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.40.0";
+export const CURRENT_VERSION = "0.40.1";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.40.1",
+    date: "2026-09-10",
+    title: "Inicio sin fechas de ejemplo antiguas",
+    changes: ["La pantalla de carga deja de mostrar una semana fija de agosto y acompaña la nueva navegación mientras prepara el espacio editorial."],
+  },
   {
     version: "0.40.0",
     date: "2026-09-10",
