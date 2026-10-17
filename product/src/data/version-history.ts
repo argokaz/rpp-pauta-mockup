@@ -5,9 +5,25 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.38.0";
+export const CURRENT_VERSION = "0.39.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.39.0",
+    date: "2026-10-17",
+    title: "Una estructura más simple para coordinar y producir",
+    changes: [
+      "Producción general trabaja en tres pantallas: Hoy, Indicaciones e Invitados. Las vistas Agenda, Mesa, Programa, Recepción y Post dejan de duplicar el trabajo.",
+      "Hoy muestra cada programa del día con su avance, productor e invitados, y resume cuántos siguen sin pauta, cuántos tienen post-pauta pendiente y qué invitados se repiten.",
+      "Abrir o Preparar lleva al mismo espacio de programa que usa el productor; Mesa del día devuelve al tablero.",
+      "Indicaciones reúne las indicaciones de la semana y las fechas con encargos por programa en una sola página.",
+      "Invitados registra quién fue invitado, a qué programa y bloque, en qué fecha y si salió al aire, con búsqueda por nombre, programa, tema o lo que dijo.",
+      "Una persona invitada a dos programas el mismo día se marca en Hoy, en Invitados y en la pauta de cada productor. Se avisa sin bloquear.",
+      "El espacio del programa muestra cuatro pasos (Pauta, Lista, Post-pauta y Cerrada) con la siguiente acción. Marcar la pauta como lista se guarda al instante.",
+      "Las indicaciones aparecen arriba de la pauta en un panel compacto que se cierra con Entendido.",
+      "Administración, calendario anual, fichas de personas y novedades se reúnen en el menú Administrar.",
+    ],
+  },
   {
     version: "0.38.0",
     date: "2026-08-31",

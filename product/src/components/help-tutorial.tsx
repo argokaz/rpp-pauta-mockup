@@ -20,8 +20,8 @@ type Chapter = {
 
 const chapters: Chapter[] = [
   { id: "start", shortLabel: "Empezar", title: "Elige el trabajo que necesitas hacer", description: "Pauta RPP cambia el nivel de detalle según tu rol, pero todos trabajan sobre la misma información editorial." },
-  { id: "superadmin", shortLabel: "Superadmin", title: "Coordina toda la programación sin perder el detalle", description: "La vista general sirve para detectar pendientes, recibir pautas y entrar al espacio de cualquier programa." },
-  { id: "producer", shortLabel: "Producción", title: "Tu programa, tu fecha y la siguiente acción", description: "Producción ve únicamente lo necesario para preparar su emisión y completar lo que realmente salió al aire." },
+  { id: "superadmin", shortLabel: "Producción general", title: "Tres pantallas: Hoy, Indicaciones e Invitados", description: "Ves el avance de cada programa, das indicaciones a producción y sabes quién fue invitado a dónde. Para trabajar una pauta entras al mismo espacio que usa el productor." },
+  { id: "producer", shortLabel: "Producción", title: "Cuatro pasos: Pauta, Lista, Post-pauta, Cerrada", description: "Cada programa avanza por los mismos pasos. Arriba siempre ves en cuál estás y cuál es la siguiente acción." },
   { id: "pre", shortLabel: "Pre-pauta", title: "Pega un texto o arma la pauta aquí", description: "Conserva la forma de trabajo del equipo y convierte el contenido en bloques editables, claros y ordenados." },
   { id: "post", shortLabel: "Post-pauta", title: "Registra lo emitido mientras ocurre", description: "La misma escaleta se transforma en un registro histórico sin obligarte a crear otro documento desde cero." },
   { id: "status", shortLabel: "Estado", title: "Qué funciona hoy y qué viene después", description: "El piloto ya cubre el flujo editorial principal. Las integraciones pendientes quedan identificadas para no prometer automatizaciones que aún no existen." },
@@ -56,7 +56,7 @@ function SuperadminScene() {
   return <svg className="help-scene" viewBox="0 0 560 300" aria-hidden="true">
     <rect className="help-scene-frame" x="20" y="18" width="520" height="264" rx="18" />
     <rect className="help-scene-top" x="20" y="18" width="520" height="54" rx="18" />
-    {[0, 1, 2, 3, 4].map((item) => <g key={item} className={`help-scene-tab help-scene-tab-${item + 1}`} transform={`translate(${96 + item * 78} 32)`}><circle cx="0" cy="10" r="10" /><text x="0" y="14" textAnchor="middle">{"ABCDE"[item]}</text><rect x="16" y="4" width="42" height="12" rx="6" /></g>)}
+    {[0, 1, 2].map((item) => <g key={item} className={`help-scene-tab help-scene-tab-${item + 1}`} transform={`translate(${150 + item * 110} 32)`}><circle cx="0" cy="10" r="10" /><text x="0" y="14" textAnchor="middle">{item + 1}</text><rect x="16" y="4" width="70" height="12" rx="6" /></g>)}
     <rect className="help-scene-sidebar" x="38" y="92" width="110" height="164" rx="12" />
     <rect className="help-scene-ink" x="56" y="112" width="70" height="10" rx="5" />
     <rect x="56" y="140" width="74" height="9" rx="5" />
@@ -162,7 +162,7 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
   if (id === "start") return <div className="help-role-choice">
     <p className="help-lead">No necesitas aprender toda la plataforma. Empieza por el trabajo que haces hoy.</p>
     <div>
-      <button onClick={() => goTo("superadmin")}><span>A-E</span><strong>Soy superadmin</strong><small>Coordino programas, indicaciones, agenda y personas.</small><b>Ver mi recorrido</b></button>
+      <button onClick={() => goTo("superadmin")}><span>Mesa</span><strong>Coordino la producción</strong><small>Doy indicaciones, reviso el avance de los programas y los invitados.</small><b>Ver mi recorrido</b></button>
       <button onClick={() => goTo("producer")}><span>Mi programa</span><strong>Trabajo en producción</strong><small>Preparo una emisión y registro lo que salió.</small><b>Ver mi recorrido</b></button>
     </div>
     <aside><strong>Una sola base editorial</strong><p>Los cambios aceptados se comparten. Cada usuario ve una interfaz acorde a su responsabilidad.</p></aside>
@@ -170,25 +170,23 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "superadmin") return <div className="help-body-stack">
     <ol className="help-step-list help-step-list-views">
-      <li><b>A</b><span><strong>Agenda</strong><small>Revisa la semana y abre el programa que necesita atención.</small></span></li>
-      <li><b>B</b><span><strong>Mesa</strong><small>Mueve programas entre Falta pauta, En preparación, Lista y Post-pauta.</small></span></li>
-      <li><b>C</b><span><strong>Programa</strong><small>Entra al detalle de una pauta y edita sus bloques.</small></span></li>
-      <li><b>D</b><span><strong>Recepción</strong><small>Elige programa y fecha, pega lo recibido y ordénalo.</small></span></li>
-      <li><b>E</b><span><strong>Post</strong><small>Registra y verifica lo que realmente salió al aire.</small></span></li>
+      <li><b>1</b><span><strong>Hoy</strong><small>Todos los programas del día con su avance, sus invitados y lo que falta: sin pauta, post-pauta pendiente o invitado repetido.</small></span></li>
+      <li><b>2</b><span><strong>Indicaciones</strong><small>Publica la línea editorial, temas o encargos por fecha. Cada productor los ve arriba de su pauta como nuevos.</small></span></li>
+      <li><b>3</b><span><strong>Invitados</strong><small>Quién fue invitado, a qué programa, cuándo, y si salió al aire. Busca también por lo que dijo.</small></span></li>
     </ol>
-    <div className="help-tip"><strong>Atajo útil</strong><p>Desde Agenda abre cualquier programa con <b>Ver como producción</b>. La flecha de regreso te devuelve al dashboard.</p></div>
-    <div className="help-inline-actions"><span>También desde la vista general:</span><b>Indicaciones</b><b>Calendario</b><b>Personas</b><b>Archivo</b><b>Administración</b></div>
+    <div className="help-tip"><strong>Un solo espacio por programa</strong><p>Pulsa <b>Abrir</b> o <b>Preparar</b> en cualquier fila de Hoy. Trabajas la pauta igual que el productor y vuelves con <b>Mesa del día</b>.</p></div>
+    <div className="help-inline-actions"><span>En Administrar:</span><b>Programas, parrilla y accesos</b><b>Calendario anual</b><b>Fichas de personas</b></div>
   </div>;
 
   if (id === "producer") return <div className="help-body-stack">
     <ol className="help-step-list">
-      <li><b>1</b><span><strong>Lee lo nuevo</strong><small>Indicaciones y fechas importantes aparecen arriba. Una novedad queda marcada hasta que la veas.</small></span></li>
-      <li><b>2</b><span><strong>Elige la fecha</strong><small>Usa los días visibles o Crear nueva pauta para saltar a una fecha futura.</small></span></li>
-      <li><b>3</b><span><strong>Prepara y revisa</strong><small>Pega un texto o escribe aquí. Luego corrige solo las excepciones que detecte Luna.</small></span></li>
-      <li><b>4</b><span><strong>Deja la pauta lista</strong><small>Los bloques se guardan por separado y quedan disponibles para el equipo.</small></span></li>
-      <li><b>5</b><span><strong>Cierra en Post-pauta</strong><small>Marca resultados y resume lo emitido sin duplicar la escaleta.</small></span></li>
+      <li><b>1</b><span><strong>Lee las indicaciones</strong><small>Aparecen arriba marcadas como nuevas. Pulsa Entendido cuando las hayas leído.</small></span></li>
+      <li><b>2</b><span><strong>Pauta</strong><small>Elige el día, pega o escribe el texto y conviértelo en escaleta. Corrige solo lo que Luna marque como dudoso.</small></span></li>
+      <li><b>3</b><span><strong>Lista</strong><small>Cuando la escaleta esté completa, pulsa Marcar pauta como lista.</small></span></li>
+      <li><b>4</b><span><strong>Post-pauta</strong><small>Al terminar el programa, marca qué salió de cada bloque y resume lo que se dijo.</small></span></li>
+      <li><b>5</b><span><strong>Cerrada</strong><small>Verifica y cierra. Invitados, temas y resúmenes pasan al archivo.</small></span></li>
     </ol>
-    <div className="help-tip"><strong>Tres accesos permanentes</strong><p>Pauta de hoy para trabajar, Invitados para encontrar especialistas y Post-pauta para cerrar la emisión.</p></div>
+    <div className="help-tip"><strong>Tres pestañas</strong><p>Pauta para preparar, Post-pauta para registrar lo emitido e Invitados para encontrar especialistas. Si tu invitado ya está en otro programa ese día, lo verás marcado.</p></div>
   </div>;
 
   if (id === "pre") return <div className="help-body-stack">
@@ -197,9 +195,9 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
       <article><span>Si empiezas aquí</span><strong>Hacerla en la app</strong><p>Escribe libremente o añade bloques editables. Puedes moverlos y variar su duración.</p></article>
     </div>
     <ol className="help-compact-steps">
-      <li><b>1</b><span>Pulsa <strong>Ordenar con Luna</strong>.</span></li>
+      <li><b>1</b><span>Pulsa <strong>Convertir en escaleta</strong>.</span></li>
       <li><b>2</b><span>Revisa horarios, títulos e invitados en la vista ordenada.</span></li>
-      <li><b>3</b><span>Corrige lo dudoso y pulsa <strong>Aceptar escaleta</strong>.</span></li>
+      <li><b>3</b><span>Corrige lo dudoso y pulsa <strong>Aceptar y guardar pauta</strong>.</span></li>
     </ol>
     <div className="help-warning"><strong>Para reconocer personas</strong><p>Escribe <b>INVITADO:</b> o <b>INVITADA:</b> antes del nombre completo. Se comparará con la base existente y un nombre dudoso quedará para revisión, no se añadirá en silencio.</p></div>
   </div>;
@@ -219,8 +217,9 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
     <section className="help-status-column is-ready">
       <header><span>Disponible en el piloto</span><strong>Ya puedes usarlo</strong></header>
       <ul>
-        <li>Agenda, Mesa, Programa, Recepción y Post-pauta.</li>
-        <li>Espacios de producción por programa y acceso del superadmin.</li>
+        <li>Mesa del día, Indicaciones e Invitados para producción general.</li>
+        <li>Un espacio por programa con Pauta, Post-pauta e Invitados.</li>
+        <li>Registro de invitaciones y aviso de invitados repetidos el mismo día.</li>
         <li>Pre y post-pauta asistidas por Luna con revisión editable.</li>
         <li>Guardado compartido por bloque, historial y aviso de conflictos.</li>
         <li>Invitados, contactos, etiquetas, coincidencias y fusión de duplicados.</li>

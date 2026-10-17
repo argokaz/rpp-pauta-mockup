@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import Image from "next/image";
-import { DragDropProvider, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/react";
+import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
 import { PautaAiReview } from "@/components/pauta-ai-review";
 import { PostPautaAiReview } from "@/components/post-pauta-ai-review";
 import { ArchiveSearch } from "@/components/archive-search";
 import { AnnualCalendar } from "@/components/annual-calendar";
+import { GuestLog } from "@/components/guest-log";
 import { BulletinCenter } from "@/components/bulletin-center";
 import { ProgramIdentityCard } from "@/components/program-identity-card";
 import { FixedBlocksManager } from "@/components/fixed-blocks-manager";
@@ -30,12 +31,13 @@ import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPe
 import { markStoryResult, moveStoryInActualOrder, storyResultComplete } from "@/domain/post-pauta";
 import { durationMinutes, endTimeForDuration, formatDuration, reorderItems } from "@/domain/rundown";
 import { bulletinScopeLabel, bulletinUpdateState, bulletinVersion, bulletinVisibleToProgram, splitBulletins } from "@/domain/bulletins";
+import { guestBookings, guestOverlaps, pautaStage, pautaStageLabel, pautaStages, type GuestBooking, type PautaStage } from "@/domain/editorial-desk";
 import { importantDateVisibleToProgram, slotAppliesOnDate, todayInLima, weekDaysFor, weekTitle } from "@/domain/editorial-calendar";
 import { bulletinForImportantDate } from "@/domain/event-bulletins";
 import { fixedSegmentId, mergeImportedSegmentsWithFixedBlocks, prefillEmissionWithFixedBlocks } from "@/domain/fixed-blocks";
 import { entityTypeLabels, newEditorialEntity, newParticipant, participantRoleLabels, segmentParticipants, withParticipantCompatibility } from "@/domain/editorial-participants";
 import { emissionSchema } from "@/domain/schemas";
-import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPauta, Program, ScheduleSlot, Segment, SegmentParticipant, StoryItem, WorkspaceState } from "@/domain/schemas";
+import type { Bulletin, EditorialEntity, Emission, ImportantDate, Person, PostPauta, Program, Segment, SegmentParticipant, StoryItem, WorkspaceState } from "@/domain/schemas";
 
 const DEMO_TOGGLE_STORAGE_KEY = "rpp-pauta-demo-enabled-v2";
 const DEMO_OVERRIDES_STORAGE_KEY = "rpp-pauta-demo-overrides";
@@ -50,12 +52,12 @@ type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
 type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
 type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
 type DemoReturnContext = {
-  activeView: WorkspaceView;
+  deskSection: DeskSection;
   selectedDate: string;
   selectedSlotId: string;
   producerExperience: boolean;
   activeProducerProgramId: string;
-  producerSection: "today" | "people" | "post";
+  producerSection: ProducerSection;
   postSourceText: string;
   postSourceType: "document" | "youtube_captions";
   postAiResult: StructurePostPautaResponse | null;
@@ -101,8 +103,6 @@ const statusLabel: Record<Emission["status"], string> = {
   ready: "Lista",
   post: "Post-pauta",
 };
-
-const kanbanStatuses: Emission["status"][] = ["empty", "draft", "ready", "post"];
 
 const segmentTypeLabel: Record<Segment["type"], string> = {
   opening: "Apertura",
@@ -161,77 +161,6 @@ function minutes(value: string): number {
   return hours * 60 + minute;
 }
 
-type KanbanCardProps = {
-  slot: ScheduleSlot;
-  program: Program;
-  emission?: Emission;
-  status: Emission["status"];
-  canEdit: boolean;
-  saving: boolean;
-  isDemo: boolean;
-  onMove: (slotId: string, status: Emission["status"]) => void;
-  onOpen: () => void;
-};
-
-function KanbanCard({ slot, program, emission, status, canEdit, saving, isDemo, onMove, onOpen }: KanbanCardProps) {
-  const { ref, isDragging } = useDraggable({
-    id: slot.id,
-    type: "program-card",
-    data: { status },
-    disabled: !canEdit || saving,
-  });
-
-  return (
-    <article ref={ref} className={`kanban-card ${canEdit && !saving ? "draggable" : ""} ${isDragging ? "dragging" : ""} ${isDemo ? "demo-card" : ""}`} tabIndex={canEdit && !saving ? 0 : -1} aria-label={`${program.shortName}. Arrastra la tarjeta para cambiar su estado.`}>
-      <header>
-        <time>{slot.startTime}</time>
-        <span className="kanban-drag-note">{saving ? "Guardando" : canEdit ? "Toda la tarjeta se arrastra" : "Solo lectura"}</span>
-      </header>
-      <h2>{program.shortName}</h2>
-      <div className="kanban-card-meta">
-        <span>{emission?.segments.length ? `${emission.segments.length} bloques` : "Sin contenido"}</span>
-        <span>{emission?.producerName?.trim() || "Productor pendiente"}</span>
-        {isDemo && <b>Datos de prueba</b>}
-      </div>
-      <footer>
-        <label>
-          <span>Estado</span>
-          <select disabled={!canEdit || saving} value={status} onChange={(event) => onMove(slot.id, event.target.value as Emission["status"])} aria-label={`Cambiar estado de ${program.shortName}`}>
-            {kanbanStatuses.map((value) => <option value={value} key={value}>{statusLabel[value]}</option>)}
-          </select>
-        </label>
-        <button className="kanban-open" onClick={onOpen}>{status === "empty" ? "Completar" : "Abrir pauta"}</button>
-      </footer>
-    </article>
-  );
-}
-
-type KanbanColumnProps = {
-  status: Emission["status"];
-  title: string;
-  hint: string;
-  canEdit: boolean;
-  children: React.ReactNode;
-  count: number;
-  mobileActive: boolean;
-};
-
-function KanbanColumn({ status, title, hint, canEdit, children, count, mobileActive }: KanbanColumnProps) {
-  const { ref, isDropTarget } = useDroppable({
-    id: status,
-    type: "status-column",
-    accept: "program-card",
-    disabled: !canEdit,
-  });
-
-  return (
-    <section ref={ref} className={`desk-column desk-${status} ${mobileActive ? "mobile-active" : ""} ${isDropTarget ? "drop-target" : ""}`}>
-      <header><div><strong>{title}</strong><span>{hint}</span></div><b>{count}</b></header>
-      <div>{children}</div>
-    </section>
-  );
-}
-
 type WorkspaceAppProps = {
   repository: WorkspaceRepository;
   initialWorkspace?: WorkspaceState;
@@ -244,22 +173,20 @@ type WorkspaceAppProps = {
   appRole?: "superadmin" | "general_producer" | "producer" | "viewer";
 };
 
-type WorkspaceView = "agenda" | "program" | "desk" | "reception" | "post";
+type DeskSection = "today" | "directions" | "guests";
+type ProducerSection = "today" | "people" | "post";
 
-const workspaceViews: Array<{ id: WorkspaceView; code: string; label: string; description: string }> = [
-  { id: "agenda", code: "A", label: "Agenda", description: "Programación semanal" },
-  { id: "desk", code: "B", label: "Mesa", description: "Kanban editorial" },
-  { id: "program", code: "C", label: "Programa", description: "Editar mi pauta" },
-  { id: "reception", code: "D", label: "Recepción", description: "Pegar y ordenar" },
-  { id: "post", code: "E", label: "Post", description: "Registrar lo emitido" },
+const deskSections: Array<{ id: DeskSection; label: string; description: string }> = [
+  { id: "today", label: "Hoy", description: "Estado de cada programa" },
+  { id: "directions", label: "Indicaciones", description: "Lo que producción debe saber" },
+  { id: "guests", label: "Invitados", description: "Quién fue invitado y dónde" },
 ];
 
 export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accountName, canEdit, getAccessToken, onSignOut, producerProgramIds, appRole = "superadmin" }: WorkspaceAppProps) {
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => initialWorkspace ?? initialWorkspaceState);
-  const [activeView, setActiveView] = useState<WorkspaceView>("agenda");
+  const [deskSection, setDeskSection] = useState<DeskSection>("today");
   const [selectedDate, setSelectedDate] = useState(todayInLima);
   const [selectedSlotId, setSelectedSlotId] = useState("encendidos-5-4");
-  const [programFilter, setProgramFilter] = useState<"all" | "managed">("all");
   const [hydrated, setHydrated] = useState(Boolean(initialWorkspace));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -288,20 +215,16 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [showFixedBlocks, setShowFixedBlocks] = useState(false);
   const [producerExperience, setProducerExperience] = useState(Boolean(producerProgramIds?.length));
   const [activeProducerProgramId, setActiveProducerProgramId] = useState(producerProgramIds?.[0] ?? "encendidos");
-  const [producerSection, setProducerSection] = useState<"today" | "people" | "post">("today");
+  const [producerSection, setProducerSection] = useState<ProducerSection>("today");
   const [producerPeopleQuery, setProducerPeopleQuery] = useState("");
   const [producerComposerMode, setProducerComposerMode] = useState<ProducerComposerMode | null>(null);
-  const [showProducerNewPauta, setShowProducerNewPauta] = useState(false);
-  const [producerNewPautaDate, setProducerNewPautaDate] = useState("2026-08-31");
-  const [producerNewPautaMode, setProducerNewPautaMode] = useState<ProducerComposerMode>("paste");
   const [producerNoticesUpdated, setProducerNoticesUpdated] = useState(false);
   const [producerSeenBulletinVersions, setProducerSeenBulletinVersions] = useState<Record<string, string>>({});
   const [producerSeenNoticesContext, setProducerSeenNoticesContext] = useState("");
-  const [kanbanSavingId, setKanbanSavingId] = useState("");
-  const [mobileDeskStatus, setMobileDeskStatus] = useState<Emission["status"]>("empty");
-  const [captureCollapseOverride, setCaptureCollapseOverride] = useState<{ selectionKey: string; collapsed: boolean } | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [directionsOpenOverride, setDirectionsOpenOverride] = useState<boolean | null>(null);
+  const [showScheduleOnly, setShowScheduleOnly] = useState(false);
   const [expandedSavedSegments, setExpandedSavedSegments] = useState<Set<string>>(() => new Set());
-  const [expandedAgendaSlots, setExpandedAgendaSlots] = useState<Set<string>>(() => new Set());
   const [demoDataEnabled, setDemoDataEnabled] = useState(false);
   const [demoOverrides, setDemoOverrides] = useState<Emission[]>([]);
   const [segmentSyncStates, setSegmentSyncStates] = useState<Record<string, SegmentSyncStatus>>({});
@@ -348,13 +271,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       .filter((bulletin) => !producerExperience || !currentProgram || bulletinVisibleToProgram(bulletin, currentProgram.id, currentProgram.name, currentProgram.shortName));
   }, [activeProducerProgramId, producerExperience, programs, visibleWeekStart, workspace.bulletins]);
   const bulletinPresentation = useMemo(() => splitBulletins(visibleBulletins), [visibleBulletins]);
-  const visibleImportantDates = useMemo(
-    () => workspace.importantDates
-      .filter((item) => item.date >= days[0].date && item.date <= days[6].date)
-      .filter((item) => importantDateVisibleToProgram(item, producerExperience ? activeProducerProgramId : undefined))
-      .sort((a, b) => a.date.localeCompare(b.date)),
-    [activeProducerProgramId, days, producerExperience, workspace.importantDates],
-  );
   const producerImportantDates = useMemo(
     () => workspace.importantDates
       .filter((item) => item.date >= days[0].date)
@@ -368,12 +284,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   );
   const isEditorialAdmin = appRole === "superadmin" || appRole === "general_producer";
   const isRestrictedProducer = Boolean(producerProgramIds?.length);
-  const canReturnToDashboard = appRole === "superadmin";
+  const canReturnToDashboard = !isRestrictedProducer;
   const pilotReady = PILOT_MODE_ACTIVE && !DEMO_DATA_AVAILABLE && repository.mode === "supabase";
-  const adminDemoEmptyTarget = useMemo(
-    () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots),
-    [programs, scheduleSlots, visibleWeekStart, workspace.emissions],
-  );
   const producerDemoEmptyTarget = useMemo(
     () => findDemoEmptyTarget(visibleWeekStart, workspace.emissions, programs, scheduleSlots, activeProducerProgramId),
     [activeProducerProgramId, programs, scheduleSlots, visibleWeekStart, workspace.emissions],
@@ -473,8 +385,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         if (producerProgramIds?.length) {
           setActiveProducerProgramId(availableProgramId);
           setProducerSection("post");
-        } else {
-          setActiveView("post");
         }
       }
 
@@ -510,6 +420,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     () => mergeDemoPeople(workspace.people, demoDataEnabled, effectiveEmissions.filter((emission) => isDemoId(emission.id))),
     [demoDataEnabled, effectiveEmissions, workspace.people],
   );
+  const allGuestBookings = useMemo(() => guestBookings(effectiveEmissions, programs), [effectiveEmissions, programs]);
   const producerNoticesSignature = useMemo(() => JSON.stringify({
     bulletins: visibleBulletins.map((bulletin) => ({ id: bulletin.id, version: bulletinVersion(bulletin) })),
     importantDates: producerImportantDates.slice(0, 6).map(({ id, date, title, details, category, plans }) => ({ id, date, title, details, category, plan: plans[activeProducerProgramId] ?? "" })),
@@ -536,14 +447,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }, [producerNoticesSignature, producerNoticesStorageKey, visibleBulletins]);
 
   const selectedDay = editorialDayForDate(selectedDate);
-  const selectedDateIsInVisibleWeek = days.some((day) => day.date === selectedDate);
   const daySlots = useMemo(
     () => scheduleSlots
       .filter((slot) => slot.dayOfWeek === selectedDay.dayOfWeek)
       .filter((slot) => slotAppliesOnDate(slot, selectedDate))
-      .filter((slot) => !producerExperience || slot.programId === activeProducerProgramId)
-      .filter((slot) => programFilter === "all" || programs.find((program) => program.id === slot.programId)?.managed),
-    [activeProducerProgramId, producerExperience, programFilter, programs, scheduleSlots, selectedDate, selectedDay.dayOfWeek],
+      .filter((slot) => !producerExperience || slot.programId === activeProducerProgramId),
+    [activeProducerProgramId, producerExperience, scheduleSlots, selectedDate, selectedDay.dayOfWeek],
   );
 
   const selectedSlot = daySlots.find((slot) => slot.id === selectedSlotId)
@@ -572,16 +481,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       )
     : null;
   const selectedEmissionIsDemo = Boolean(selectedEmission && isDemoId(selectedEmission.id));
-  const captureHasPreparedPauta = Boolean(selectedEmission?.segments.some((segment) => !segment.fixedBlockId));
-  const captureSelectionKey = `${selectedProgram?.id ?? "none"}:${selectedDate}`;
-  const captureCollapsed = captureCollapseOverride?.selectionKey === captureSelectionKey
-    ? captureCollapseOverride.collapsed
-    : captureHasPreparedPauta;
   const producerSuggestions = [...new Set(effectiveEmissions.map((emission) => emission.producerName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
-
-  function setCaptureCollapsed(collapsed: boolean) {
-    setCaptureCollapseOverride({ selectionKey: captureSelectionKey, collapsed });
-  }
 
   useEffect(() => {
     if (!producerExperience || daySlots.length) return;
@@ -639,7 +539,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
     if (next) {
       demoReturnContextRef.current = {
-        activeView,
+        deskSection,
         selectedDate,
         selectedSlotId,
         producerExperience,
@@ -654,16 +554,16 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       const showcaseSlot = scheduleSlots.find((slot) => slot.programId === showcaseProgramId
         && slot.dayOfWeek === editorialDayForDate(DEMO_SHOWCASE_DATE).dayOfWeek
         && slotAppliesOnDate(slot, DEMO_SHOWCASE_DATE));
-      chooseCaptureDate(DEMO_SHOWCASE_DATE);
-      if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
       setPostSourceText("");
       setPostSourceType("document");
       setPostAiResult(null);
       if (producerExperience) {
+        chooseCaptureDate(DEMO_SHOWCASE_DATE);
+        if (showcaseSlot) setSelectedSlotId(showcaseSlot.id);
         setActiveProducerProgramId(showcaseProgramId);
         setProducerSection("post");
       } else {
-        setActiveView("post");
+        openProducerExperience(showcaseProgramId, DEMO_SHOWCASE_DATE, "post");
       }
       const showcaseProgram = programs.find((program) => program.id === showcaseProgramId);
       notify(`Modo demo activado: ${showcaseProgram?.shortName ?? "programa"} del viernes 28 abierto en Post-pauta.`);
@@ -675,7 +575,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     if (previous) {
       chooseCaptureDate(previous.selectedDate);
       setSelectedSlotId(previous.selectedSlotId);
-      setActiveView(previous.activeView);
+      setDeskSection(previous.deskSection);
       setProducerExperience(previous.producerExperience);
       setActiveProducerProgramId(previous.activeProducerProgramId);
       setProducerSection(previous.producerSection);
@@ -692,7 +592,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setPostSourceType("document");
     setPostAiResult(null);
     if (producerExperience) setProducerSection("today");
-    else setActiveView("agenda");
+    else setDeskSection("today");
     notify("Modo demo cerrado. Volvimos a la programación actual y las pautas reales siguen intactas.");
   }
 
@@ -701,17 +601,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setDirty(false);
     window.localStorage.removeItem(DEMO_OVERRIDES_STORAGE_KEY);
     notify("La semana de prueba volvió a su estado inicial.");
-  }
-
-  function openDemoEmptyDay() {
-    if (!adminDemoEmptyTarget) {
-      notify("No encontramos un viernes libre en las próximas semanas.");
-      return;
-    }
-    chooseCaptureDate(adminDemoEmptyTarget.date);
-    setSelectedSlotId(adminDemoEmptyTarget.slotId);
-    setActiveView("reception");
-    notify("Abrimos el viernes sin demo para mostrar cómo se crea una pauta desde cero.");
   }
 
   function openProducerDemoEmptyDay() {
@@ -1129,54 +1018,38 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     await commit(nextWorkspace, reviewStatus === "verified" ? "Post-pauta verificada y guardada en el histórico." : "Post-pauta enviada a revisión.");
   }
 
-  async function moveEmissionStatus(slotId: string, status: Emission["status"]) {
-    if (!canEdit || kanbanSavingId) return;
-    const slot = managedDaySlots.find((item) => item.id === slotId);
-    if (!slot) return;
-
-    const currentEmission = effectiveEmissions.find(
-      (emission) => emission.programId === slot.programId && emission.date === selectedDate,
-    ) ?? emptyEmission(slot.programId, selectedDate);
-    if (currentEmission.status === status) return;
-    if ((status === "ready" || status === "post") && currentEmission.segments.length === 0) {
-      notify("Agrega y revisa la pauta antes de marcarla como lista o post-pauta.");
+  async function saveSelectedEmissionStatus(status: Emission["status"]) {
+    if (!canEdit || statusSaving || !selectedEmission || !selectedProgram) return;
+    if (selectedEmission.status === status) return;
+    if ((status === "ready" || status === "post") && selectedEmission.segments.length === 0) {
+      notify("Agrega y revisa la pauta antes de marcarla como lista o pasar a post-pauta.");
       return;
     }
 
-    const nextEmission = { ...currentEmission, status, updatedAt: new Date().toISOString() };
-    if (isDemoId(currentEmission.id)) {
+    const nextEmission = { ...selectedEmission, status, updatedAt: new Date().toISOString() };
+    if (isDemoId(selectedEmission.id)) {
       upsertDemoOverride(nextEmission, true);
-      notify(`${programs.find((program) => program.id === slot.programId)?.shortName ?? "Programa"}: cambio demo guardado solo en este navegador.`);
+      notify(`${selectedProgram.shortName}: cambio demo guardado solo en este navegador.`);
       return;
     }
-    const exists = workspace.emissions.some((emission) => emission.id === currentEmission.id);
+    const exists = workspace.emissions.some((emission) => emission.id === selectedEmission.id);
     const previousWorkspace = workspace;
-    const nextWorkspace = {
+    setWorkspace({
       ...workspace,
       emissions: exists
-        ? workspace.emissions.map((emission) => emission.id === currentEmission.id ? nextEmission : emission)
+        ? workspace.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
         : [...workspace.emissions, nextEmission],
-    };
-
-    setWorkspace(nextWorkspace);
-    setKanbanSavingId(slotId);
+    });
+    setStatusSaving(true);
     try {
       await repository.saveEmissionStatus(nextEmission);
-      notify(`${programs.find((program) => program.id === slot.programId)?.shortName ?? "Programa"}: ${statusLabel[status]}.`);
+      notify(`${selectedProgram.shortName}: ${statusLabel[status]}.`);
     } catch (error) {
       setWorkspace(previousWorkspace);
       notify(error instanceof Error ? error.message : "No se pudo cambiar el estado.");
     } finally {
-      setKanbanSavingId("");
+      setStatusSaving(false);
     }
-  }
-
-  function handleKanbanDrop(event: DragEndEvent) {
-    if (event.canceled) return;
-    const sourceId = event.operation.source?.id;
-    const targetId = event.operation.target?.id;
-    if (!sourceId || !targetId || !kanbanStatuses.includes(targetId as Emission["status"])) return;
-    void moveEmissionStatus(String(sourceId), targetId as Emission["status"]);
   }
 
   async function saveBulletin() {
@@ -1463,7 +1336,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       setAiResult(result);
       const detectedProducer = result.proposal.producers[0]?.trim();
       if (detectedProducer) updateEmission({ producerName: detectedProducer });
-      setCaptureCollapsed(true);
     } catch (error) {
       notify(error instanceof Error ? error.message : "No pudimos ordenar esta pauta.");
     } finally {
@@ -1689,31 +1561,12 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const dateDraftExists = Boolean(dateDraft && workspace.importantDates.some((item) => item.id === dateDraft.id));
   const dateDraftHasBulletin = Boolean(dateDraft && workspace.bulletins.some((item) => item.id === dateDraft.id));
 
-  const managedDaySlots = daySlots.filter((slot) => programs.find((program) => program.id === slot.programId)?.managed);
-
-  function chooseSlot(slotId: string) {
-    setSelectedSlotId(slotId);
-    setAiResult(null);
-    setCaptureCollapsed(false);
-    setExpandedSavedSegments(new Set());
-  }
 
   function openProgramSlot(slotId: string, date = selectedDate) {
-    if (date !== selectedDate) chooseCaptureDate(date);
-    chooseSlot(slotId);
-    setProducerExperience(false);
+    const slot = scheduleSlots.find((item) => item.id === slotId);
+    if (!slot) return;
     setShowAnnualCalendar(false);
-    setActiveView("program");
-  }
-
-  function toggleAgendaSlot(slotId: string) {
-    chooseSlot(slotId);
-    setExpandedAgendaSlots((current) => {
-      const next = new Set(current);
-      if (next.has(slotId)) next.delete(slotId);
-      else next.add(slotId);
-      return next;
-    });
+    openProducerExperience(slot.programId, date);
   }
 
   function openArchiveResult(record: ArchiveSearchRecord) {
@@ -1722,27 +1575,40 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       notify("Encontramos el registro, pero ese programa ya no tiene un horario activo para abrirlo.");
       return;
     }
-    setProducerExperience(false);
-    chooseCaptureDate(record.date);
-    setSelectedSlotId(slot.id);
-    setActiveView(record.disposition ? "post" : "program");
     setShowArchiveSearch(false);
+    if (isRestrictedProducer && !producerProgramIds?.includes(record.programId)) {
+      notify("Ese registro pertenece a otro programa. Puedes leerlo aquí, pero no abrir su pauta.");
+      return;
+    }
+    openProducerExperience(record.programId, record.date, record.disposition ? "post" : "today");
     notify(record.disposition ? "Abrimos la post-pauta de la emisión encontrada." : "Abrimos la pauta de la emisión encontrada.");
+  }
+
+  function openGuestBooking(booking: GuestBooking) {
+    openProducerExperience(booking.programId, booking.date, booking.outcome === "planned" ? "today" : "post");
+  }
+
+  function openGuestPerson(booking: GuestBooking) {
+    const person = booking.personId
+      ? effectivePeople.find((item) => item.id === booking.personId)
+      : findSimilarPeople(booking.name, effectivePeople)[0]?.person;
+    setPeopleDirectorySelectedId(person?.id ?? "");
+    setShowPeopleDirectory(true);
+    if (!person) notify(`${booking.name} todavía no tiene ficha. Puedes crearla desde el directorio.`);
   }
 
   function chooseCaptureDate(date: string) {
     setSelectedDate(date);
     setAiResult(null);
-    setCaptureCollapsed(false);
     setExpandedSavedSegments(new Set());
     setProducerComposerMode(null);
   }
 
-  function openProducerExperience(programId = selectedProgram?.id ?? "encendidos") {
-    let preferredDate = selectedDate;
+  function openProducerExperience(programId = selectedProgram?.id ?? "encendidos", fromDate = selectedDate, section: ProducerSection = "today") {
+    let preferredDate = fromDate;
     if (!scheduleSlots.some((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(preferredDate).dayOfWeek && slotAppliesOnDate(slot, preferredDate))) {
       for (let offset = 1; offset <= 14; offset += 1) {
-        const candidate = shiftIsoDate(selectedDate, -offset);
+        const candidate = shiftIsoDate(fromDate, -offset);
         if (scheduleSlots.some((slot) => slot.programId === programId && slot.dayOfWeek === editorialDayForDate(candidate).dayOfWeek && slotAppliesOnDate(slot, candidate))) {
           preferredDate = candidate;
           break;
@@ -1754,7 +1620,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     chooseCaptureDate(preferredDate);
     setSelectedSlotId(slot.id);
     setActiveProducerProgramId(programId);
-    setProducerSection("today");
+    setProducerSection(section);
     if (canReturnToDashboard && !producerExperience && !producerDashboardHistoryRef.current) {
       window.history.pushState({ ...window.history.state, rppPautaProducerProgramId: programId }, "", window.location.href);
       producerDashboardHistoryRef.current = true;
@@ -1799,12 +1665,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     return true;
   }
 
-  function openProducerNewPauta() {
-    setProducerNewPautaDate(nearestProducerDate(selectedDate, 1));
-    setProducerNewPautaMode("paste");
-    setShowProducerNewPauta(true);
-  }
-
   function preparePautaFromEvent(event: ImportantDate) {
     if (!producerSlotForDate(event.date)) {
       notify("Este programa no tiene emisión configurada para la fecha del evento.");
@@ -1812,19 +1672,14 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     }
     markProducerNoticesSeen();
     setProducerSection("today");
-    setProducerNewPautaDate(event.date);
-    setProducerNewPautaMode("paste");
-    setShowProducerNewPauta(true);
-  }
-
-  function beginProducerPauta() {
-    if (!chooseProducerDate(producerNewPautaDate)) return;
-    const existing = effectiveEmissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === producerNewPautaDate);
-    setProducerComposerMode(producerNewPautaMode);
-    setShowProducerNewPauta(false);
-    notify(existing && (existing.rawText.trim() || existing.segments.length)
-      ? "Abrimos la pauta existente de esa fecha. Nada fue reemplazado."
-      : "Nueva pauta preparada. Empieza con el texto o con el primer bloque.");
+    if (!chooseProducerDate(event.date)) return;
+    const existing = effectiveEmissions.find((emission) => emission.programId === activeProducerProgramId && emission.date === event.date);
+    if (existing && (existing.rawText.trim() || existing.segments.some((segment) => !segment.fixedBlockId))) {
+      notify("Abrimos la pauta existente de esa fecha. Nada fue reemplazado.");
+      return;
+    }
+    setProducerComposerMode("paste");
+    notify(`Pauta del ${longSpanishDate(event.date).toLocaleLowerCase("es")} abierta. Pega o escribe el texto para empezar.`);
   }
 
   function chooseProducerComposer(mode: ProducerComposerMode) {
@@ -2073,103 +1928,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
-  function renderProgramRoutes() {
-    return (
-      <aside className="route-rail">
-        <header><span>{selectedDay.label}</span><strong>Programas administrados</strong></header>
-        <div>
-          {managedDaySlots.map((slot) => {
-            const program = programs.find((item) => item.id === slot.programId);
-            const emission = effectiveEmissions.find((item) => item.programId === program?.id && item.date === selectedDate);
-            if (!program) return null;
-            return (
-              <button className={selectedSlot?.id === slot.id ? "active" : ""} key={slot.id} onClick={() => chooseSlot(slot.id)}>
-                <time>{slot.startTime}</time>
-                <span><strong>{program.shortName}</strong><small>{statusLabel[emission?.status ?? "empty"]}</small></span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-    );
-  }
-
-  function renderCaptureWorkspace(reception: boolean) {
-    return (
-      <section className="mode-page">
-        <header className="mode-heading">
-          <div><span>{reception ? "Piloto de productora general" : "Espacio del programa"}</span><h1>{reception ? "Recepción de pautas" : selectedProgram?.shortName ?? "Mi programa"}</h1><p>{reception ? "Elige el destino, pega el mensaje recibido y revisa cómo quedará." : "Trabaja la pre-pauta y la vista ordenada del bloque seleccionado."}</p></div>
-          <div className={`mode-day-tabs ${reception ? "reception-day-tabs" : ""}`}>
-            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseCaptureDate(day.date)}>{day.label}</button>)}
-            {reception && (
-              <label className={`mode-calendar-picker ${selectedDateIsInVisibleWeek ? "" : "active"}`}>
-                <span>Calendario</span>
-                <input
-                  aria-label="Elegir cualquier fecha"
-                  type="date"
-                  value={selectedDate}
-                  onInput={(event) => {
-                    if (!event.currentTarget.value) return;
-                    chooseCaptureDate(event.currentTarget.value);
-                  }}
-                />
-              </label>
-            )}
-          </div>
-        </header>
-
-        <div className={`${reception ? "reception-grid" : "program-grid"} ${captureCollapsed ? "source-collapsed" : ""}`}>
-          {renderProgramRoutes()}
-
-          <section className={`capture-pane ${captureCollapsed ? "collapsed" : ""}`}>
-            {captureCollapsed ? (
-              <button className="capture-collapsed-card" aria-expanded="false" onClick={() => setCaptureCollapsed(false)}>
-                <span>Original guardado</span>
-                <strong>{selectedProgram?.shortName ?? "Pauta recibida"}</strong>
-                <p>{selectedEmission?.producerName || "Productor por confirmar"}</p>
-                <b>Ver original <span aria-hidden="true">›</span></b>
-              </button>
-            ) : (
-              <>
-                <header>
-                  <div><span>{reception ? "1. Destino" : "Pauta original"}</span><h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2></div>
-                  <div className="capture-pane-actions">{selectedSlot && <time>{selectedSlot.startTime} a {selectedSlot.endTime}</time>}<button aria-expanded="true" onClick={() => setCaptureCollapsed(true)}>Ocultar original</button></div>
-                </header>
-
-              <div className="capture-meta">
-                <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
-              </div>
-
-                <label className="field capture-text">
-                  <span>{reception ? "2. Mensaje recibido" : "Pega aquí la pauta de WhatsApp, email o documento"}</span>
-                  <textarea disabled={!canEdit || !selectedEmission} rows={reception ? 20 : 16} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder="Pega el texto completo. No necesitas ordenarlo antes." />
-                </label>
-
-                <div className="capture-actions">
-                  <p>El original queda guardado para comparar y auditar.</p>
-                  <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando pauta..." : reception ? "Formatear y ubicar" : "Ordenar pauta"}</button>
-                </div>
-              </>
-            )}
-          </section>
-
-          <section className="ordered-pane">
-            {aiResult ? (
-              selectedProgram ? <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} program={selectedProgram} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => { setAiResult(null); setCaptureCollapsed(captureHasPreparedPauta); }} onApply={applyAiProposal} /> : null
-            ) : (
-              <>
-                <header className="ordered-pane-heading"><div><span>{reception ? "3. Así quedaría" : "Escaleta del programa"}</span><h2>Vista ordenada</h2></div><strong>{selectedEmission?.segments.length ?? 0} bloques</strong></header>
-                {selectedProgram && <ProgramIdentityCard program={selectedProgram} />}
-                {renderSavedRundown()}
-                {dirty && <footer className="ordered-save"><span>Cambios sin guardar</span><button className="primary" onClick={saveDraft} disabled={saving || !canEdit}>{saving ? "Guardando..." : "Guardar cambios"}</button></footer>}
-              </>
-            )}
-          </section>
-        </div>
-      </section>
-    );
-  }
-
   function renderPostPauta() {
     const postPauta = selectedEmission?.postPauta ?? emptyPostPauta();
     const registeredSegments = selectedEmission?.segments.filter((segment) => segment.disposition || segment.actualStart || segment.actualEnd || segment.stories?.some((story) => story.disposition)).length ?? 0;
@@ -2187,19 +1945,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
     return (
       <section className="mode-page post-page">
-        <header className="mode-heading">
-          <div><span>Registro as-run e histórico</span><h1>Post-pauta</h1><p>Marca lo que salió con pocos toques; completa el contenido y verifica las citas al terminar.</p></div>
-          <div className="mode-day-tabs reception-day-tabs">
-            {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseCaptureDate(day.date)}>{day.label}</button>)}
-            <label className={`mode-calendar-picker ${selectedDateIsInVisibleWeek ? "" : "active"}`}>
-              <span>Calendario</span>
-              <input aria-label="Elegir fecha de post-pauta" type="date" value={selectedDate} onInput={(event) => event.currentTarget.value && chooseCaptureDate(event.currentTarget.value)} />
-            </label>
-          </div>
-        </header>
-
         <div className="post-workspace">
-          {renderProgramRoutes()}
           <section className="post-main">
             <header className="post-program-header">
               <div>
@@ -2367,12 +2113,96 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
+  function renderStageTracker() {
+    const stage = pautaStage(selectedEmission ?? undefined);
+    const stageIndex = pautaStages.findIndex((item) => item.id === stage);
+    const hasBlocks = Boolean(selectedEmission?.segments.length);
+    const hasContent = hasBlocks || Boolean(selectedEmission?.rawText.trim());
+    const action: { label: string; run: () => void; disabled?: boolean } | null = producerSection === "today"
+      ? stage === "prepare"
+        ? { label: statusSaving ? "Guardando..." : "Marcar pauta como lista", run: () => void saveSelectedEmissionStatus("ready"), disabled: !canEdit || !hasBlocks || statusSaving }
+        : { label: "Ir a Post-pauta", run: () => setProducerSection("post") }
+      : null;
+    const stageNote: Record<PautaStage, string> = {
+      prepare: hasContent ? "Revisa horarios e invitados. Cuando esté completa, márcala como lista." : "Todavía no hay pauta para este día.",
+      ready: producerSection === "today" ? "Lista para salir. Al terminar el programa, registra lo que salió en Post-pauta." : "Marca qué salió de cada bloque. Al terminar, envíala a revisión o verifícala.",
+      post: "Post-pauta en revisión. Verifícala cuando cada bloque tenga su resultado.",
+      closed: "Emisión cerrada. Invitados, temas y resúmenes ya están en el archivo.",
+    };
+    return (
+      <section className="stage-tracker" aria-label="Avance de la emisión">
+        <ol>
+          {pautaStages.map((item, index) => (
+            <li key={item.id} className={index < stageIndex ? "done" : index === stageIndex ? "current" : ""} aria-current={index === stageIndex ? "step" : undefined}>
+              <b>{index < stageIndex ? "✓" : index + 1}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span>
+            </li>
+          ))}
+        </ol>
+        <div className="stage-tracker-action">
+          <p>{stageNote[stage]}</p>
+          <div>
+            {dirty && <button disabled={saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar cambios"}</button>}
+            {stage === "ready" && producerSection === "today" && <button className="stage-tracker-secondary" disabled={!canEdit || statusSaving} onClick={() => void saveSelectedEmissionStatus("draft")}>Volver a edición</button>}
+            {action && <button className="primary" disabled={action.disabled} onClick={action.run}>{action.label}</button>}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderProducerDirections() {
+    const assignedDates = producerImportantDates.filter((item) => item.plans[activeProducerProgramId]?.trim()).slice(0, 3);
+    const otherDates = producerImportantDates.filter((item) => !item.plans[activeProducerProgramId]?.trim()).slice(0, Math.max(0, 3 - assignedDates.length));
+    const upcomingDates = [...assignedDates, ...otherDates];
+    const total = visibleBulletins.length + upcomingDates.length;
+    const open = directionsOpenOverride ?? producerNoticesUpdated;
+    return (
+      <section className={`producer-directions ${producerNoticesUpdated ? "has-updates" : ""} ${open ? "open" : ""}`} aria-label="Indicaciones de producción general">
+        <header>
+          <div>
+            {producerNoticesUpdated && <b className="producer-update-flag">Nuevo</b>}
+            <span>Indicaciones de producción general</span>
+            <strong aria-live="polite">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación nueva" : "indicaciones nuevas"}` : producerNoticesUpdated ? "Hay novedades" : total ? "Estás al día" : "Sin indicaciones esta semana"}</strong>
+          </div>
+          <div className="producer-directions-actions">
+            {producerNoticesUpdated && <button className="primary" onClick={() => { markProducerNoticesSeen(); setDirectionsOpenOverride(false); }}>Entendido</button>}
+            {total > 0 && <button aria-expanded={open} onClick={() => setDirectionsOpenOverride(!open)}>{open ? "Ocultar" : `Ver (${total})`}</button>}
+          </div>
+        </header>
+        {open && total > 0 && (
+          <div className="producer-directions-list">
+            {bulletinPresentation.featured.map((bulletin) => {
+              const updateState = producerBulletinUpdates.get(bulletin.id);
+              const linkedEvent = workspace.importantDates.find((event) => event.id === bulletin.id);
+              const linkedEventHasAssignments = Boolean(linkedEvent && Object.values(linkedEvent.plans).some((plan) => plan.trim()));
+              const linkedEventIsActionable = Boolean(linkedEvent && (!linkedEventHasAssignments || linkedEvent.plans[activeProducerProgramId]?.trim()));
+              return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
+                <div><strong>{bulletin.title}</strong>{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
+                <p>{bulletin.body}</p>
+                {linkedEventIsActionable && linkedEvent && <button onClick={() => preparePautaFromEvent(linkedEvent)}>Preparar pauta del {new Intl.DateTimeFormat("es-PE", { weekday: "short", day: "numeric" }).format(new Date(`${linkedEvent.date}T12:00:00`)).replaceAll(".", "")}</button>}
+              </article>;
+            })}
+            {upcomingDates.map((item) => {
+              const assignedPlan = item.plans[activeProducerProgramId]?.trim();
+              return <article className={`producer-direction-date ${assignedPlan ? "assigned" : ""}`} key={`date-${item.id}`}>
+                <div><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong>{assignedPlan && <b>Encargo para tu programa</b>}</div>
+                <p>{assignedPlan || item.details}</p>
+                {assignedPlan && producerSlotForDate(item.date) && <button onClick={() => preparePautaFromEvent(item)}>Preparar pauta</button>}
+              </article>;
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderProducerPortal() {
     const producerProgram = programs.find((program) => program.id === activeProducerProgramId);
     const producerDays = days.filter((day) => scheduleSlots.some((slot) => slot.programId === producerProgram?.id && slot.dayOfWeek === day.dayOfWeek && slotAppliesOnDate(slot, day.date)));
     const guestParticipants = selectedEmission?.segments.flatMap((segment) => segmentParticipants(segment)
       .filter((participant) => participant.role === "guest" || participant.role === "specialist")
       .map((participant) => ({ segment, participant }))) ?? [];
+    const dayGuestOverlaps = guestOverlaps(allGuestBookings.filter((booking) => booking.date === selectedDate));
     const producerPautaIsBlank = !selectedEmission?.segments.some((segment) => !segment.fixedBlockId) && !selectedEmission?.rawText.trim();
     const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
     const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
@@ -2392,14 +2222,14 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       <main className="producer-portal" style={{ "--program-accent": producerProgram?.accentColor ?? "#f4d800" } as CSSProperties}>
         <header className="producer-topbar">
           <div className="producer-leading">
-            {canReturnToDashboard && <button className="producer-dashboard-back" onClick={returnToDashboard}><span aria-hidden="true">←</span> Dashboard general</button>}
+            {canReturnToDashboard && <button className="producer-dashboard-back" onClick={returnToDashboard}><span aria-hidden="true">←</span> Mesa del día</button>}
             <div className="producer-brand"><Image src="/rpp-logo.svg" alt="RPP" width={42} height={42} priority /><span><small>Espacio de producción</small><strong>{producerProgram?.name ?? "Mi programa"}</strong></span></div>
             {isRestrictedProducer && (producerProgramIds?.length ?? 0) > 1 && <label className="producer-program-switch"><span>Programa</span><select aria-label="Programa de producción" value={activeProducerProgramId} onChange={(event) => setActiveProducerProgramId(event.target.value)}>{programs.filter((program) => producerProgramIds?.includes(program.id)).map((program) => <option key={program.id} value={program.id}>{program.shortName}</option>)}</select></label>}
           </div>
           <nav aria-label="Secciones de producción">
-            <button className={producerSection === "today" ? "active" : ""} onClick={() => setProducerSection("today")}>Pauta de hoy</button>
-            <button className={producerSection === "people" ? "active" : ""} onClick={() => setProducerSection("people")}>Invitados</button>
-            <button className={producerSection === "post" ? "active" : ""} onClick={() => setProducerSection("post")}>Post-pauta</button>
+            <button className={producerSection === "today" ? "active" : ""} aria-current={producerSection === "today" ? "page" : undefined} onClick={() => setProducerSection("today")}>Pauta</button>
+            <button className={producerSection === "post" ? "active" : ""} aria-current={producerSection === "post" ? "page" : undefined} onClick={() => setProducerSection("post")}>Post-pauta</button>
+            <button className={producerSection === "people" ? "active" : ""} aria-current={producerSection === "people" ? "page" : undefined} onClick={() => setProducerSection("people")}>Invitados</button>
           </nav>
           <div className="producer-account">
             {isRestrictedProducer && onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
@@ -2417,47 +2247,14 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           <strong className="pilot-status-chip">Datos reales</strong>
         </aside>}
 
-        <section className={`producer-shared-board ${producerNoticesUpdated ? "has-updates" : ""}`} aria-label="Información compartida para todos los programas">
-          <header>
-            <div>{producerNoticesUpdated && <b className="producer-update-flag">Nuevo</b>}<span>Coordinación compartida</span><strong aria-live="assertive">{producerBulletinUpdateCount ? `${producerBulletinUpdateCount} ${producerBulletinUpdateCount === 1 ? "indicación requiere tu atención" : "indicaciones requieren tu atención"}` : producerNoticesUpdated ? "Hay novedades que debes revisar" : "Información de la semana"}</strong></div>
-            {producerNoticesUpdated && <button onClick={markProducerNoticesSeen}>Marcar como visto</button>}
-          </header>
-          <div className="producer-alert-grid">
-            <div className="producer-bulletins">
-              <div className="producer-alert-title"><span>Indicaciones de la semana</span>{producerBulletinUpdateCount > 0 && <b>{producerBulletinUpdateCount} por revisar</b>}</div>
-              <div className={`producer-bulletin-featured count-${bulletinPresentation.featured.length}`}>
-                {bulletinPresentation.featured.map((bulletin) => {
-                  const updateState = producerBulletinUpdates.get(bulletin.id);
-                  const linkedEvent = workspace.importantDates.find((event) => event.id === bulletin.id);
-                  const linkedEventHasAssignments = Boolean(linkedEvent && Object.values(linkedEvent.plans).some((plan) => plan.trim()));
-                  const linkedEventIsActionable = Boolean(linkedEvent && (!linkedEventHasAssignments || linkedEvent.plans[activeProducerProgramId]?.trim()));
-                  return <article className={updateState ? "is-unseen" : ""} key={bulletin.id}>
-                    <div className="bulletin-card-meta">{bulletin.pinnedRank && <span>Fijada {bulletin.pinnedRank}</span>}{updateState && <b>{updateState === "new" ? "Nueva" : "Actualizada"}</b>}</div>
-                    <strong>{bulletin.title}</strong><p>{bulletin.body}</p>
-                    {linkedEventIsActionable && linkedEvent && <footer className="producer-bulletin-event-action"><time>{new Intl.DateTimeFormat("es-PE", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${linkedEvent.date}T12:00:00`)).replaceAll(".", "")}</time><button onClick={() => preparePautaFromEvent(linkedEvent)}>Preparar pauta</button></footer>}
-                  </article>;
-                })}
-                {!bulletinPresentation.featured.length && <div className="producer-bulletin-empty">No hay indicaciones para esta semana.</div>}
-              </div>
-            </div>
-            <div className="producer-dates">
-              <div className="producer-alert-title"><span>Próximas fechas</span><b>{producerImportantDates.length}</b></div>
-              <div>{producerImportantDates.slice(0, 3).map((item) => {
-                const assignedPlan = item.plans[activeProducerProgramId]?.trim();
-                const detail = assignedPlan || item.details;
-                return <button className={item.category === "holiday" ? "holiday" : ""} key={item.id} onClick={() => { markProducerNoticesSeen(); notify(`${item.title}: ${detail}`); }}><time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "")}</time><strong>{item.title}</strong><small>{detail}</small>{assignedPlan && <b>Asignado a tu programa</b>}</button>;
-              })}</div>
-            </div>
-          </div>
-        </section>
+        {renderProducerDirections()}
 
         <section className="producer-content">
           <header className="producer-page-heading">
-            <div><span>{selectedSlot?.startTime ?? "10:00"} - {selectedSlot?.endTime ?? "12:30"}</span><h1>{producerSection === "today" ? longSpanishDate(selectedDate) : producerSection === "people" ? "Base de invitados" : "Post-pauta"}</h1><p>{producerSection === "today" ? "Prepara, revisa y deja lista la pauta del programa desde una sola pantalla." : producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p></div>
-            {producerSection === "today" && <button className="producer-new-pauta" onClick={openProducerNewPauta}><span>+</span> Crear nueva pauta</button>}
+            <div><span>{producerProgram?.shortName} · {selectedSlot?.startTime ?? "--:--"} a {selectedSlot?.endTime ?? "--:--"}</span><h1>{producerSection === "people" ? "Base de invitados" : longSpanishDate(selectedDate)}</h1><p>{producerSection === "today" ? "Prepara la pauta: pega o escribe el texto, revisa la escaleta y márcala como lista." : producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p></div>
           </header>
 
-          {producerSection === "today" && (
+          {producerSection !== "people" && (
             <div className="producer-date-strip" aria-label="Cambiar fecha de la pauta">
               <button className="producer-date-arrow" aria-label="Emisión anterior" onClick={() => chooseProducerDate(nearestProducerDate(selectedDate, -1))}>Anterior</button>
               <div className="producer-day-tabs" aria-label="Días del programa">{producerDays.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => chooseProducerDate(day.date)}><span>{day.label.split(" ")[0]}</span><strong>{day.label.split(" ")[1]}</strong></button>)}</div>
@@ -2466,37 +2263,32 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
             </div>
           )}
 
+          {producerSection !== "people" && renderStageTracker()}
+
           {producerSection === "today" && (
             <>
-              <section className="producer-today-bar">
-                <div><span>Estado de la pauta</span><strong>{statusLabel[selectedEmission?.status ?? "empty"]}</strong></div>
-                <div><span>Bloques</span><strong>{selectedEmission?.segments.length ?? 0}</strong></div>
-                <div><span>Invitados</span><strong>{guestParticipants.length}</strong></div>
-                <div className="producer-today-actions"><button onClick={() => setShowPeopleDirectory(true)}>Buscar invitado</button><button className="primary" disabled={!dirty || saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando…" : dirty ? "Guardar cambios" : "Todo guardado"}</button></div>
-              </section>
-
               {producerPautaIsBlank && !producerComposerMode && (
                 <section className="producer-start-options">
-                  <div><strong>Pega tu prepauta o hazla aquí</strong><p>Empieza como te resulte más natural. En ambos casos terminarás con una escaleta editable.</p></div>
+                  <div><strong>Empieza la pauta de este día</strong><p>Pega el texto que ya tienes o escríbelo aquí. Luna lo convierte en una escaleta editable.</p></div>
                   <button onClick={() => chooseProducerComposer("paste")}><b>Pegar una prepauta</b><span>Trae el texto desde WhatsApp, email o un documento.</span></button>
-                  <button onClick={() => chooseProducerComposer("write")}><b>Hacerla aquí</b><span>Escribe libremente o arma los bloques uno por uno.</span></button>
+                  <button onClick={() => chooseProducerComposer("write")}><b>Escribirla aquí</b><span>Texto libre o bloques uno por uno.</span></button>
                 </section>
               )}
 
               <div className="producer-today-grid">
                 <section className="producer-rundown-panel">
-                  <header><div><span>Escaleta editable</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Bloques fijos</button><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
+                  <header><div><span>Escaleta</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Bloques fijos</button><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
                   {producerProgram && <ProgramIdentityCard program={producerProgram} />}
                   {renderSavedRundown()}
                 </section>
 
                 <aside className="producer-side-panel">
                   <section className={`producer-compose-card ${producerComposerMode ? "open" : ""}`}>
-                    <header><div><strong>{producerComposerMode ? producerComposerMode === "paste" ? "Pegar una prepauta" : "Crear la prepauta aquí" : "Añadir texto a la pauta"}</strong><small>Texto libre primero, escaleta editable después.</small></div>{producerComposerMode && <button onClick={() => setProducerComposerMode(null)}>Cerrar</button>}</header>
+                    <header><div><strong>{producerComposerMode ? producerComposerMode === "paste" ? "Pegar una prepauta" : "Escribir la prepauta" : "Texto de la pauta"}</strong><small>Texto libre primero, escaleta editable después.</small></div>{producerComposerMode && <button onClick={() => setProducerComposerMode(null)}>Cerrar</button>}</header>
                     {!producerComposerMode ? (
                       <div className="producer-compose-choices"><button onClick={() => chooseProducerComposer("paste")}><strong>Pegar texto</strong><span>WhatsApp o email</span></button><button onClick={() => chooseProducerComposer("write")}><strong>Escribir aquí</strong><span>Desde cero</span></button></div>
                     ) : <div className="producer-compose-editor">
-                      <div className="producer-compose-tabs"><button className={producerComposerMode === "paste" ? "active" : ""} onClick={() => chooseProducerComposer("paste")}>Pegar prepauta</button><button className={producerComposerMode === "write" ? "active" : ""} onClick={() => chooseProducerComposer("write")}>Hacerla aquí</button></div>
+                      <div className="producer-compose-tabs"><button className={producerComposerMode === "paste" ? "active" : ""} onClick={() => chooseProducerComposer("paste")}>Pegar prepauta</button><button className={producerComposerMode === "write" ? "active" : ""} onClick={() => chooseProducerComposer("write")}>Escribir aquí</button></div>
                       <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
                       <div className={`producer-guest-rule ${rawTextHasGuestLabel ? "valid" : ""}`}><strong>Identifica a cada persona</strong><p>Escribe <b>INVITADO:</b> o <b>INVITADA:</b> antes del nombre completo. Así podremos buscarla en la base o crear su ficha sin confundirla.</p>{selectedEmission?.rawText.trim() && <span>{rawTextHasGuestLabel ? "Formato de invitado detectado" : "Falta definir INVITADO: o INVITADA:"}</span>}</div>
                       <textarea disabled={!canEdit || !selectedEmission} rows={producerComposerMode === "write" ? 14 : 11} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder={producerComposerMode === "paste" ? "Pega aquí el texto completo recibido por WhatsApp o email." : "Escribe tu prepauta con horarios, TEMA, INVITADO / INVITADA y ENFOQUE."} />
@@ -2504,21 +2296,22 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                         {producerComposerMode === "write" && !selectedEmission?.rawText.trim() && <button onClick={insertProducerTemplate}>Usar una guía de texto</button>}
                         {producerComposerMode === "write" && <button onClick={addSegment}>Añadir bloque manual</button>}
                       </div>
-                      <p className="producer-fast-import">Si ya escribiste horarios o numeraste noticias, se ordenarán primero sin esperar al modelo. Luna interviene solo cuando el texto necesita interpretación.</p>
                       <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Convertir en escaleta"}</button>
                     </div>}
                   </section>
 
                   <section className="producer-guests-card">
-                    <header><div><span>Invitados en pauta</span><strong>{guestParticipants.length} confirmados</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
-                    <div>{guestParticipants.map(({ segment, participant }) => <button key={`${segment.id}-${participant.id}`} onClick={() => { setPeopleDirectorySelectedId(participant.personId ?? ""); setShowPeopleDirectory(true); }}><span>{participant.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{participant.name}</strong><small>{participant.roleDescription || segment.topic || "Cargo por completar"}</small></div></button>)}</div>
+                    <header><div><span>Invitados en pauta</span><strong>{guestParticipants.length} {guestParticipants.length === 1 ? "persona" : "personas"}</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
+                    <div>{guestParticipants.map(({ segment, participant }) => {
+                      const elsewhere = dayGuestOverlaps
+                        .find((overlap) => normalizePersonName(overlap.name) === normalizePersonName(participant.name))
+                        ?.bookings.filter((booking) => booking.programId !== activeProducerProgramId) ?? [];
+                      return <button key={`${segment.id}-${participant.id}`} onClick={() => { setPeopleDirectorySelectedId(participant.personId ?? ""); setShowPeopleDirectory(true); }}><span>{participant.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{participant.name}</strong><small>{participant.roleDescription || segment.topic || "Cargo por completar"}</small>{elsewhere.length > 0 && <em className="guest-overlap-flag">También en {elsewhere.map((booking) => `${booking.programName} ${booking.startTime}`).join(", ")}</em>}</div></button>;
+                    })}</div>
                     {!guestParticipants.length && <p>Añade uno o varios invitados desde cualquier bloque de la escaleta.</p>}
                   </section>
-
-                  <section className="producer-next-card"><span>Siguiente paso</span><strong>{selectedEmission?.status === "ready" ? "La pauta está lista para salir" : "Revisa horarios e invitados"}</strong><p>Cuando termine el programa, la misma escaleta estará disponible en Post-pauta.</p><button disabled={!canEdit || !selectedEmission?.segments.length} onClick={() => updateEmission({ status: "ready" })}>Marcar pauta como lista</button></section>
                 </aside>
               </div>
-
             </>
           )}
 
@@ -2554,21 +2347,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           </div>
         )}
 
-        {showProducerNewPauta && (
-          <div className="modal-backdrop producer-new-pauta-backdrop" role="presentation" onMouseDown={() => setShowProducerNewPauta(false)}>
-            <section className="producer-new-pauta-modal" role="dialog" aria-modal="true" aria-labelledby="new-pauta-title" onMouseDown={(event) => event.stopPropagation()}>
-              <header><div><span>Nueva emisión</span><h2 id="new-pauta-title">Crear nueva pauta</h2><p>Elige la fecha y cómo quieres empezar. Si ya existe una pauta, la abriremos sin reemplazarla.</p></div><button aria-label="Cerrar" onClick={() => setShowProducerNewPauta(false)}>Cerrar</button></header>
-              <label className="producer-new-date"><span>Fecha del programa</span><input autoFocus type="date" value={producerNewPautaDate} onChange={(event) => setProducerNewPautaDate(event.target.value)} /><small>{longSpanishDate(producerNewPautaDate)}</small></label>
-              <div className="producer-new-methods" role="radiogroup" aria-label="Cómo empezar la pauta">
-                <button role="radio" aria-checked={producerNewPautaMode === "paste"} className={producerNewPautaMode === "paste" ? "active" : ""} onClick={() => setProducerNewPautaMode("paste")}><strong>Pegar una prepauta</strong><span>Ya la hiciste en WhatsApp, email u otra herramienta.</span></button>
-                <button role="radio" aria-checked={producerNewPautaMode === "write"} className={producerNewPautaMode === "write" ? "active" : ""} onClick={() => setProducerNewPautaMode("write")}><strong>Hacerla aquí</strong><span>Escribe en texto libre o empieza con bloques editables.</span></button>
-              </div>
-              <div className="producer-new-guest-note"><strong>Para reconocer invitados</strong><p>Usa INVITADO: o INVITADA: seguido del nombre completo. La herramienta buscará coincidencias incluso si hay un pequeño error de escritura.</p></div>
-              <footer><button onClick={() => setShowProducerNewPauta(false)}>Cancelar</button><button className="primary" onClick={beginProducerPauta}>Empezar pauta</button></footer>
-            </section>
-          </div>
-        )}
-
         {showFixedBlocks && producerProgram && (
           <FixedBlocksManager
             repository={repository}
@@ -2596,67 +2374,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
-  function renderEditorialDesk() {
-    const columns: Array<{ status: Emission["status"]; title: string; hint: string }> = [
-      { status: "empty", title: "Falta pauta", hint: "Requiere acción" },
-      { status: "draft", title: "En preparación", hint: "Edición en curso" },
-      { status: "ready", title: "Lista para salir", hint: "Revisada" },
-      { status: "post", title: "Post-pauta", hint: "Emisión registrada" },
-    ];
-    const itemsByStatus = Object.fromEntries(columns.map((column) => [
-      column.status,
-      managedDaySlots.filter((slot) => (effectiveEmissions.find((emission) => emission.programId === slot.programId && emission.date === selectedDate)?.status ?? "empty") === column.status),
-    ])) as Record<Emission["status"], ScheduleSlot[]>;
-    return (
-      <section className="mode-page desk-page">
-        <header className="mode-heading">
-          <div><span>{selectedDay.label} · Kanban editorial</span><h1>Mesa editorial</h1><p>Cada programa avanza por estado: falta pauta, preparación, listo para salir y post-pauta.</p></div>
-          <div className="mode-day-tabs">{days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}</div>
-        </header>
-        {visibleBulletins[0] && <article className="desk-bulletin"><span>Indicación de la semana</span><strong>{visibleBulletins[0].title}</strong><p>{visibleBulletins[0].body}</p></article>}
-        <nav className="desk-status-tabs" aria-label="Filtrar Mesa por estado">
-          {columns.map((column) => (
-            <button key={column.status} className={mobileDeskStatus === column.status ? "active" : ""} onClick={() => setMobileDeskStatus(column.status)} aria-pressed={mobileDeskStatus === column.status}>
-              <span>{column.title}</span><b>{itemsByStatus[column.status].length}</b>
-            </button>
-          ))}
-        </nav>
-        <p className="desk-mobile-hint">Elige un estado. Puedes mover cada programa desde su selector.</p>
-        <DragDropProvider onDragEnd={handleKanbanDrop}>
-          <div className="desk-columns" aria-label="Kanban editorial por estado">
-            {columns.map((column) => {
-              const items = itemsByStatus[column.status];
-              return (
-                <KanbanColumn key={column.status} status={column.status} title={column.title} hint={column.hint} canEdit={canEdit} count={items.length} mobileActive={mobileDeskStatus === column.status}>
-                  {items.map((slot) => {
-                    const program = programs.find((item) => item.id === slot.programId);
-                    const emission = effectiveEmissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
-                    if (!program) return null;
-                    return (
-                      <KanbanCard
-                        key={slot.id}
-                        slot={slot}
-                        program={program}
-                        emission={emission}
-                        status={column.status}
-                        canEdit={canEdit}
-                        saving={kanbanSavingId === slot.id}
-                        isDemo={Boolean(emission && isDemoId(emission.id))}
-                        onMove={(slotId, status) => void moveEmissionStatus(slotId, status)}
-                        onOpen={() => { chooseSlot(slot.id); setActiveView(column.status === "empty" ? "reception" : "program"); }}
-                      />
-                    );
-                  })}
-                  {!items.length && <p className="desk-empty">No hay programas en este estado.</p>}
-                </KanbanColumn>
-              );
-            })}
-          </div>
-        </DragDropProvider>
-      </section>
-    );
-  }
-
   if (!hydrated) {
     return <WorkspaceLoadingShell />;
   }
@@ -2667,29 +2384,194 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
   if (producerExperience) return renderProducerPortal();
 
+  const deskRows = daySlots.map((slot) => {
+    const program = programs.find((item) => item.id === slot.programId);
+    const emission = effectiveEmissions.find((item) => item.programId === slot.programId && item.date === selectedDate);
+    const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
+    const hasEnded = now ? selectedDate < now.date || (selectedDate === now.date && now.minutes >= (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime))) : false;
+    const guests = allGuestBookings.filter((booking) => booking.programId === slot.programId && booking.date === selectedDate);
+    return { slot, program, emission, isLive, hasEnded, guests, stage: pautaStage(emission) };
+  }).filter((row): row is typeof row & { program: Program } => Boolean(row.program));
+  const managedRows = deskRows.filter((row) => row.program.managed);
+  const scheduleOnlyRows = deskRows.filter((row) => !row.program.managed);
+  const deskOverlaps = guestOverlaps(allGuestBookings.filter((booking) => booking.date === selectedDate));
+  const missingPauta = managedRows.filter((row) => !row.emission?.segments.length);
+  const postPending = managedRows.filter((row) => row.hasEnded && row.emission?.segments.length && row.stage !== "closed");
+  const upcomingImportantDates = workspace.importantDates
+    .filter((item) => item.date >= visibleWeekStart)
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(0, 8);
+
+  function handleOpenDeskRow(event: MouseEvent<HTMLButtonElement>) {
+    const { programId, section } = event.currentTarget.dataset;
+    if (programId) openProducerExperience(programId, selectedDate, section === "post" ? "post" : "today");
+  }
+
+  function newBulletinDraft(): Bulletin {
+    return { id: newId(), weekStart: visibleWeekStart, title: "", body: "", scope: "Todos los programas", programIds: [], pinnedRank: null, updatedAt: new Date().toISOString() };
+  }
+
+  function renderDeskToday() {
+    return (
+      <section className="desk-section" aria-labelledby="desk-today-title">
+        <header className="desk-heading">
+          <div><span>Mesa del día</span><h1 id="desk-today-title">{longSpanishDate(selectedDate)}</h1></div>
+          <div className="desk-day-nav">
+            <button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -1))} aria-label="Día anterior">Anterior</button>
+            <button className={selectedDate === todayInLima() ? "active" : ""} onClick={() => setSelectedDate(todayInLima())}>Hoy</button>
+            <button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 1))} aria-label="Día siguiente">Siguiente</button>
+            <label><span className="sr-only">Elegir fecha</span><input type="date" value={selectedDate} onChange={(event) => event.target.value && setSelectedDate(event.target.value)} /></label>
+          </div>
+        </header>
+
+        <div className="desk-summary" role="list">
+          <div role="listitem" className={missingPauta.length ? "attention" : ""}><strong>{missingPauta.length}</strong><span>sin pauta</span></div>
+          <div role="listitem"><strong>{managedRows.filter((row) => row.stage === "ready").length}</strong><span>listas para salir</span></div>
+          <div role="listitem" className={postPending.length ? "attention" : ""}><strong>{postPending.length}</strong><span>post-pauta pendiente</span></div>
+          <div role="listitem" className={deskOverlaps.length ? "attention" : ""}><strong>{deskOverlaps.length}</strong><span>invitados repetidos</span></div>
+        </div>
+
+        {deskOverlaps.length > 0 && (
+          <div className="guest-log-alerts" role="status">
+            {deskOverlaps.map((overlap) => <p key={overlap.personKey}><b>Invitado repetido</b><span><strong>{overlap.name}</strong> está en {overlap.bookings.map((booking) => `${booking.programName} (${booking.startTime})`).join(" y ")}.</span></p>)}
+          </div>
+        )}
+
+        <div className="desk-board">
+          <div className="desk-row desk-row-head" aria-hidden="true"><span>Hora</span><span>Programa</span><span>Avance</span><span>Invitados</span><span /></div>
+          {managedRows.map(({ slot, program, emission, isLive, guests, stage }) => {
+            const stageIndex = pautaStages.findIndex((item) => item.id === stage);
+            const empty = !emission?.segments.length;
+            return (
+              <article className={`desk-row ${isLive ? "live" : ""} ${empty ? "empty" : ""}`} key={slot.id} style={{ "--program-accent": program.accentColor } as CSSProperties}>
+                <time>{slot.startTime}<small>{slot.endTime}</small></time>
+                <div className="desk-program"><strong>{program.shortName}</strong><small>{emission?.producerName?.trim() || "Productor por confirmar"}</small>{isLive && <b className="live-pill">Al aire</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}</div>
+                <div className="desk-progress" aria-label={`Avance: ${pautaStageLabel(emission)}`}>
+                  <span className="desk-progress-dots" aria-hidden="true">{pautaStages.map((item, index) => <i key={item.id} className={empty ? "" : index < stageIndex ? "done" : index === stageIndex ? "current" : ""} />)}</span>
+                  <b data-stage={empty ? "empty" : stage}>{pautaStageLabel(emission)}</b>
+                  {emission?.segments.length ? <small>{emission.segments.length} bloques</small> : null}
+                </div>
+                <div className="desk-guests">
+                  {guests.length ? guests.slice(0, 3).map((booking) => {
+                    const repeated = deskOverlaps.some((overlap) => overlap.bookings.some((item) => item.key === booking.key));
+                    return <span key={booking.key} className={repeated ? "repeated" : ""} title={repeated ? "También invitado en otro programa hoy" : undefined}>{booking.name}</span>;
+                  }) : <small>Sin invitados</small>}
+                  {guests.length > 3 && <small>+{guests.length - 3} más</small>}
+                </div>
+                <button className={empty ? "primary" : ""} data-program-id={program.id} data-section={stage === "post" || stage === "closed" ? "post" : "today"} onClick={handleOpenDeskRow}>{empty ? "Preparar" : "Abrir"}</button>
+              </article>
+            );
+          })}
+          {!managedRows.length && <div className="empty-state"><strong>No hay programas administrados este día</strong><p>Revisa la parrilla en Administrar si esperabas ver alguno.</p></div>}
+        </div>
+
+        {scheduleOnlyRows.length > 0 && (
+          <div className="desk-schedule-only">
+            <button aria-expanded={showScheduleOnly} onClick={() => setShowScheduleOnly(!showScheduleOnly)}>{showScheduleOnly ? "Ocultar" : "Ver"} el resto de la parrilla ({scheduleOnlyRows.length} programas solo con horario)</button>
+            {showScheduleOnly && <ul>{scheduleOnlyRows.map(({ slot, program, isLive }) => <li key={slot.id}><time>{slot.startTime} - {slot.endTime}</time><span>{program.name}</span>{isLive && <b className="live-pill">Al aire</b>}</li>)}</ul>}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderDirections() {
+    return (
+      <section className="desk-section" aria-labelledby="directions-title">
+        <header className="desk-heading">
+          <div><span>Indicaciones</span><h1 id="directions-title">{weekTitle(selectedDate)}</h1><p>Lo que publiques aquí aparece arriba de la pauta de cada programa destinatario, marcado como nuevo hasta que lo lean.</p></div>
+          <div className="desk-day-nav">
+            <button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -7))}>Semana anterior</button>
+            <button onClick={() => setSelectedDate(todayInLima())}>Esta semana</button>
+            <button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 7))}>Semana siguiente</button>
+          </div>
+        </header>
+        <div className="directions-grid">
+          <article className="directions-panel">
+            <header><div><strong>Indicaciones de la semana</strong><small>Para todos o para programas concretos.</small></div><div><button onClick={() => { setBulletinDraft(null); setShowBulletinCenter(true); }}>Historial</button>{isEditorialAdmin && <button className="primary" disabled={!canEdit} onClick={() => { setBulletinDraft(newBulletinDraft()); setShowBulletinCenter(true); }}>+ Nueva indicación</button>}</div></header>
+            <div className="directions-list">
+              {bulletinPresentation.featured.map((item) => (
+                <button key={item.id} disabled={!isEditorialAdmin} onClick={() => { setBulletinDraft(item); setShowBulletinCenter(true); }}>
+                  <span>{item.pinnedRank && <b>Prioridad {item.pinnedRank}</b>}<em>{bulletinScopeLabel(item, programs)}</em></span>
+                  <strong>{item.title}</strong><small>{item.body}</small>
+                </button>
+              ))}
+              {!bulletinPresentation.featured.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Publica la línea editorial, temas a cubrir o invitados a evitar.</p></div>}
+            </div>
+          </article>
+          <article className="directions-panel">
+            <header><div><strong>Fechas y encargos</strong><small>Eventos con una tarea concreta para cada programa.</small></div><div><button onClick={() => setShowAnnualCalendar(true)}>Calendario</button><button className="primary" disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>+ Nuevo evento</button></div></header>
+            <div className="directions-list">
+              {upcomingImportantDates.map((item) => {
+                const assigned = Object.entries(item.plans).filter(([, plan]) => plan.trim());
+                return (
+                  <button key={item.id} className={item.category === "holiday" ? "holiday" : ""} disabled={!canEdit} onClick={() => setDateDraft(item)}>
+                    <span><time>{new Intl.DateTimeFormat("es-PE", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replaceAll(".", "")}</time><em>{assigned.length ? `${assigned.length} ${assigned.length === 1 ? "encargo" : "encargos"}` : item.category === "holiday" ? "Feriado" : "Sin encargos"}</em></span>
+                    <strong>{item.title}</strong><small>{item.details}</small>
+                  </button>
+                );
+              })}
+              {!upcomingImportantDates.length && <div className="empty-state compact"><strong>Sin fechas próximas</strong><p>Añade un evento para repartir encargos entre programas.</p></div>}
+            </div>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
+  function renderGuests() {
+    return (
+      <section className="desk-section" aria-labelledby="guests-title">
+        <header className="desk-heading">
+          <div><span>Invitados</span><h1 id="guests-title">Quién fue invitado y dónde</h1><p>Cada invitación sale de las pautas. Al cerrar la post-pauta se añade lo que realmente salió y lo que dijo.</p></div>
+        </header>
+        <GuestLog
+          bookings={allGuestBookings}
+          referenceDate={selectedDate}
+          onOpenBooking={openGuestBooking}
+          onOpenPerson={openGuestPerson}
+          onOpenDirectory={() => { setPeopleDirectorySelectedId(""); setShowPeopleDirectory(true); }}
+          onOpenArchive={() => setShowArchiveSearch(true)}
+        />
+      </section>
+    );
+  }
+
   return (
-    <main className="product-shell">
-      <header className="mode-switcher">
-        <div className="switcher-brand"><Image src="/rpp-logo.svg" alt="RPP" width={38} height={38} priority /><span><strong>Pauta RPP</strong><small>Informativos</small></span></div>
-        <nav aria-label="Vistas de trabajo">
-          {workspaceViews.map((view) => (
-            <button className={activeView === view.id ? "active" : ""} key={view.id} onClick={() => setActiveView(view.id)} aria-current={activeView === view.id ? "page" : undefined}>
-              <b>{view.code}</b><span><strong>{view.label}</strong><small>{view.description}</small></span>
+    <main className="product-shell desk-shell">
+      <header className="desk-topbar">
+        <div className="switcher-brand"><Image src="/rpp-logo.svg" alt="RPP" width={38} height={38} priority /><span><strong>Pauta RPP</strong><small>Producción general</small></span></div>
+        <nav aria-label="Secciones">
+          {deskSections.map((section) => (
+            <button className={deskSection === section.id ? "active" : ""} key={section.id} onClick={() => setDeskSection(section.id)} aria-current={deskSection === section.id ? "page" : undefined}>
+              <strong>{section.label}</strong><small>{section.description}</small>
+              {section.id === "today" && missingPauta.length + postPending.length + deskOverlaps.length > 0 && <b aria-label="Pendientes">{missingPauta.length + postPending.length + deskOverlaps.length}</b>}
             </button>
           ))}
         </nav>
-        <div className="switcher-account"><span>{accountName ?? "Equipo editorial"}</span><b>{accountLabel}</b></div>
+        <div className="desk-account">
+          <details className="desk-admin-menu">
+            <summary>Administrar</summary>
+            <div>
+              {isEditorialAdmin && <button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowOperationsAdmin(true); }}>Programas, parrilla y accesos</button>}
+              <button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowAnnualCalendar(true); }}>Calendario anual</button>
+              <button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowPeopleDirectory(true); }}>Fichas de personas</button>
+              <button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowVersionHistory(true); }}>Novedades · v{CURRENT_VERSION}</button>
+              {onSignOut && <button onClick={onSignOut}>Cerrar sesión</button>}
+            </div>
+          </details>
+          <b title={accountName ?? "Equipo editorial"}>{accountLabel}</b>
+        </div>
       </header>
 
       {DEMO_DATA_AVAILABLE && (
         <aside className={`demo-data-bar ${demoDataEnabled ? "active" : ""}`} aria-label="Control de datos de prueba">
           <div>
             <b>{demoDataEnabled ? "Modo demo activo: viernes 28" : "Modo demo desactivado"}</b>
-            <span>{demoDataEnabled ? "Encendidos y Post-pauta están listos para demostrar video, captions, transcripción y edición." : "Actívalo para abrir el recorrido de demostración sin modificar la información de Supabase."}</span>
+            <span>{demoDataEnabled ? "Datos de prueba visibles. Nada de esto se guarda en la base compartida." : "Actívalo para recorrer un día de ejemplo sin modificar la información real."}</span>
           </div>
           <div className="demo-data-actions">
             {demoDataEnabled && demoOverrides.length > 0 && <button className="demo-reset" onClick={resetDemoData}>Restablecer demo</button>}
-            {demoDataEnabled && adminDemoEmptyTarget && <button className="demo-empty-day" onClick={openDemoEmptyDay}>Ver día vacío</button>}
             <button className="demo-toggle" onClick={toggleDemoData}>{demoDataEnabled ? "Salir del modo demo" : "Activar modo demo"}</button>
           </div>
         </aside>
@@ -2702,112 +2584,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         </aside>
       )}
 
-      {activeView === "agenda" && (
-      <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><Image src="/rpp-logo.svg" alt="RPP" width={48} height={48} priority /><div><strong>Pauta</strong><small>Informativos</small></div></div>
-        <label className="sidebar-filter"><span>Programa</span><select value={programFilter} onChange={(event) => setProgramFilter(event.target.value as "all" | "managed")}><option value="all">Todos los programas</option><option value="managed">Solo administrados</option></select></label>
-        <nav className="main-nav" aria-label="Navegación principal">
-          <button className="active">Agenda semanal <b>35</b></button>
-          <button onClick={() => setShowBulletinCenter(true)}>Indicaciones <b>{visibleBulletins.length}</b></button>
-          <button onClick={() => setShowPeopleDirectory(true)}>Personas <b>{effectivePeople.length}</b></button>
-          <button onClick={() => setShowArchiveSearch(true)}>Archivo</button>
-          <button onClick={() => setShowAnnualCalendar(true)}>Calendario anual</button>
-          {isEditorialAdmin && <button onClick={() => setShowOperationsAdmin(true)}>Administración</button>}
-        </nav>
-        <div className="side-summary"><span>Desde {visibleWeekStart}</span><strong>{programs.filter((program) => program.managed && program.active).length} programas</strong><small>Administrados dentro de la señal completa</small></div>
-        <div className="sidebar-footer">
-          <button className="version-button" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
-            <span>Versión actual</span><strong>v{CURRENT_VERSION}</strong><small>Ver novedades</small>
-          </button>
-          {onSignOut ? <button className="nav-bottom" onClick={onSignOut}>Cerrar sesión</button> : <div className="side-mode"><span>{repository.mode === "supabase" ? "Base compartida" : "Modo local"}</span><small>{accountName ?? "Fase 1"}</small></div>}
-        </div>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div><span>Programación informativa</span><h1>{weekTitle(selectedDate)}</h1></div>
-          <div className="topbar-actions">{isEditorialAdmin && <button className="admin-shortcut" onClick={() => setShowOperationsAdmin(true)}>Administrar</button>}<button className="producer-shortcut" onClick={() => openProducerExperience()}>Vista productor</button><button className="search" onClick={() => setShowPeopleDirectory(true)}>Buscar invitado, tema o programa</button><span className="avatar">{accountLabel}</span></div>
-        </header>
-
-        <div className="workspace-body">
-          <section className="notices" aria-label="Indicaciones y fechas importantes">
-            <article className="bulletin-panel">
-              <header><strong>Indicaciones de la semana</strong><button onClick={() => setShowBulletinCenter(true)}>Abrir panel</button></header>
-              <div className={`bulletin-featured-grid count-${bulletinPresentation.featured.length}`}>
-                {bulletinPresentation.featured.map((item) => (
-                  <button className={`bulletin-item ${item.pinnedRank ? "pinned" : ""}`} key={item.id} disabled={!isEditorialAdmin} onClick={() => { setBulletinDraft(item); setShowBulletinCenter(true); }}>
-                    <span><span className="bulletin-card-meta">{item.pinnedRank && <b>Prioridad {item.pinnedRank}</b>}</span><strong>{item.title}</strong><small>{item.body}</small></span><b>{bulletinScopeLabel(item, programs)}</b>
-                  </button>
-                ))}
-                {!bulletinPresentation.featured.length && <div className="empty-state compact"><strong>Sin indicaciones esta semana</strong><p>Añade solo lo que todos deban revisar.</p></div>}
-              </div>
-            </article>
-            <article className="dates-panel">
-              <header><strong>Fechas importantes</strong><button disabled={!canEdit} onClick={() => setDateDraft({ id: newId(), date: selectedDate, title: "", details: "", plans: {}, category: "editorial", sourceUrl: "" })}>Añadir evento</button></header>
-              <div className="date-list">
-                {visibleImportantDates.map((item) => (
-                  <button className={`date-item ${item.category === "holiday" ? "holiday" : ""}`} key={item.id} disabled={!canEdit} onClick={() => setDateDraft(item)}>
-                    <time>{new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(`${item.date}T12:00:00`)).replace(".", "").toUpperCase()}</time>
-                    <span><strong>{item.title}</strong><small>{item.details}</small></span><b>Abrir</b>
-                  </button>
-                ))}
-                {!visibleImportantDates.length && <div className="empty-state compact"><strong>Sin fechas esta semana</strong><p>El calendario anual conserva las fechas futuras.</p></div>}
-              </div>
-            </article>
-          </section>
-
-          <section className="agenda-panel">
-            <header className="agenda-toolbar">
-              <div className="week-nav"><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -7))}>Anterior</button><button className="today-button" onClick={() => setSelectedDate(todayInLima())}>Esta semana</button><button onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 7))}>Siguiente</button></div>
-              <div className="day-tabs" aria-label="Días de la semana">
-                {days.map((day) => <button key={day.date} className={day.date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(day.date)}>{day.label}</button>)}
-              </div>
-              <button className="primary" disabled={!isEditorialAdmin} onClick={() => setShowOperationsAdmin(true)}>Editar parrilla</button>
-            </header>
-
-            <div className="agenda-layout compact-agenda-layout">
-              <section className="timeline-panel compact-timeline-panel">
-                <header><div><strong>{selectedDay.label}</strong><span>{daySlots.length} programas. Abre solo el que necesitas.</span></div><div className="legend"><span>Administrado</span><span>Solo horario</span></div></header>
-                <div className="slot-list compact-slot-list">
-                  {daySlots.map((slot) => {
-                    const program = programs.find((item) => item.id === slot.programId);
-                    if (!program) return null;
-                    const emission = effectiveEmissions.find((item) => item.programId === program.id && item.date === selectedDate);
-                    const status = emission?.status ?? "empty";
-                    const isLive = now?.date === selectedDate && now.minutes >= minutes(slot.startTime) && now.minutes < (slot.endTime === "00:00" ? 1440 : minutes(slot.endTime));
-                    const expanded = expandedAgendaSlots.has(slot.id);
-                    return (
-                      <article className={`agenda-program-row ${expanded ? "expanded" : ""} ${isLive ? "live" : ""}`} key={slot.id}>
-                        <button className="agenda-program-summary" aria-expanded={expanded} onClick={() => toggleAgendaSlot(slot.id)}>
-                          <time>{slot.startTime}</time><span><strong>{program.name}</strong><small>{program.hosts} | {slot.startTime} - {slot.endTime}</small></span><span className="slot-badges">{isLive && <b>Al aire ahora</b>}{emission && isDemoId(emission.id) && <em className="demo-label">Demo</em>}<em className={program.managed ? "managed-label" : "schedule-only-label"}>{program.managed ? "En herramienta" : "Solo horario"}</em>{program.managed && <i data-status={status}>{statusLabel[status]}</i>}</span><b className="agenda-expand-label">{expanded ? "Cerrar" : emission?.segments.length ? `${emission.segments.length} bloques` : "Ver"}</b>
-                        </button>
-                        {expanded && <div className="agenda-program-detail">
-                          {program.managed ? <>
-                            <header><div><strong>Escaleta compacta</strong><span>{emission?.producerName || "Productor por confirmar"}</span></div><div><button onClick={() => openProducerExperience(program.id)}>Ver como producción</button><button className="primary" onClick={() => openProgramSlot(slot.id)}>Abrir Programa C</button></div></header>
-                            <div className="agenda-rundown-list">{(emission?.segments ?? []).map((segment) => <details key={segment.id}><summary><time>{segment.startTime}</time><span><strong>{segment.title}</strong><small>{segment.guest || segment.topic || segmentTypeLabel[segment.type]}</small></span><b>Editar</b></summary><div><label><span>Horario</span><div className="agenda-time-fields"><input disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /><input disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></div></label><label><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label><label><span>Tema o notas</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? segment.notes} onChange={(event) => updateSegmentDraft(segment.id, segment.topic !== undefined ? { topic: event.target.value } : { notes: event.target.value })} /></label></div></details>)}</div>
-                            {!emission?.segments.length && <div className="empty-state compact"><strong>Esta pauta aún está vacía</strong><p>Ábrela en Programa C para pegar o crear la escaleta.</p></div>}
-                            {dirty && selectedSlot?.id === slot.id && <footer className="agenda-inline-save"><span>Cambios sin guardar</span><button className="primary" disabled={saving || !canEdit} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar"}</button></footer>}
-                          </> : <div className="empty-state compact"><strong>Solo aparece en la parrilla</strong><p>Este programa todavía no se administra desde la herramienta.</p></div>}
-                        </div>}
-                        {program.managed && <button className="agenda-direct-open" onClick={() => openProgramSlot(slot.id)}>Abrir programa</button>}
-                      </article>
-                    );
-                  })}
-                  {!daySlots.length && <div className="empty-state"><strong>No hay horarios configurados</strong><p>Este día quedará disponible cuando carguemos la programación correspondiente.</p></div>}
-                </div>
-              </section>
-            </div>
-          </section>
-        </div>
-      </section>
-      </div>
-      )}
-
-      {activeView === "program" && renderCaptureWorkspace(false)}
-      {activeView === "desk" && renderEditorialDesk()}
-      {activeView === "reception" && renderCaptureWorkspace(true)}
-      {activeView === "post" && renderPostPauta()}
+      {deskSection === "today" && renderDeskToday()}
+      {deskSection === "directions" && renderDirections()}
+      {deskSection === "guests" && renderGuests()}
 
       {dateDraft && (
         <div className="modal-backdrop modal-backdrop-editor" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDateDraft(null)}>
@@ -2858,12 +2637,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
       {showVersionHistory && <VersionHistoryModal onClose={() => setShowVersionHistory(false)} />}
       {showHelpTutorial && <HelpTutorial initialAudience="superadmin" onClose={() => setShowHelpTutorial(false)} />}
-
-      {activeView !== "agenda" && (
-        <button className="floating-version" onClick={() => setShowVersionHistory(true)} aria-label={`Ver historial de versiones. Versión actual ${CURRENT_VERSION}`}>
-          <span>Versión</span><strong>v{CURRENT_VERSION}</strong>
-        </button>
-      )}
 
       <button className={`floating-help ${helpIsNew ? "is-new" : ""}`} onClick={openHelpTutorial}><span aria-hidden="true">?</span><strong>Ayuda</strong>{helpIsNew && <b>Nuevo</b>}</button>
 
