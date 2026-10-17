@@ -20,6 +20,7 @@ describe("pauta stages", () => {
     expect(pautaStage(undefined)).toBe("prepare");
     expect(pautaStage(emission("encendidos", "2026-10-16", [], { status: "ready" }))).toBe("ready");
     expect(pautaStage(emission("encendidos", "2026-10-16", [], { status: "post" }))).toBe("post");
+    expect(pautaStage(emission("encendidos", "2026-10-16", [segment("1", "10:00", "", { disposition: "aired" })], { status: "ready" }))).toBe("post");
     expect(pautaStage(emission("encendidos", "2026-10-16", [], {
       status: "post",
       postPauta: { reviewStatus: "verified", sourceType: "none", sourceUrl: "", transcriptStatus: "none", notes: "" },

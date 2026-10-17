@@ -5,9 +5,25 @@ export type VersionEntry = {
   changes: string[];
 };
 
-export const CURRENT_VERSION = "0.39.0";
+export const CURRENT_VERSION = "0.40.0";
 
 export const versionHistory: VersionEntry[] = [
+  {
+    version: "0.40.0",
+    date: "2026-10-17",
+    title: "Pauta y post-pauta más simples",
+    changes: [
+      "Una pauta vacía muestra un solo compositor para pegar o escribir el texto, con un ejemplo de formato, una plantilla y la opción de armarla bloque por bloque.",
+      "Convertir en escaleta muestra una vista previa con bloques, horarios e invitados (si ya están en la base o son nuevos). Se aceptan o se quitan bloques; los detalles se corrigen después en un solo lugar.",
+      "Con horarios escritos, la conversión funciona también sin conexión a la base compartida.",
+      "Cada bloque se edita con lo esencial: horario, duración rápida, tipo, título, tema, invitados y notas. Conducción de reemplazo, entidades e historial quedan en Más opciones.",
+      "El texto original queda plegado a un lado de la escaleta y se puede volver a convertir, avisando que reemplaza la escaleta actual.",
+      "La post-pauta parte de la pauta: cada bloque llega con sus horarios e invitados y solo se marca Salió, Parcial o No salió y qué se dijo.",
+      "Todo salió según la pauta marca de una vez los bloques pendientes con su horario previsto.",
+      "Completar con IA reúne en un panel opcional el video, la grabación y la minuta.",
+      "El avance de la post-pauta se ve como una barra, y el cierre queda en una barra fija con Pedir revisión y Cerrar post-pauta.",
+    ],
+  },
   {
     version: "0.39.0",
     date: "2026-10-17",

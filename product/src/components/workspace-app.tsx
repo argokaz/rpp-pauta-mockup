@@ -9,7 +9,6 @@ import { ArchiveSearch } from "@/components/archive-search";
 import { AnnualCalendar } from "@/components/annual-calendar";
 import { GuestLog } from "@/components/guest-log";
 import { BulletinCenter } from "@/components/bulletin-center";
-import { ProgramIdentityCard } from "@/components/program-identity-card";
 import { FixedBlocksManager } from "@/components/fixed-blocks-manager";
 import { OperationsAdmin } from "@/components/operations-admin";
 import { PeopleDirectory } from "@/components/people-directory";
@@ -25,6 +24,8 @@ import { fixedBlocks as seedFixedBlocks, initialWorkspaceState, programs as seed
 import { CURRENT_VERSION } from "@/data/version-history";
 import type { PersonSnapshot, SegmentRevision, SegmentSaveResult, WorkspaceRepository } from "@/data/workspace-repository";
 import { proposalSegmentToSegment, type StructurePautaResponse } from "@/domain/pauta-import";
+import { applyPautaGuardrails } from "@/domain/pauta-guardrails";
+import { preprocessPauta } from "@/domain/pauta-preprocessor";
 import type { StructurePostPautaResponse } from "@/domain/post-pauta-import";
 import type { ArchiveSearchRecord } from "@/domain/archive-search";
 import { findSimilarPeople, isEditorialCollaborator, normalizePersonName, sortPeopleEditorially } from "@/domain/people-history";
@@ -47,7 +48,6 @@ const PRODUCER_NOTICES_STORAGE_KEY = "rpp-pauta-producer-notices-seen-v2";
 const HELP_SEEN_STORAGE_KEY = "rpp-pauta-help-seen-v1";
 const PILOT_MODE_ACTIVE = process.env.NEXT_PUBLIC_PILOT_MODE !== "false";
 
-type ProducerComposerMode = "paste" | "write";
 type SegmentSyncStatus = "pending" | "saving" | "saved" | "error" | "conflict";
 type SegmentSavePayload = { emission: Emission; segment: Segment; sortOrder: number };
 type SegmentConflict = { localSegment: Segment; remoteSegment?: Segment; editorName: string };
@@ -120,12 +120,6 @@ const dispositionLabel: Record<NonNullable<Segment["disposition"]>, string> = {
   partial: "Parcial",
   skipped: "No salió",
   added_live: "Añadido en vivo",
-};
-
-const postReviewLabel: Record<PostPauta["reviewStatus"], string> = {
-  capture: "Registro en curso",
-  review: "Pendiente de revisión",
-  verified: "Post-pauta verificada",
 };
 
 function emptyPostPauta(): PostPauta {
@@ -217,7 +211,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   const [activeProducerProgramId, setActiveProducerProgramId] = useState(producerProgramIds?.[0] ?? "encendidos");
   const [producerSection, setProducerSection] = useState<ProducerSection>("today");
   const [producerPeopleQuery, setProducerPeopleQuery] = useState("");
-  const [producerComposerMode, setProducerComposerMode] = useState<ProducerComposerMode | null>(null);
+  const [sourceEditorOpen, setSourceEditorOpen] = useState(false);
+  const [expandedPostSegments, setExpandedPostSegments] = useState<Set<string>>(() => new Set());
   const [producerNoticesUpdated, setProducerNoticesUpdated] = useState(false);
   const [producerSeenBulletinVersions, setProducerSeenBulletinVersions] = useState<Record<string, string>>({});
   const [producerSeenNoticesContext, setProducerSeenNoticesContext] = useState("");
@@ -903,10 +898,6 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     void persistPostSegment(segment.id, { actualStart: undefined, actualEnd: undefined, disposition: "skipped" });
   }
 
-  function markSegmentAsPlanned(segment: Segment) {
-    void persistPostSegment(segment.id, { actualStart: segment.startTime, actualEnd: segment.endTime, disposition: "aired" });
-  }
-
   function updatePostStory(segment: Segment, storyIndex: number, change: Partial<StoryItem>) {
     const stories = (segment.stories ?? []).map((story, index) => index === storyIndex ? { ...story, ...change } : story);
     updatePostSegment(segment.id, { stories });
@@ -1314,25 +1305,36 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
   }
 
   async function orderWithAi() {
-    if (!selectedEmission || !selectedProgram || !selectedSlot || !getAccessToken) {
-      notify("La conversión requiere una sesión activa en la base compartida.");
+    if (!selectedEmission || !selectedProgram || !selectedSlot) return;
+    if (selectedEmission.rawText.trim().length < 20) {
+      notify("Pega una pauta más completa antes de convertirla.");
       return;
     }
-    if (selectedEmission.rawText.trim().length < 20) {
-      notify("Pega una pauta más completa antes de ordenarla.");
+
+    const request = {
+      programId: selectedProgram.id,
+      programName: selectedProgram.name,
+      targetDate: selectedDate,
+      plannedStart: selectedSlot.startTime,
+      plannedEnd: selectedSlot.endTime,
+      rawText: selectedEmission.rawText,
+    };
+
+    if (!getAccessToken) {
+      // Sin base compartida solo está disponible la lectura rápida del navegador.
+      const preprocessed = preprocessPauta(request);
+      if (!preprocessed.proposal) {
+        notify("Este texto necesita a Luna, que solo funciona con la base compartida. Escribe horarios (10:00 - 10:30) para usar la lectura rápida.");
+        return;
+      }
+      const checked = applyPautaGuardrails(preprocessed.proposal, request.rawText, request.targetDate);
+      setAiResult({ importId: crypto.randomUUID(), model: "local-parser-v1", processingMode: "local", proposal: checked.proposal });
       return;
     }
 
     setAiProcessing(true);
     try {
-      const result = await structurePauta({
-        programId: selectedProgram.id,
-        programName: selectedProgram.name,
-        targetDate: selectedDate,
-        plannedStart: selectedSlot.startTime,
-        plannedEnd: selectedSlot.endTime,
-        rawText: selectedEmission.rawText,
-      }, getAccessToken);
+      const result = await structurePauta(request, getAccessToken);
       setAiResult(result);
       const detectedProducer = result.proposal.producers[0]?.trim();
       if (detectedProducer) updateEmission({ producerName: detectedProducer });
@@ -1363,6 +1365,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         notify("La demo se actualizó, pero falta cerrar el registro de importación.");
       }
       setAiResult(null);
+      setSourceEditorOpen(false);
       setAiApplying(false);
       return;
     }
@@ -1397,6 +1400,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         notify("La escaleta se guardó, pero falta cerrar el registro de importación.");
       }
       setAiResult(null);
+      setSourceEditorOpen(false);
     }
     setAiApplying(false);
   }
@@ -1601,7 +1605,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     setSelectedDate(date);
     setAiResult(null);
     setExpandedSavedSegments(new Set());
-    setProducerComposerMode(null);
+    setSourceEditorOpen(false);
+    setExpandedPostSegments(new Set());
   }
 
   function openProducerExperience(programId = selectedProgram?.id ?? "encendidos", fromDate = selectedDate, section: ProducerSection = "today") {
@@ -1678,12 +1683,8 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       notify("Abrimos la pauta existente de esa fecha. Nada fue reemplazado.");
       return;
     }
-    setProducerComposerMode("paste");
+    setSourceEditorOpen(true);
     notify(`Pauta del ${longSpanishDate(event.date).toLocaleLowerCase("es")} abierta. Pega o escribe el texto para empezar.`);
-  }
-
-  function chooseProducerComposer(mode: ProducerComposerMode) {
-    setProducerComposerMode(mode);
   }
 
   function insertProducerTemplate() {
@@ -1816,40 +1817,57 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     notify("Bloque reordenado. Los horarios se conservaron.");
   }
 
-  function renderSegmentParticipantsEditor(segment: Segment, compact = false) {
+  function renderPersonMatch(segment: Segment, participant: SegmentParticipant) {
+    if (participant.name.trim().length < 4) return null;
+    const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
+    if (exact) return <small className="guest-match exact">En la base</small>;
+    const matches = findSimilarPeople(participant.name, effectivePeople, 2);
+    if (matches.length) return <span className="guest-match suggestions">¿Es {matches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentParticipant(segment, participant.id, { name: person.displayName, personId: person.id, roleDescription: participant.roleDescription || person.primaryRole, organization: participant.organization || person.organization })}>{person.displayName}</button>)}?</span>;
+    return <small className="guest-match new-person">Persona nueva</small>;
+  }
+
+  function renderSegmentParticipantsEditor(segment: Segment) {
     const allParticipants = segmentParticipants(segment);
     const participants = allParticipants.filter((participant) => participant.role !== "host");
-    const replacementHosts = allParticipants.filter((participant) => participant.role === "host");
-    return <section className={`segment-participants-editor ${compact ? "compact" : "wide"}`}>
-      <header><div><strong>Personas en este bloque</strong><span>Invitados, especialistas, producción, reporteros o colaboradores.</span></div><button disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir persona</button></header>
-      <div>{participants.map((participant, participantIndex) => {
-        const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
-        const matches = exact ? [] : findSimilarPeople(participant.name, effectivePeople, 2);
-        return <article key={participant.id}>
-          <b>{participantIndex + 1}</b>
-          <label><span>Nombre completo</span><input list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" /></label>
-          <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => updateSegmentParticipant(segment, participant.id, { role: event.target.value as SegmentParticipant["role"] })}>{Object.entries(participantRoleLabels).filter(([value]) => value !== "host").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label><span>Cargo o especialidad</span><input disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updateSegmentParticipant(segment, participant.id, { roleDescription: event.target.value })} /></label>
-          <label><span>Organización</span><input disabled={!canEdit} value={participant.organization} onChange={(event) => updateSegmentParticipant(segment, participant.id, { organization: event.target.value })} /></label>
-          <button className="participant-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)}>Quitar</button>
-          {participant.name.trim().length >= 4 && <div className="participant-match">{exact ? <small className="guest-match exact">Ficha vinculada: {exact.displayName}</small> : matches.length ? <div className="guest-match suggestions"><span>¿Quisiste decir?</span>{matches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentParticipant(segment, participant.id, { name: person.displayName, personId: person.id, roleDescription: participant.roleDescription || person.primaryRole, organization: participant.organization || person.organization })}>{person.displayName}</button>)}</div> : participant.matchStatus === "new" || participant.matchStatus === "review" ? <small className="guest-match new-person">Nombre detectado pendiente. Corrígelo o crea su ficha desde Invitados.</small> : <small className="guest-match new-person">Se creará una ficha nueva al guardar.</small>}</div>}
-        </article>;
-      })}</div>
-      {!participants.length && <button className="participant-empty" disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir el primer invitado o participante</button>}
-      <section className={`replacement-host-editor ${replacementHosts.length ? "active" : ""}`}>
-        <header><div><strong>Conductor de reemplazo</strong><span>Solo si cambia la conducción habitual para este bloque.</span></div>{!replacementHosts.length && <button disabled={!canEdit} onClick={() => addSegmentParticipant(segment, "host")}>Registrar reemplazo</button>}</header>
-        {replacementHosts.map((participant) => {
-          const exact = effectivePeople.find((person) => person.normalizedName === normalizePersonName(participant.name));
-          const matches = exact ? [] : findSimilarPeople(participant.name, effectivePeople, 2);
-          return <article key={participant.id}>
-            <label><span>Nombre del reemplazo</span><input list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" /></label>
-            <button className="participant-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)}>Quitar</button>
-            {participant.name.trim().length >= 4 && <div className="participant-match">{exact ? <small className="guest-match exact">Ficha vinculada: {exact.displayName}</small> : matches.length ? <div className="guest-match suggestions"><span>¿Quisiste decir?</span>{matches.map(({ person }) => <button key={person.id} onClick={() => updateSegmentParticipant(segment, participant.id, { name: person.displayName, personId: person.id, roleDescription: participant.roleDescription || person.primaryRole, organization: participant.organization || person.organization })}>{person.displayName}</button>)}</div> : <small className="guest-match new-person">Se creará una ficha nueva al guardar.</small>}</div>}
-          </article>;
-        })}
-      </section>
-      {!compact && <div className="segment-entities-editor"><header><div><strong>Entidades editoriales</strong><span>Organizaciones, lugares, eventos o sucesos que luego podrán buscarse.</span></div><button disabled={!canEdit} onClick={() => addSegmentEntity(segment)}>+ Añadir entidad</button></header>{(segment.entities ?? []).map((entity) => <div key={entity.id}><select disabled={!canEdit} value={entity.type} onChange={(event) => updateSegmentEntity(segment, entity.id, { type: event.target.value as EditorialEntity["type"] })}>{Object.entries(entityTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input disabled={!canEdit} value={entity.name} onChange={(event) => updateSegmentEntity(segment, entity.id, { name: event.target.value })} placeholder="Nombre verificable" /><button disabled={!canEdit} onClick={() => removeSegmentEntity(segment, entity.id)}>Quitar</button></div>)}</div>}
+    return <section className="block-people">
+      <header><strong>Invitados y participantes</strong><button disabled={!canEdit} onClick={() => addSegmentParticipant(segment)}>+ Añadir persona</button></header>
+      {participants.map((participant) => (
+        <div className="block-person" key={participant.id}>
+          <input aria-label="Nombre completo" list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" />
+          <input aria-label="Cargo o especialidad" disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updateSegmentParticipant(segment, participant.id, { roleDescription: event.target.value })} placeholder="Cargo o especialidad" />
+          <select aria-label="Participación" disabled={!canEdit} value={participant.role} onChange={(event) => updateSegmentParticipant(segment, participant.id, { role: event.target.value as SegmentParticipant["role"] })}>{Object.entries(participantRoleLabels).filter(([value]) => value !== "host").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <button className="block-person-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)} aria-label={`Quitar a ${participant.name || "esta persona"}`}>×</button>
+          <div className="block-person-match">{renderPersonMatch(segment, participant)}</div>
+        </div>
+      ))}
+      {!participants.length && <p className="block-people-empty">Sin invitados en este bloque.</p>}
     </section>;
+  }
+
+  function renderSegmentExtras(segment: Segment) {
+    const replacementHosts = segmentParticipants(segment).filter((participant) => participant.role === "host");
+    return <details className="block-extras">
+      <summary>Más opciones: conducción de reemplazo, entidades e historial</summary>
+      <div>
+        <section>
+          <header><strong>Conductor de reemplazo</strong><span>Solo si este bloque no lo conduce la conducción habitual.</span></header>
+          {replacementHosts.map((participant) => <div className="block-person" key={participant.id}>
+            <input aria-label="Nombre del reemplazo" list="known-guests" disabled={!canEdit} value={participant.name} onChange={(event) => updateSegmentParticipant(segment, participant.id, { name: event.target.value, personId: undefined })} placeholder="Nombre y apellido" />
+            <button className="block-person-remove" disabled={!canEdit} onClick={() => removeSegmentParticipant(segment, participant.id)} aria-label="Quitar reemplazo">×</button>
+          </div>)}
+          {!replacementHosts.length && <button disabled={!canEdit} onClick={() => addSegmentParticipant(segment, "host")}>Registrar reemplazo</button>}
+        </section>
+        <section>
+          <header><strong>Entidades</strong><span>Organizaciones, lugares o eventos para encontrar este bloque después.</span></header>
+          {(segment.entities ?? []).map((entity) => <div className="block-entity" key={entity.id}><select aria-label="Tipo de entidad" disabled={!canEdit} value={entity.type} onChange={(event) => updateSegmentEntity(segment, entity.id, { type: event.target.value as EditorialEntity["type"] })}>{Object.entries(entityTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input aria-label="Nombre de la entidad" disabled={!canEdit} value={entity.name} onChange={(event) => updateSegmentEntity(segment, entity.id, { name: event.target.value })} placeholder="Nombre" /><button className="block-person-remove" disabled={!canEdit} onClick={() => removeSegmentEntity(segment, entity.id)} aria-label="Quitar entidad">×</button></div>)}
+          <button disabled={!canEdit} onClick={() => addSegmentEntity(segment)}>+ Añadir entidad</button>
+        </section>
+        <section>
+          <header><strong>Historial</strong><span>Versiones anteriores de este bloque, con quién las editó.</span></header>
+          <button onClick={() => void openSegmentHistory(segment)}>Ver historial</button>
+        </section>
+      </div>
+    </details>;
   }
 
   function renderSavedRundown() {
@@ -1861,7 +1879,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     return (
       <>
         <div className="rundown-list-toolbar">
-          <p><strong>{formatDuration(totalMinutes)} estructurados</strong><span>Reordena sin alterar los horarios; ajusta cada duración al abrir el bloque.</span></p>
+          <p><strong>{selectedEmission.segments.length} bloques · {formatDuration(totalMinutes)}</strong><span>Toca un bloque para editarlo. Arrástralo desde ⠿ para cambiar el orden.</span></p>
           <button className="quiet-button" onClick={toggleAllSavedSegments}>{expandedSavedSegments.size === selectedEmission.segments.length ? "Contraer todos" : "Expandir todos"}</button>
         </div>
         <DragDropProvider onDragEnd={handleSavedRundownDrop}>
@@ -1878,24 +1896,25 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                 endTime={segment.endTime}
                 type={segment.type}
                 title={segment.title}
-                guest={segment.guest}
+                guest={segmentParticipants(segment).filter((participant) => participant.role !== "host").map((participant) => participant.name).filter(Boolean).join(", ")}
                 badge={segment.fixedBlockId ? "Fijo" : undefined}
                 expanded={expandedSavedSegments.has(segment.id)}
                 canDrag={canEdit}
                 onToggle={() => toggleSavedSegment(segment.id)}
               >
-                <div className="ordered-fields">
-                  {segment.fixedBlockId && <div className="fixed-block-inline-note wide"><div><strong>Pre-pautado para este día</strong><span>Puedes moverlo, cambiarlo o quitarlo sin afectar las próximas fechas.</span></div><button onClick={() => setShowFixedBlocks(true)}>Editar repetición</button></div>}
-                  <div className="segment-sync-row wide" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Cambios pendientes" : syncState === "saving" ? "Guardando bloque" : syncState === "error" ? "No se pudo guardar" : syncState === "conflict" ? "Hay una edición más reciente" : "Bloque guardado"}</strong><span>{syncState === "saved" && segment.lastEditedAt ? `Actualizado ${new Date(segment.lastEditedAt).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}` : "El guardado es automático"}</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
-                  {conflict && <div className="segment-conflict wide" role="alert"><strong>{conflict.editorName} guardó este bloque antes que tú.</strong><p>Tus cambios siguen en pantalla. Elige qué versión conservar.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
-                  <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /></label>
-                  <label><span>Fin</span><input type="time" step="60" disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></label>
-                  <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                  <div className="duration-tools wide"><span>Duración rápida</span><div>{[15, 30, 45, 60].map((value) => <button disabled={!canEdit} key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setSavedDuration(segment.id, value)}>{value} min</button>)}<small>O escribe cualquier hora al minuto.</small></div></div>
-                  <label className="wide"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
+                <div className="block-editor">
+                  {conflict && <div className="segment-conflict" role="alert"><strong>{conflict.editorName} guardó este bloque antes que tú.</strong><p>Tus cambios siguen en pantalla. Elige qué versión conservar.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
+                  {segment.fixedBlockId && <p className="block-fixed-note">Bloque fijo: se repite en otras fechas. Lo que cambies aquí solo afecta a este día. <button onClick={() => setShowFixedBlocks(true)}>Editar la repetición</button></p>}
+                  <div className="block-time-row">
+                    <label><span>Inicio</span><input type="time" step="60" disabled={!canEdit} value={segment.startTime} onChange={(event) => updateSegmentDraft(segment.id, { startTime: event.target.value })} /></label>
+                    <label><span>Fin</span><input type="time" step="60" disabled={!canEdit} value={segment.endTime} onChange={(event) => updateSegmentDraft(segment.id, { endTime: event.target.value })} /></label>
+                    <div className="block-duration" role="group" aria-label="Duración rápida">{[10, 15, 30, 60].map((value) => <button disabled={!canEdit} key={value} className={durationMinutes(segment.startTime, segment.endTime) === value ? "active" : ""} onClick={() => setSavedDuration(segment.id, value)}>{value}′</button>)}</div>
+                    <label><span>Tipo</span><select disabled={!canEdit} value={segment.type} onChange={(event) => updateSegmentDraft(segment.id, { type: event.target.value as Segment["type"] }, 0)}>{Object.entries(segmentTypeLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  </div>
+                  <label className="block-field"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
+                  <label className="block-field"><span>Tema</span><input disabled={!canEdit} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} placeholder="De qué se hablará, en pocas palabras" /></label>
                   {renderSegmentParticipantsEditor(segment)}
-                  <label className="wide"><span>Tema</span><textarea disabled={!canEdit} rows={2} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
-                  <label className="wide"><span>Enfoque y notas</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} /></label>
+                  <label className="block-field"><span>Enfoque y notas para la conducción</span><textarea disabled={!canEdit} rows={3} value={segment.focus || segment.notes} onChange={(event) => updateSegmentDraft(segment.id, { focus: event.target.value })} placeholder="Preguntas, ángulo, datos a mencionar" /></label>
                   {(segment.stories?.length ?? 0) > 0 && (
                     <section className="story-pool saved-story-pool wide">
                       <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Abre una noticia para editarla o moverla.</span></div></header>
@@ -1916,7 +1935,11 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                       </div>
                     </section>
                   )}
-                  <button className="remove ordered-remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => void removeSegment(segment)}>Quitar bloque</button>
+                  {renderSegmentExtras(segment)}
+                  <footer className="block-footer">
+                    <span role="status" data-sync={syncState}>{syncState === "pending" ? "Cambios pendientes…" : syncState === "saving" ? "Guardando…" : syncState === "error" ? "No se pudo guardar" : syncState === "conflict" ? "Hay una edición más reciente" : `Guardado automáticamente${segment.lastEditedAt ? ` · ${new Date(segment.lastEditedAt).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}` : ""}`}</span>
+                    <button className="remove" disabled={!canEdit || (segment.stories?.length ?? 0) > 0} title={(segment.stories?.length ?? 0) > 0 ? "Mueve las noticias antes de quitar este bloque" : undefined} onClick={() => void removeSegment(segment)}>Quitar bloque</button>
+                  </footer>
                 </div>
               </RundownBlock>
               );
@@ -1928,13 +1951,63 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
     );
   }
 
+  function togglePostSegment(segmentId: string) {
+    setExpandedPostSegments((current) => {
+      const next = new Set(current);
+      if (next.has(segmentId)) next.delete(segmentId);
+      else next.add(segmentId);
+      return next;
+    });
+  }
+
+  function markPostResult(segment: Segment, disposition: "aired" | "partial" | "skipped") {
+    if (segment.disposition === disposition) {
+      void persistPostSegment(segment.id, { disposition: undefined });
+      return;
+    }
+    if (disposition === "skipped") markSegmentSkipped(segment);
+    else if (segment.actualStart && !segment.actualEnd && now?.date === selectedDate) markSegmentEnd(segment, disposition);
+    else void persistPostSegment(segment.id, { actualStart: segment.actualStart || segment.startTime, actualEnd: segment.actualEnd || segment.endTime, disposition });
+    if (disposition !== "skipped") setExpandedPostSegments((current) => new Set([...current, segment.id]));
+  }
+
+  function handlePostResult(event: MouseEvent<HTMLButtonElement>) {
+    const segment = selectedEmission?.segments.find((item) => item.id === event.currentTarget.dataset.segmentId);
+    const disposition = event.currentTarget.dataset.disposition as "aired" | "partial" | "skipped";
+    if (segment) markPostResult(segment, disposition);
+  }
+
+  function markPendingAsPlanned() {
+    if (!selectedEmission || !canEdit) return;
+    const pendingIds = new Set(selectedEmission.segments.filter((segment) => !segment.disposition).map((segment) => segment.id));
+    if (!pendingIds.size) return;
+    const segments = selectedEmission.segments.map((segment) => pendingIds.has(segment.id)
+      ? { ...segment, actualStart: segment.actualStart || segment.startTime, actualEnd: segment.actualEnd || segment.endTime, disposition: "aired" as const }
+      : segment);
+    const nextEmission = { ...selectedEmission, segments, updatedAt: new Date().toISOString() };
+    setExpandedPostSegments(new Set(pendingIds));
+    notify(`${pendingIds.size} ${pendingIds.size === 1 ? "bloque marcado" : "bloques marcados"} como emitidos según la pauta. Ahora resume qué se dijo.`);
+    if (selectedEmissionIsDemo) {
+      updateEmission({ segments });
+      return;
+    }
+    setWorkspace((current) => ({
+      ...current,
+      emissions: current.emissions.some((emission) => emission.id === selectedEmission.id)
+        ? current.emissions.map((emission) => emission.id === selectedEmission.id ? nextEmission : emission)
+        : [...current.emissions, nextEmission],
+    }));
+    segments.forEach((segment, sortOrder) => {
+      if (pendingIds.has(segment.id)) scheduleSegmentSave({ emission: nextEmission, segment, sortOrder }, 0);
+    });
+  }
+
   function renderPostPauta() {
     const postPauta = selectedEmission?.postPauta ?? emptyPostPauta();
-    const registeredSegments = selectedEmission?.segments.filter((segment) => segment.disposition || segment.actualStart || segment.actualEnd || segment.stories?.some((story) => story.disposition)).length ?? 0;
-    const completedSegments = selectedEmission?.segments.filter((segment) => segment.disposition === "skipped" || ((segment.stories?.length ?? 0) > 0 ? segment.stories?.every(storyResultComplete) : Boolean(segment.postSummary?.trim()))).length ?? 0;
+    const segmentsDone = (segment: Segment) => segment.disposition === "skipped" || ((segment.stories?.length ?? 0) > 0 ? Boolean(segment.stories?.every(storyResultComplete)) : Boolean(segment.disposition && segment.postSummary?.trim()));
     const totalSegments = selectedEmission?.segments.length ?? 0;
-    const allStories = selectedEmission?.segments.flatMap((segment) => segment.stories ?? []) ?? [];
-    const completedStories = allStories.filter(storyResultComplete).length;
+    const completedSegments = selectedEmission?.segments.filter(segmentsDone).length ?? 0;
+    const pendingResults = selectedEmission?.segments.filter((segment) => !segment.disposition).length ?? 0;
     const isSelectedProgramLive = Boolean(
       selectedSlot
       && now?.date === selectedDate
@@ -1942,173 +2015,185 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       && now.minutes < (selectedSlot.endTime === "00:00" ? 1440 : minutes(selectedSlot.endTime)),
     );
     const canVerify = totalSegments > 0 && completedSegments === totalSegments;
+    const aiOpen = Boolean(postAiResult || postAiProcessing || postSourceText.trim() || (selectedProgram && isFriday28PostPilot(selectedProgram.id, selectedDate)));
+
+    if (!selectedEmission || !selectedProgram?.managed) {
+      return <div className="empty-state"><strong>Elige un programa administrado</strong><p>La post-pauta solo se registra en los programas que se manejan desde la herramienta.</p></div>;
+    }
+
+    if (!totalSegments) {
+      return <section className="post-empty">
+        <strong>Todavía no hay pauta para este día</strong>
+        <p>La post-pauta se construye a partir de los bloques de la pauta. Prepárala primero o registra lo que salió como bloques imprevistos.</p>
+        <div><button className="primary" onClick={() => setProducerSection("today")}>Ir a la pauta</button><button disabled={!canEdit} onClick={addLiveSegment}>+ Registrar un bloque</button></div>
+      </section>;
+    }
 
     return (
-      <section className="mode-page post-page">
-        <div className="post-workspace">
-          <section className="post-main">
-            <header className="post-program-header">
-              <div>
-                <span>{selectedDay.label}{selectedEmissionIsDemo ? " · DATOS DE PRUEBA" : ""}</span>
-                <h2>{selectedProgram?.shortName ?? "Selecciona un programa"}</h2>
-                {selectedSlot && <p>Planificado de {selectedSlot.startTime} a {selectedSlot.endTime}</p>}
-              </div>
-              <div className="post-program-state">
-                {isSelectedProgramLive && <b className="live-pill">Al aire · {now?.time}</b>}
-                <strong data-review={postPauta.reviewStatus}>{postReviewLabel[postPauta.reviewStatus]}</strong>
-              </div>
-            </header>
+      <section className="post-flow">
+        <section className="post-intro">
+          <div>
+            <strong>{completedSegments} de {totalSegments} bloques completos</strong>
+            <p>Los bloques vienen de la pauta. Para cada uno marca si salió y resume lo que se dijo.</p>
+            <div className="post-progress" aria-hidden="true"><i style={{ width: `${totalSegments ? Math.round((completedSegments / totalSegments) * 100) : 0}%` }} /></div>
+          </div>
+          <div className="post-intro-actions">
+            {isSelectedProgramLive && <b className="live-pill">Al aire · {now?.time}</b>}
+            {pendingResults > 0 && <button className="primary" disabled={!canEdit} onClick={markPendingAsPlanned}>Todo salió según la pauta ({pendingResults})</button>}
+            <button disabled={!canEdit} onClick={addLiveSegment}>+ Bloque imprevisto</button>
+          </div>
+        </section>
 
-            {selectedEmission && selectedProgram?.managed ? (
-              <>
-                <section className="post-overview" aria-label="Progreso de la post-pauta">
-                  <div><strong>{registeredSegments}/{totalSegments}</strong><span>bloques registrados</span></div>
-                  <div><strong>{allStories.length ? `${completedStories}/${allStories.length}` : `${completedSegments}/${totalSegments}`}</strong><span>{allStories.length ? "noticias cerradas" : "con resultado escrito"}</span></div>
-                  <div><strong>{selectedEmission.segments.filter((segment) => segment.quoteVerified).length}</strong><span>citas verificadas</span></div>
-                  <button disabled={!canEdit} onClick={addLiveSegment}>+ Bloque imprevisto</button>
-                </section>
-
-                <section className="post-ai-import">
-                  <header><div><span>{postSourceType === "youtube_captions" ? "Emisión detectada" : "Completar desde un documento"}</span><strong>{postSourceType === "youtube_captions" ? "Convertir el video en post-pauta" : "Contrastar con la pre-pauta"}</strong><p>{postSourceType === "youtube_captions" ? "Los timestamps prueban qué salió. Luna propone los bloques, nombres y resúmenes para que solo corrijas excepciones." : "Pega el registro recibido. Luna propondrá qué salió, qué cambió y qué quedó sin evidencia."}</p></div><b>{postSourceType === "youtube_captions" ? "Corrección opcional" : "Revisión editorial"}</b></header>
-                  {!postAiResult && <><label><span>Documento posterior a la emisión</span><textarea disabled={!canEdit || postAiProcessing} rows={6} value={postSourceText} onChange={(event) => { setPostSourceText(event.target.value); setPostSourceType("document"); }} placeholder="Pega aquí el documento, minuta, reporte o texto posterior a la emisión." /></label><div className="post-ai-import-actions"><p>La pre-pauta no se reemplaza. Los bloques ausentes quedan sin confirmar y las citas requieren revisión con el audio.</p><button className="ai-action" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Analizando..." : postSourceType === "youtube_captions" ? "Analizar emisión con Luna" : "Contrastar con Luna"}</button></div></>}
-                  {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} people={effectivePeople} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
-                </section>
-
-                <section className="post-source-card">
-                  <header><div><span>Fuente para transcripción</span><strong>Audio o video de la emisión</strong></div><b data-transcript={postPauta.transcriptStatus}>{postPauta.transcriptStatus === "none" ? "No solicitada" : postPauta.transcriptStatus === "pending" ? "Pendiente" : postPauta.transcriptStatus === "processing" ? "Procesando" : postPauta.transcriptStatus === "ready" ? "Lista" : "Con error"}</b></header>
-                  <div>
-                    <label><span>Origen</span><select disabled={!canEdit} value={postPauta.sourceType} onChange={(event) => updatePostPauta({ sourceType: event.target.value as PostPauta["sourceType"], sourceUrl: event.target.value === "none" ? "" : postPauta.sourceUrl })}><option value="none">Sin fuente todavía</option><option value="youtube">YouTube de RPP</option><option value="internal">Grabación interna</option><option value="audio">Archivo de audio</option></select></label>
-                    <label className="post-source-url"><span>Enlace o identificador</span><input disabled={!canEdit || postPauta.sourceType === "none"} value={postPauta.sourceUrl} onChange={(event) => updatePostPauta({ sourceUrl: event.target.value })} placeholder={postPauta.sourceType === "youtube" ? "https://youtube.com/watch?v=..." : "URL o código del archivo"} /></label>
-                  </div>
-                  <p>{postPauta.sourceType === "youtube" ? "Durante el piloto obtenemos los captions públicos con un proveedor temporal. Cada resultado conserva sus timestamps y queda identificado como dato de demo." : "La fuente queda vinculada a esta emisión para la siguiente fase de transcripción y búsqueda."}</p>
-                  {(postPauta.sourceType === "youtube" || (selectedProgram && isFriday28PostPilot(selectedProgram.id, selectedDate))) && selectedProgram && (
-                    <YoutubePostSource
-                      key={`${selectedProgram.id}-${selectedDate}`}
-                      programId={selectedProgram.id}
-                      programName={selectedProgram.name}
-                      targetDate={selectedDate}
-                      sourceUrl={postPauta.sourceUrl}
-                      transcriptStatus={postPauta.transcriptStatus}
-                      canEdit={canEdit}
-                      getAccessToken={getAccessToken}
-                      analyzing={postAiProcessing}
-                      onPostPautaChange={updatePostPauta}
-                      onUseTranscript={(text) => {
-                        setPostSourceText(text);
-                        setPostSourceType("youtube_captions");
-                        notify("Analizando la emisión y contrastándola con la pre-pauta.");
-                        void comparePostWithAi(text, "youtube_captions");
-                      }}
-                    />
-                  )}
-                </section>
-
-                <section className="post-segment-list" aria-label="Registro real de bloques">
-                  <datalist id="post-segment-known-people">{effectivePeople.map((person) => <option key={person.id} value={person.displayName}>{person.primaryRole}</option>)}</datalist>
-                  {selectedEmission.segments.map((segment, index) => {
-                    const isRunning = Boolean(segment.actualStart && !segment.actualEnd && !segment.disposition);
-                    const disposition = segment.disposition;
-                    const stateLabel = isRunning ? "Al aire" : disposition ? dispositionLabel[disposition] : "Pendiente";
-                    const syncState = segmentSyncStates[segment.id] ?? "saved";
-                    const conflict = segmentConflicts[segment.id];
-                    return (
-                      <details className={`post-segment ${isRunning ? "running" : ""}`} data-disposition={disposition ?? "pending"} key={segment.id}>
-                        <summary className="post-segment-summary">
-                          <span className="post-segment-number">{String(index + 1).padStart(2, "0")}</span>
-                          <div><span>{segment.startTime}–{segment.endTime} · {segmentTypeLabel[segment.type]}</span><h3>{segment.title}</h3>{segment.guest && <p>{segment.guest}{segment.guestRole ? ` · ${segment.guestRole}` : ""}</p>}</div>
-                          <b>{stateLabel}</b>
-                          <span className="post-segment-toggle" aria-hidden="true" />
-                        </summary>
-                        <div className="post-segment-body">
-                          <div className="post-sync-line" role="status" data-sync={syncState}><strong>{syncState === "pending" ? "Pendiente de guardar" : syncState === "saving" ? "Guardando" : syncState === "error" ? "Error de guardado" : syncState === "conflict" ? "Conflicto de edición" : "Guardado"}</strong><span>Este bloque se guarda por separado.</span><button type="button" onClick={() => void openSegmentHistory(segment)}>Historial</button></div>
-                          {conflict && <div className="segment-conflict post-conflict" role="alert"><strong>{conflict.editorName} actualizó este bloque.</strong><p>El registro que tienes abierto no fue reemplazado.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
-                          <div className="post-live-actions" aria-label={`Acciones rápidas para ${segment.title}`}>
-                            <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Entró ahora</button>
-                            <button disabled={!canEdit || !segment.actualStart} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>
-                            <button disabled={!canEdit} onClick={() => markSegmentEnd(segment, "partial")}>Salió parcial</button>
-                            <button disabled={!canEdit} onClick={() => markSegmentSkipped(segment)}>No salió</button>
-                            <button disabled={!canEdit} onClick={() => markSegmentAsPlanned(segment)}>Emitido según pauta</button>
-                          </div>
-                          <div className="post-segment-details">
-                            <header className="post-segment-edit-heading"><strong>{segment.postSummary?.trim() ? "Editar resultado del bloque" : "Completar qué se dijo"}</strong><span>{segment.actualStart || "--:--"} a {segment.actualEnd || "--:--"}</span></header>
-                          <div>
-                            <section className="post-editorial-fields" aria-label="Datos editables del bloque">
-                              <label><span>Título editorial</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updatePostSegment(segment.id, { title: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                              <label><span>Secuencia</span><input disabled={!canEdit} value={segment.sequence ?? ""} onChange={(event) => updatePostSegment(segment.id, { sequence: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} placeholder="Nombre de la secuencia" /></label>
-                              <label><span>Tema buscable</span><input disabled={!canEdit} value={segment.topic ?? ""} onChange={(event) => updatePostSegment(segment.id, { topic: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                            </section>
-                            <section className="post-segment-people" aria-label="Personas del bloque">
-                              <header><div><strong>Personas detectadas</strong><span>Los nombres pendientes no ingresan al directorio hasta que elijas una coincidencia o los confirmes.</span></div><button type="button" disabled={!canEdit} onClick={() => updatePostSegment(segment.id, { participants: [...segmentParticipants(segment), { ...newParticipant("guest"), matchStatus: "new" }] })}>+ Persona</button></header>
-                              {segmentParticipants(segment).map((participant, participantIndex) => <article key={participant.id}>
-                                <label><span>Nombre</span><input disabled={!canEdit} list="post-segment-known-people" value={participant.name} onChange={(event) => {
-                                  const value = event.target.value;
-                                  const exact = effectivePeople.find((person) => [person.displayName, ...person.aliases].some((name) => normalizePersonName(name) === normalizePersonName(value)));
-                                  const participants = segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? {
-                                    ...item,
-                                    personId: exact?.id,
-                                    name: exact?.displayName ?? value,
-                                    roleDescription: item.roleDescription || exact?.primaryRole || "",
-                                    organization: item.organization || exact?.organization || "",
-                                    matchStatus: exact ? "database_exact" as const : "new" as const,
-                                  } : item);
-                                  updatePostSegment(segment.id, { participants });
-                                }} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                                <label><span>Participación</span><select disabled={!canEdit} value={participant.role} onChange={(event) => {
-                                  const participants = segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? { ...item, role: event.target.value as SegmentParticipant["role"] } : item);
-                                  updatePostSegment(segment.id, { participants });
-                                  void persistPostSegment(segment.id, { participants });
-                                }}>{Object.entries(participantRoleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                                <label><span>Cargo o especialidad</span><input disabled={!canEdit} value={participant.roleDescription} onChange={(event) => updatePostSegment(segment.id, { participants: segmentParticipants(segment).map((item, itemIndex) => itemIndex === participantIndex ? { ...item, roleDescription: event.target.value } : item) })} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                                <b data-match={participant.matchStatus ?? (participant.personId ? "database_exact" : "new")}>{participant.personId ? "Base RPP" : "Confirmar nombre"}</b>
-                                <button type="button" className="remove" disabled={!canEdit} onClick={() => void persistPostSegment(segment.id, { participants: segmentParticipants(segment).filter((_, itemIndex) => itemIndex !== participantIndex) })}>Quitar</button>
-                              </article>)}
-                              {!segmentParticipants(segment).length && <p>No se detectaron personas en este tramo. Puedes añadir una si hace falta.</p>}
-                            </section>
-                            {(segment.stories?.length ?? 0) > 0 && (
-                              <section className="post-story-run">
-                                <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Marca el resultado y corrige el orden mientras salen al aire.</span></div><b>{segment.stories?.filter((story) => story.disposition).length}/{segment.stories?.length}</b></header>
-                                <ol>{segment.stories?.map((story, storyIndex) => <li key={`${story.reference}-${story.title}`} data-disposition={story.disposition ?? "pending"}>
-                                  <div className="post-story-heading"><span>{story.reference || storyIndex + 1}</span><div><strong>{story.title}</strong><small>{story.format || "Noticia"}{story.actualStart ? ` desde ${story.actualStart}` : ""}</small></div><b>{story.disposition ? dispositionLabel[story.disposition] : "Pendiente"}</b></div>
-                                  <div className="post-story-actions"><button disabled={!canEdit || storyIndex === 0} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={-1} onClick={handleMovePostStory}>Subir</button><button disabled={!canEdit || storyIndex === (segment.stories?.length ?? 0) - 1} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={1} onClick={handleMovePostStory}>Bajar</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="aired" onClick={handleMarkPostStory}>Emitida</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="partial" onClick={handleMarkPostStory}>Parcial</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="skipped" onClick={handleMarkPostStory}>No salió</button></div>
-                                  <label><span>Qué se dijo o qué ocurrió</span><textarea disabled={!canEdit || story.disposition === "skipped"} rows={2} value={story.postSummary ?? ""} data-segment-id={segment.id} data-story-index={storyIndex} onChange={handlePostStorySummaryChange} onBlur={handlePostStorySummaryBlur} placeholder="Resumen breve para el histórico" /></label>
-                                </li>)}</ol>
-                              </section>
-                            )}
-                            <div className="post-actual-times">
-                              <label><span>Inicio real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                              <label><span>Fin real</span><input type="time" disabled={!canEdit || disposition === "skipped"} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
-                              <label><span>Resultado</span><select disabled={!canEdit} value={disposition ?? ""} onChange={(event) => void persistPostSegment(segment.id, { disposition: (event.target.value || undefined) as Segment["disposition"] })}><option value="">Pendiente</option><option value="aired">Emitido</option><option value="partial">Parcial</option><option value="skipped">No salió</option><option value="added_live">Añadido en vivo</option></select></label>
-                            </div>
-                            <label className="post-wide-field"><span>Qué se dijo / qué ocurrió</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} placeholder={disposition === "skipped" ? "Motivo por el que no salió, si corresponde" : "Resumen breve, factual y útil para encontrar este bloque después"} /></label>
-                            <label className="post-wide-field"><span>Cita o idea destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} onBlur={() => void persistPostSegment(segment.id)} placeholder="No uses comillas hasta comprobar el texto con el audio" /></label>
-                            <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => void persistPostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es una cita textual y la verifiqué con el audio</span></label>
-                            </div>
-                          </div>
-                        </div>
-                      </details>
-                    );
-                  })}
-                  {!selectedEmission.segments.length && <div className="empty-state compact"><strong>No hay bloques que registrar</strong><p>Primero crea u ordena la pauta del programa. También puedes añadir un bloque imprevisto.</p></div>}
-                </section>
-
-                <section className="post-general-notes">
-                  <label><span>Observaciones generales de la emisión</span><textarea disabled={!canEdit} rows={3} value={postPauta.notes} onChange={(event) => updatePostPauta({ notes: event.target.value })} placeholder="Cambios de conducción, incidencias técnicas o contexto que afectó al programa" /></label>
-                </section>
-
-                <footer className="post-footer">
-                  <p>{canVerify ? "Todos los bloques tienen resultado. La post-pauta puede verificarse." : `Faltan ${Math.max(0, totalSegments - completedSegments)} bloques por resumir o marcar como no emitidos.`}</p>
-                  <div>
-                    <button disabled={!canEdit || saving || !dirty} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar avance"}</button>
-                    <button disabled={!canEdit || saving || totalSegments === 0} onClick={() => void savePostReview("review")}>Enviar a revisión</button>
-                    <button className="primary" disabled={!canEdit || saving || !canVerify} onClick={() => void savePostReview("verified")}>Verificar y cerrar</button>
-                  </div>
-                </footer>
-              </>
-            ) : (
-              <div className="empty-state"><strong>Elige un programa administrado</strong><p>La post-pauta sólo se registra en los programas manejados desde la herramienta.</p></div>
+        <details className="post-assist" open={aiOpen || undefined}>
+          <summary><span>Opcional</span><strong>Completar con IA desde el video o un texto</strong><small>Luna compara la grabación o una minuta con la pauta y propone qué salió y qué se dijo. Tú confirmas.</small></summary>
+          <div className="post-assist-body">
+            <div className="post-assist-source">
+              <label><span>Grabación</span><select disabled={!canEdit} value={postPauta.sourceType} onChange={(event) => updatePostPauta({ sourceType: event.target.value as PostPauta["sourceType"], sourceUrl: event.target.value === "none" ? "" : postPauta.sourceUrl })}><option value="none">Sin grabación</option><option value="youtube">YouTube de RPP</option><option value="internal">Grabación interna</option><option value="audio">Archivo de audio</option></select></label>
+              <label><span>Enlace o código</span><input disabled={!canEdit || postPauta.sourceType === "none"} value={postPauta.sourceUrl} onChange={(event) => updatePostPauta({ sourceUrl: event.target.value })} placeholder={postPauta.sourceType === "youtube" ? "https://youtube.com/watch?v=..." : "URL o código del archivo"} /></label>
+            </div>
+            {(postPauta.sourceType === "youtube" || isFriday28PostPilot(selectedProgram.id, selectedDate)) && (
+              <YoutubePostSource
+                key={`${selectedProgram.id}-${selectedDate}`}
+                programId={selectedProgram.id}
+                programName={selectedProgram.name}
+                targetDate={selectedDate}
+                sourceUrl={postPauta.sourceUrl}
+                transcriptStatus={postPauta.transcriptStatus}
+                canEdit={canEdit}
+                getAccessToken={getAccessToken}
+                analyzing={postAiProcessing}
+                onPostPautaChange={updatePostPauta}
+                onUseTranscript={(text) => {
+                  setPostSourceText(text);
+                  setPostSourceType("youtube_captions");
+                  notify("Analizando la emisión y contrastándola con la pauta.");
+                  void comparePostWithAi(text, "youtube_captions");
+                }}
+              />
             )}
-          </section>
+            {!postAiResult && <>
+              <label className="post-assist-text"><span>O pega una transcripción, minuta o reporte</span><textarea disabled={!canEdit || postAiProcessing} rows={5} value={postSourceText} onChange={(event) => { setPostSourceText(event.target.value); setPostSourceType("document"); }} placeholder="Texto posterior a la emisión" /></label>
+              <div className="post-assist-actions"><small>La pauta no se reemplaza: Luna solo propone y tú aceptas.</small><button className="primary" disabled={!canEdit || !getAccessToken || postAiProcessing || postSourceText.trim().length < 20} onClick={() => void comparePostWithAi()}>{postAiProcessing ? "Analizando..." : "Comparar con la pauta"}</button></div>
+            </>}
+            {postAiResult && <PostPautaAiReview proposal={postAiResult.proposal} model={postAiResult.model} applying={postAiApplying} people={effectivePeople} onChange={(proposal) => setPostAiResult({ ...postAiResult, proposal })} onClose={() => setPostAiResult(null)} onApply={() => void applyPostAiProposal()} />}
+          </div>
+        </details>
+
+        <ol className="post-blocks" aria-label="Bloques de la emisión">
+          {selectedEmission.segments.map((segment, index) => {
+            const disposition = segment.disposition;
+            const isRunning = Boolean(segment.actualStart && !segment.actualEnd && !disposition);
+            const expanded = expandedPostSegments.has(segment.id);
+            const done = segmentsDone(segment);
+            const syncState = segmentSyncStates[segment.id] ?? "saved";
+            const conflict = segmentConflicts[segment.id];
+            const people = segmentParticipants(segment).filter((participant) => participant.role !== "host").map((participant) => participant.name).filter(Boolean);
+            return (
+              <li className={`post-block ${expanded ? "expanded" : ""} ${done ? "done" : ""}`} data-disposition={disposition ?? (isRunning ? "running" : "pending")} key={segment.id}>
+                <div className="post-block-head">
+                  <span className="post-block-number" aria-hidden="true">{done ? "✓" : String(index + 1).padStart(2, "0")}</span>
+                  <button className="post-block-overview" aria-expanded={expanded} onClick={() => togglePostSegment(segment.id)}>
+                    <span>{segment.startTime}–{segment.endTime} · {segmentTypeLabel[segment.type]}{segment.actualStart ? ` · real ${segment.actualStart}${segment.actualEnd ? `–${segment.actualEnd}` : ""}` : ""}</span>
+                    <strong>{segment.title || "Bloque sin título"}</strong>
+                    {people.length > 0 && <small>{people.join(", ")}</small>}
+                    {!expanded && segment.postSummary?.trim() && <em>{segment.postSummary}</em>}
+                  </button>
+                  {disposition === "added_live" ? <b className="post-added-live">Añadido en vivo</b> : (
+                    <div className="post-result" role="group" aria-label={`¿Salió ${segment.title}?`}>
+                      {isSelectedProgramLive && !disposition && !isRunning && <button disabled={!canEdit} onClick={() => markSegmentStart(segment)}>Empezó</button>}
+                      {isRunning && <b className="live-pill">Al aire</b>}
+                      <button disabled={!canEdit} aria-pressed={disposition === "aired"} data-segment-id={segment.id} data-disposition="aired" onClick={handlePostResult}>Salió</button>
+                      <button disabled={!canEdit} aria-pressed={disposition === "partial"} data-segment-id={segment.id} data-disposition="partial" onClick={handlePostResult}>Parcial</button>
+                      <button disabled={!canEdit} aria-pressed={disposition === "skipped"} data-segment-id={segment.id} data-disposition="skipped" onClick={handlePostResult}>No salió</button>
+                    </div>
+                  )}
+                </div>
+                {expanded && (
+                  <div className="post-block-body">
+                    {conflict && <div className="segment-conflict" role="alert"><strong>{conflict.editorName} actualizó este bloque.</strong><p>Lo que tienes abierto no fue reemplazado.</p><div><button onClick={() => acceptRemoteSegment(segment.id)}>Usar versión compartida</button><button className="primary" disabled={!conflict.remoteSegment} onClick={() => overwriteRemoteSegment(segment.id)}>Conservar mis cambios</button></div></div>}
+                    {(segment.topic || segment.focus) && <p className="post-block-planned"><b>En la pauta:</b> {[segment.topic, segment.focus].filter(Boolean).join(" · ")}</p>}
+                    {(segment.stories?.length ?? 0) > 0 && (
+                      <section className="post-story-run">
+                        <header><div><strong>{segment.stories?.length} noticias en este bloque</strong><span>Marca cada una y corrige el orden si cambió.</span></div><b>{segment.stories?.filter((story) => story.disposition).length}/{segment.stories?.length}</b></header>
+                        <ol>{segment.stories?.map((story, storyIndex) => <li key={`${story.reference}-${story.title}`} data-disposition={story.disposition ?? "pending"}>
+                          <div className="post-story-heading"><span>{story.reference || storyIndex + 1}</span><div><strong>{story.title}</strong><small>{story.format || "Noticia"}{story.actualStart ? ` desde ${story.actualStart}` : ""}</small></div><b>{story.disposition ? dispositionLabel[story.disposition] : "Pendiente"}</b></div>
+                          <div className="post-story-actions"><button disabled={!canEdit || storyIndex === 0} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={-1} onClick={handleMovePostStory}>Subir</button><button disabled={!canEdit || storyIndex === (segment.stories?.length ?? 0) - 1} data-segment-id={segment.id} data-story-index={storyIndex} data-direction={1} onClick={handleMovePostStory}>Bajar</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="aired" onClick={handleMarkPostStory}>Emitida</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="partial" onClick={handleMarkPostStory}>Parcial</button><button disabled={!canEdit} data-segment-id={segment.id} data-story-index={storyIndex} data-disposition="skipped" onClick={handleMarkPostStory}>No salió</button></div>
+                          <label><span>Qué se dijo o qué ocurrió</span><textarea disabled={!canEdit || story.disposition === "skipped"} rows={2} value={story.postSummary ?? ""} data-segment-id={segment.id} data-story-index={storyIndex} onChange={handlePostStorySummaryChange} onBlur={handlePostStorySummaryBlur} placeholder="Resumen breve para el archivo" /></label>
+                        </li>)}</ol>
+                      </section>
+                    )}
+                    <label className="block-field"><span>{disposition === "skipped" ? "Por qué no salió (opcional)" : "Qué se dijo"}</span><textarea disabled={!canEdit} rows={3} value={segment.postSummary ?? ""} onChange={(event) => updatePostSegment(segment.id, { postSummary: event.target.value })} onBlur={() => void persistPostSegment(segment.id)} placeholder={disposition === "skipped" ? "Ej. se cayó el enlace con el invitado" : "Resumen breve y factual: lo que servirá para encontrar este bloque después"} /></label>
+                    {disposition !== "skipped" && <>
+                      <label className="block-field"><span>Idea o cita destacada</span><textarea disabled={!canEdit} rows={2} value={segment.keyQuote ?? ""} onChange={(event) => updatePostSegment(segment.id, { keyQuote: event.target.value, quoteVerified: false })} onBlur={() => void persistPostSegment(segment.id)} placeholder="Sin comillas hasta comprobarla con el audio" /></label>
+                      <label className="quote-check"><input type="checkbox" disabled={!canEdit || !segment.keyQuote?.trim()} checked={segment.quoteVerified ?? false} onChange={(event) => void persistPostSegment(segment.id, { quoteVerified: event.target.checked })} /><span>Es textual y la comprobé con el audio</span></label>
+                      <div className="block-time-row post-real-times">
+                        <label><span>Empezó</span><input type="time" disabled={!canEdit} value={segment.actualStart ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualStart: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                        <label><span>Terminó</span><input type="time" disabled={!canEdit} value={segment.actualEnd ?? ""} onChange={(event) => updatePostSegment(segment.id, { actualEnd: event.target.value || undefined })} onBlur={() => void persistPostSegment(segment.id)} /></label>
+                        {isRunning && <button disabled={!canEdit} onClick={() => markSegmentEnd(segment)}>Terminó ahora</button>}
+                      </div>
+                    </>}
+                    <details className="block-extras">
+                      <summary>Corregir lo que vino de la pauta: título, tema o invitados</summary>
+                      <div>
+                        <label className="block-field"><span>Título</span><input disabled={!canEdit} value={segment.title} onChange={(event) => updateSegmentDraft(segment.id, { title: event.target.value })} /></label>
+                        <label className="block-field"><span>Tema</span><input disabled={!canEdit} value={segment.topic ?? ""} onChange={(event) => updateSegmentDraft(segment.id, { topic: event.target.value })} /></label>
+                        {renderSegmentParticipantsEditor(segment)}
+                      </div>
+                    </details>
+                    <footer className="block-footer"><span role="status" data-sync={syncState}>{syncState === "pending" ? "Cambios pendientes…" : syncState === "saving" ? "Guardando…" : syncState === "error" ? "No se pudo guardar" : syncState === "conflict" ? "Hay una edición más reciente" : "Guardado automáticamente"}</span><button onClick={() => void openSegmentHistory(segment)}>Historial</button></footer>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+
+        <label className="block-field post-notes"><span>Observaciones de la emisión (opcional)</span><textarea disabled={!canEdit} rows={2} value={postPauta.notes} onChange={(event) => updatePostPauta({ notes: event.target.value })} placeholder="Cambios de conducción, problemas técnicos o contexto que afectó al programa" /></label>
+
+        <footer className="post-close">
+          <p>{postPauta.reviewStatus === "verified" ? "Post-pauta cerrada. Su contenido ya está en el archivo." : canVerify ? "Todo completo. Ciérrala para que invitados y resúmenes pasen al archivo." : `Faltan ${totalSegments - completedSegments} ${totalSegments - completedSegments === 1 ? "bloque" : "bloques"}: marca si salió y escribe qué se dijo.`}</p>
+          <div>
+            {dirty && <button disabled={!canEdit || saving} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar avance"}</button>}
+            {postPauta.reviewStatus === "capture" && <button disabled={!canEdit || saving} onClick={() => void savePostReview("review")} title="Avisa que está lista para que alguien la revise">Pedir revisión</button>}
+            {postPauta.reviewStatus === "verified"
+              ? <button disabled={!canEdit || saving} onClick={() => void savePostReview("review")}>Reabrir</button>
+              : <button className="primary" disabled={!canEdit || saving || !canVerify} onClick={() => void savePostReview("verified")}>Cerrar post-pauta</button>}
+          </div>
+        </footer>
+      </section>
+    );
+  }
+
+  function renderPautaComposer(isBlank: boolean) {
+    const rawText = selectedEmission?.rawText ?? "";
+    const hasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(rawText);
+    return (
+      <section className="pauta-composer" aria-labelledby="pauta-composer-title">
+        <header>
+          <div><span>Paso 1 de 2 · El texto</span><h2 id="pauta-composer-title">{isBlank ? "Pega o escribe la pauta" : "Texto original de la pauta"}</h2><p>{isBlank ? "Tal como la tengas: desde WhatsApp, un email o escrita aquí. La convertimos en una escaleta que luego puedes ajustar." : "Si lo cambias y vuelves a convertir, la escaleta actual se reemplaza. Los bloques fijos se conservan."}</p></div>
+          {!isBlank && <button className="quiet-button" onClick={() => setSourceEditorOpen(false)}>Cerrar</button>}
+        </header>
+        <textarea
+          aria-label="Texto de la pauta"
+          disabled={!canEdit || !selectedEmission}
+          rows={isBlank ? 14 : 10}
+          value={rawText}
+          onChange={(event) => updateEmission({ rawText: event.target.value, status: selectedEmission?.status === "empty" ? "draft" : selectedEmission?.status })}
+          placeholder={"10:00 - 10:30\nTEMA: Uso problemático del celular\nINVITADA: Erika Álvarez - Psicóloga clínica\nENFOQUE: Señales de alerta en adolescentes\n\n10:30 - 11:00\n..."}
+        />
+        <div className="pauta-composer-hints">
+          <p className={hasGuestLabel ? "ok" : ""}><b>{hasGuestLabel ? "✓" : "i"}</b>Escribe <strong>INVITADO:</strong> o <strong>INVITADA:</strong> antes de cada nombre para que la persona quede registrada.</p>
+          <p><b>i</b>Con horarios (10:00 - 10:30) la conversión es inmediata. Sin horarios, Luna interpreta el texto.</p>
         </div>
+        <footer>
+          <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Tu nombre" /></label>
+          <div>
+            {isBlank && !rawText.trim() && <button disabled={!canEdit} onClick={insertProducerTemplate}>Usar plantilla</button>}
+            {isBlank && <button disabled={!canEdit} onClick={addSegment}>Armar bloque por bloque</button>}
+            {dirty && <button disabled={!canEdit || saving} onClick={saveDraft}>{saving ? "Guardando..." : "Guardar texto"}</button>}
+            <button className="primary" disabled={!canEdit || aiProcessing || !selectedEmission || rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Convirtiendo..." : "Convertir en escaleta"}</button>
+          </div>
+        </footer>
       </section>
     );
   }
@@ -2124,9 +2209,9 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
         : { label: "Ir a Post-pauta", run: () => setProducerSection("post") }
       : null;
     const stageNote: Record<PautaStage, string> = {
-      prepare: hasContent ? "Revisa horarios e invitados. Cuando esté completa, márcala como lista." : "Todavía no hay pauta para este día.",
-      ready: producerSection === "today" ? "Lista para salir. Al terminar el programa, registra lo que salió en Post-pauta." : "Marca qué salió de cada bloque. Al terminar, envíala a revisión o verifícala.",
-      post: "Post-pauta en revisión. Verifícala cuando cada bloque tenga su resultado.",
+      prepare: producerSection === "post" ? "La pauta no se marcó como lista, pero ya puedes registrar lo que salió." : hasContent ? "Revisa horarios e invitados. Cuando esté completa, márcala como lista." : "Todavía no hay pauta para este día.",
+      ready: producerSection === "today" ? "Lista para salir. Al terminar el programa, registra lo que salió en Post-pauta." : "Marca qué salió de cada bloque y resume lo que se dijo.",
+      post: producerSection === "today" ? "La emisión ya se está registrando en Post-pauta." : selectedEmission?.postPauta?.reviewStatus === "review" ? "Pendiente de revisión. Ciérrala cuando cada bloque tenga su resultado." : "Completa cada bloque y cierra la post-pauta.",
       closed: "Emisión cerrada. Invitados, temas y resúmenes ya están en el archivo.",
     };
     return (
@@ -2203,8 +2288,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
       .filter((participant) => participant.role === "guest" || participant.role === "specialist")
       .map((participant) => ({ segment, participant }))) ?? [];
     const dayGuestOverlaps = guestOverlaps(allGuestBookings.filter((booking) => booking.date === selectedDate));
-    const producerPautaIsBlank = !selectedEmission?.segments.some((segment) => !segment.fixedBlockId) && !selectedEmission?.rawText.trim();
-    const rawTextHasGuestLabel = /(?:^|\n)\s*INVITAD[OA]\s*:/imu.test(selectedEmission?.rawText ?? "");
+    const pautaHasBlocks = Boolean(selectedEmission?.segments.some((segment) => !segment.fixedBlockId));
     const normalizedPeopleQuery = normalizePersonName(producerPeopleQuery);
     const matchingPeople = sortPeopleEditorially(effectivePeople.filter((person) => {
       if (!normalizedPeopleQuery) return true;
@@ -2251,7 +2335,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
 
         <section className="producer-content">
           <header className="producer-page-heading">
-            <div><span>{producerProgram?.shortName} · {selectedSlot?.startTime ?? "--:--"} a {selectedSlot?.endTime ?? "--:--"}</span><h1>{producerSection === "people" ? "Base de invitados" : longSpanishDate(selectedDate)}</h1><p>{producerSection === "today" ? "Prepara la pauta: pega o escribe el texto, revisa la escaleta y márcala como lista." : producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : "Registra lo que realmente salió usando la misma escaleta."}</p></div>
+            <div><span>{producerProgram?.shortName} · {selectedSlot?.startTime ?? "--:--"} a {selectedSlot?.endTime ?? "--:--"}</span><h1>{producerSection === "people" ? "Base de invitados" : longSpanishDate(selectedDate)}</h1><p>{producerSection === "people" ? "Encuentra especialistas por nombre, cargo o temas que ya trataron." : producerProgram?.hosts ? `Conducción habitual: ${producerProgram.hosts}` : ""}</p></div>
           </header>
 
           {producerSection !== "people" && (
@@ -2266,53 +2350,49 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
           {producerSection !== "people" && renderStageTracker()}
 
           {producerSection === "today" && (
-            <>
-              {producerPautaIsBlank && !producerComposerMode && (
-                <section className="producer-start-options">
-                  <div><strong>Empieza la pauta de este día</strong><p>Pega el texto que ya tienes o escríbelo aquí. Luna lo convierte en una escaleta editable.</p></div>
-                  <button onClick={() => chooseProducerComposer("paste")}><b>Pegar una prepauta</b><span>Trae el texto desde WhatsApp, email o un documento.</span></button>
-                  <button onClick={() => chooseProducerComposer("write")}><b>Escribirla aquí</b><span>Texto libre o bloques uno por uno.</span></button>
-                </section>
-              )}
-
+            !pautaHasBlocks || sourceEditorOpen ? (
+              <div className={`pauta-start ${pautaHasBlocks ? "with-rundown" : ""}`}>
+                {renderPautaComposer(!pautaHasBlocks)}
+                {selectedEmission?.segments.length ? (
+                  <section className="producer-rundown-panel">
+                    <header><div><span>{pautaHasBlocks ? "Escaleta actual" : "Ya incluido"}</span><h2>{pautaHasBlocks ? producerProgram?.shortName : "Bloques fijos de este día"}</h2></div></header>
+                    {renderSavedRundown()}
+                  </section>
+                ) : null}
+              </div>
+            ) : (
               <div className="producer-today-grid">
                 <section className="producer-rundown-panel">
-                  <header><div><span>Escaleta</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Bloques fijos</button><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
-                  {producerProgram && <ProgramIdentityCard program={producerProgram} />}
+                  <header><div><span>Escaleta</span><h2>{producerProgram?.shortName}</h2></div><div className="producer-rundown-actions"><button disabled={!canEdit} onClick={addSegment}>+ Añadir bloque</button></div></header>
                   {renderSavedRundown()}
                 </section>
 
                 <aside className="producer-side-panel">
-                  <section className={`producer-compose-card ${producerComposerMode ? "open" : ""}`}>
-                    <header><div><strong>{producerComposerMode ? producerComposerMode === "paste" ? "Pegar una prepauta" : "Escribir la prepauta" : "Texto de la pauta"}</strong><small>Texto libre primero, escaleta editable después.</small></div>{producerComposerMode && <button onClick={() => setProducerComposerMode(null)}>Cerrar</button>}</header>
-                    {!producerComposerMode ? (
-                      <div className="producer-compose-choices"><button onClick={() => chooseProducerComposer("paste")}><strong>Pegar texto</strong><span>WhatsApp o email</span></button><button onClick={() => chooseProducerComposer("write")}><strong>Escribir aquí</strong><span>Desde cero</span></button></div>
-                    ) : <div className="producer-compose-editor">
-                      <div className="producer-compose-tabs"><button className={producerComposerMode === "paste" ? "active" : ""} onClick={() => chooseProducerComposer("paste")}>Pegar prepauta</button><button className={producerComposerMode === "write" ? "active" : ""} onClick={() => chooseProducerComposer("write")}>Escribir aquí</button></div>
-                      <label><span>Productor</span><input list="known-producers" disabled={!canEdit} value={selectedEmission?.producerName ?? ""} onChange={(event) => setProducerName(event.target.value)} placeholder="Nombre del productor" /></label>
-                      <div className={`producer-guest-rule ${rawTextHasGuestLabel ? "valid" : ""}`}><strong>Identifica a cada persona</strong><p>Escribe <b>INVITADO:</b> o <b>INVITADA:</b> antes del nombre completo. Así podremos buscarla en la base o crear su ficha sin confundirla.</p>{selectedEmission?.rawText.trim() && <span>{rawTextHasGuestLabel ? "Formato de invitado detectado" : "Falta definir INVITADO: o INVITADA:"}</span>}</div>
-                      <textarea disabled={!canEdit || !selectedEmission} rows={producerComposerMode === "write" ? 14 : 11} value={selectedEmission?.rawText ?? ""} onChange={(event) => updateEmission({ rawText: event.target.value, status: "draft" })} placeholder={producerComposerMode === "paste" ? "Pega aquí el texto completo recibido por WhatsApp o email." : "Escribe tu prepauta con horarios, TEMA, INVITADO / INVITADA y ENFOQUE."} />
-                      <div className="producer-compose-tools">
-                        {producerComposerMode === "write" && !selectedEmission?.rawText.trim() && <button onClick={insertProducerTemplate}>Usar una guía de texto</button>}
-                        {producerComposerMode === "write" && <button onClick={addSegment}>Añadir bloque manual</button>}
-                      </div>
-                      <button className="primary" disabled={!canEdit || !getAccessToken || aiProcessing || !selectedEmission || selectedEmission.rawText.trim().length < 20} onClick={orderWithAi}>{aiProcessing ? "Ordenando..." : "Convertir en escaleta"}</button>
-                    </div>}
-                  </section>
-
                   <section className="producer-guests-card">
-                    <header><div><span>Invitados en pauta</span><strong>{guestParticipants.length} {guestParticipants.length === 1 ? "persona" : "personas"}</strong></div><button onClick={() => setProducerSection("people")}>Ver base</button></header>
+                    <header><div><span>Invitados en pauta</span><strong>{guestParticipants.length} {guestParticipants.length === 1 ? "persona" : "personas"}</strong></div><button onClick={() => setProducerSection("people")}>Buscar en la base</button></header>
                     <div>{guestParticipants.map(({ segment, participant }) => {
                       const elsewhere = dayGuestOverlaps
                         .find((overlap) => normalizePersonName(overlap.name) === normalizePersonName(participant.name))
                         ?.bookings.filter((booking) => booking.programId !== activeProducerProgramId) ?? [];
-                      return <button key={`${segment.id}-${participant.id}`} onClick={() => { setPeopleDirectorySelectedId(participant.personId ?? ""); setShowPeopleDirectory(true); }}><span>{participant.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{participant.name}</strong><small>{participant.roleDescription || segment.topic || "Cargo por completar"}</small>{elsewhere.length > 0 && <em className="guest-overlap-flag">También en {elsewhere.map((booking) => `${booking.programName} ${booking.startTime}`).join(", ")}</em>}</div></button>;
+                      return <button key={`${segment.id}-${participant.id}`} onClick={() => { setPeopleDirectorySelectedId(participant.personId ?? ""); setShowPeopleDirectory(true); }}><span>{participant.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{participant.name}</strong><small>{segment.startTime} · {participant.roleDescription || segment.topic || "Cargo por completar"}</small>{elsewhere.length > 0 && <em className="guest-overlap-flag">También en {elsewhere.map((booking) => `${booking.programName} ${booking.startTime}`).join(", ")}</em>}</div></button>;
                     })}</div>
-                    {!guestParticipants.length && <p>Añade uno o varios invitados desde cualquier bloque de la escaleta.</p>}
+                    {!guestParticipants.length && <p>Añade invitados desde cualquier bloque de la escaleta.</p>}
+                  </section>
+
+                  <section className="producer-source-card">
+                    <header><div><span>Texto original</span><strong>{selectedEmission?.rawText.trim() ? "Guardado con la pauta" : "Sin texto pegado"}</strong></div></header>
+                    {selectedEmission?.rawText.trim() && <p className="producer-source-excerpt">{selectedEmission.rawText.trim().slice(0, 220)}{selectedEmission.rawText.trim().length > 220 ? "…" : ""}</p>}
+                    <button disabled={!canEdit} onClick={() => setSourceEditorOpen(true)}>{selectedEmission?.rawText.trim() ? "Ver o volver a convertir" : "Pegar un texto"}</button>
+                  </section>
+
+                  <section className="producer-source-card">
+                    <header><div><span>Se repiten cada semana</span><strong>Bloques fijos</strong></div></header>
+                    <p className="producer-source-excerpt">Secciones que aparecen solas en cada pauta, como una secuencia diaria.</p>
+                    <button disabled={!canEdit} onClick={() => setShowFixedBlocks(true)}>Administrar bloques fijos</button>
                   </section>
                 </aside>
               </div>
-            </>
+            )
           )}
 
           {producerSection === "people" && (
@@ -2326,7 +2406,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
             </section>
           )}
 
-          {producerSection === "post" && <div className="producer-post-embed">{renderPostPauta()}</div>}
+          {producerSection === "post" && renderPostPauta()}
         </section>
 
         {(aiProcessing || aiResult) && (
@@ -2341,7 +2421,7 @@ export function WorkspaceApp({ repository, initialWorkspace, accountLabel, accou
                   <small>La pauta original permanece intacta.</small>
                 </div>
               ) : aiResult ? (
-                producerProgram ? <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} program={producerProgram} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} /> : null
+                producerProgram ? <PautaAiReview proposal={aiResult.proposal} model={aiResult.model} processingMode={aiResult.processingMode} applying={aiApplying} people={effectivePeople} program={producerProgram} willReplace={Boolean(selectedEmission?.segments.some((segment) => !segment.fixedBlockId))} producerName={selectedEmission?.producerName ?? ""} onProducerNameChange={setProducerName} onChange={(proposal) => setAiResult({ ...aiResult, proposal })} onClose={() => setAiResult(null)} onApply={applyAiProposal} /> : null
               ) : null}
             </section>
           </div>

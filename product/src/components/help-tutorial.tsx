@@ -191,24 +191,24 @@ function ChapterBody({ id, goTo }: { id: ChapterId; goTo: (id: ChapterId) => voi
 
   if (id === "pre") return <div className="help-body-stack">
     <div className="help-route-grid">
-      <article><span>Si ya tienes un texto</span><strong>Pegar una prepauta</strong><p>Pega el contenido completo. Los horarios que ya existen se conservan para que Luna haga menos trabajo.</p></article>
-      <article><span>Si empiezas aquí</span><strong>Hacerla en la app</strong><p>Escribe libremente o añade bloques editables. Puedes moverlos y variar su duración.</p></article>
+      <article><span>Si ya tienes un texto</span><strong>Pégalo tal cual</strong><p>Desde WhatsApp, un email o un documento. Con horarios (10:00 - 10:30) la conversión es inmediata.</p></article>
+      <article><span>Si empiezas aquí</span><strong>Escríbelo o usa la plantilla</strong><p>También puedes armarla bloque por bloque sin pegar ningún texto.</p></article>
     </div>
     <ol className="help-compact-steps">
       <li><b>1</b><span>Pulsa <strong>Convertir en escaleta</strong>.</span></li>
-      <li><b>2</b><span>Revisa horarios, títulos e invitados en la vista ordenada.</span></li>
-      <li><b>3</b><span>Corrige lo dudoso y pulsa <strong>Aceptar y guardar pauta</strong>.</span></li>
+      <li><b>2</b><span>Mira la vista previa: bloques, horarios e invitados. Quita lo que sobre y pulsa <strong>Aceptar escaleta</strong>.</span></li>
+      <li><b>3</b><span>Toca cualquier bloque para corregirlo. Todo se guarda solo.</span></li>
     </ol>
     <div className="help-warning"><strong>Para reconocer personas</strong><p>Escribe <b>INVITADO:</b> o <b>INVITADA:</b> antes del nombre completo. Se comparará con la base existente y un nombre dudoso quedará para revisión, no se añadirá en silencio.</p></div>
   </div>;
 
   if (id === "post") return <div className="help-body-stack">
     <ol className="help-step-list">
-      <li><b>1</b><span><strong>Abre Post-pauta</strong><small>Encontrarás los mismos bloques de la pre-pauta, plegados para revisar rápido.</small></span></li>
-      <li><b>2</b><span><strong>Durante la emisión</strong><small>Marca Emitido, Parcial, No salió o Añadir en vivo. Ajusta horas solo si hace falta.</small></span></li>
-      <li><b>3</b><span><strong>Después de la emisión</strong><small>Resume qué se dijo. Una cita se considera verificada únicamente después de compararla con el audio.</small></span></li>
-      <li><b>4</b><span><strong>Usa una fuente si existe</strong><small>Pega un documento posterior o vincula un video público de RPP. Luna propone la comparación y tú la confirmas.</small></span></li>
-      <li><b>5</b><span><strong>Verifica y cierra</strong><small>El invitado, el tema y el resumen alimentan el histórico compartido.</small></span></li>
+      <li><b>1</b><span><strong>Abre Post-pauta</strong><small>Los bloques ya vienen de tu pauta, con sus horarios e invitados. No hay que escribir nada de nuevo.</small></span></li>
+      <li><b>2</b><span><strong>Marca qué salió</strong><small>Salió, Parcial o No salió en cada bloque. Si todo fue como estaba previsto, usa Todo salió según la pauta.</small></span></li>
+      <li><b>3</b><span><strong>Resume qué se dijo</strong><small>Una o dos frases por bloque. Una cita solo es textual después de compararla con el audio.</small></span></li>
+      <li><b>4</b><span><strong>Si hay grabación, usa la IA</strong><small>Abre Completar con IA, vincula el video o pega una minuta. Luna propone y tú aceptas.</small></span></li>
+      <li><b>5</b><span><strong>Cierra la post-pauta</strong><small>Invitados, temas y resúmenes pasan al archivo y al registro de invitados.</small></span></li>
     </ol>
     <div className="help-warning"><strong>La revisión humana sigue siendo necesaria</strong><p>Los captions prueban que un tramo salió, pero nombres, citas y cambios editoriales deben poder corregirse antes de cerrar.</p></div>
   </div>;

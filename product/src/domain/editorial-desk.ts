@@ -15,10 +15,11 @@ export const pautaStages: Array<{ id: PautaStage; label: string; hint: string }>
   { id: "closed", label: "Cerrada", hint: "Verificada en el archivo" },
 ];
 
-export function pautaStage(emission?: Pick<Emission, "status" | "postPauta">): PautaStage {
+export function pautaStage(emission?: Pick<Emission, "status" | "postPauta"> & { segments?: Pick<Segment, "disposition">[] }): PautaStage {
   if (!emission) return "prepare";
   if (emission.postPauta?.reviewStatus === "verified") return "closed";
-  if (emission.status === "post") return "post";
+  // Marcar el primer resultado ya es empezar la post-pauta.
+  if (emission.status === "post" || emission.segments?.some((segment) => segment.disposition)) return "post";
   if (emission.status === "ready") return "ready";
   return "prepare";
 }

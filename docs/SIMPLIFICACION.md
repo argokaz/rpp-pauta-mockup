@@ -78,6 +78,34 @@ programas distintos en la misma fecha. La herramienta avisa, pero no bloquea:
 - en Invitados;
 - en la pauta de cada productor afectado.
 
+## Pauta y post-pauta (v0.40.0)
+
+### Preparar la pauta
+
+1. **El texto.** Un único compositor para pegar o escribir, con un ejemplo de
+   formato a la vista.
+2. **La vista previa.** Se ven bloques, horarios e invitados, cada uno con su
+   estado en la base (ya existe, posible coincidencia o persona nueva). Aquí
+   no se edita: solo se acepta o se quita un bloque.
+3. **La escaleta.** Es el único lugar donde se edita. Cada bloque muestra lo
+   esencial (horario, tipo, título, tema, invitados y notas), y lo poco usado
+   queda en *Más opciones*.
+
+Antes había dos editores con unos 14 campos por bloque: uno dentro de la
+propuesta de la IA y otro en la escaleta.
+
+### Post-pauta heredada
+
+- La post-pauta no se escribe de nuevo: cada bloque de la pauta llega con su
+  horario e invitados.
+- El productor responde dos cosas por bloque: si **salió** (Salió, Parcial o
+  No salió) y **qué se dijo**.
+- **Todo salió según la pauta** marca de una vez los bloques pendientes con
+  su horario previsto.
+- Corregir lo que vino de la pauta (título, tema o invitados) queda dentro de
+  un desplegable de cada bloque.
+- La IA (video de YouTube, grabación o minuta) está en un panel opcional.
+
 ## Siguientes pasos sugeridos
 
 1. **Confirmación de lectura en la base.** Hoy, "Entendido" solo queda
